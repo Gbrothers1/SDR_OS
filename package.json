@@ -2,9 +2,13 @@
   "name": "robot-controller",
   "version": "1.0.0",
   "description": "A simple robot controller interface",
-  "main": "src/server/simple-server.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node src/server/simple-server.js"
+    "start": "node server.js",
+    "start:simple": "node src/server/simple-server.js",
+    "build": "webpack --mode production",
+    "dev": "webpack --mode development --watch",
+    "dev:server": "nodemon server.js"
   },
   "keywords": [
     "ros2",
