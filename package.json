@@ -1,15 +1,10 @@
 {
-  "name": "robot-controller-web",
+  "name": "robot-controller",
   "version": "1.0.0",
-  "description": "Web-based robot controller for ROS2",
-  "main": "server.js",
+  "description": "A simple robot controller interface",
+  "main": "src/server/simple-server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "build": "webpack --mode production",
-    "build:dev": "webpack --mode development --watch",
-    "prestart": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/server/simple-server.js"
   },
   "keywords": [
     "ros2",
@@ -23,8 +18,11 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "roslib": "^1.0.0",
     "socket.io": "^4.7.2",
+    "socket.io-client": "^4.7.2",
     "three": "^0.159.0"
   },
   "devDependencies": {
