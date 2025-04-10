@@ -1,179 +1,171 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ROSLIB from 'roslib';
+import '../styles/LogViewer.css';
 
 const LogViewer = ({ ros }) => {
   const [logs, setLogs] = useState([]);
-  const [selectedTopic, setSelectedTopic] = useState('');
+  const [selectedTopic, setSelectedTopic] = useState('/rosout');
   const [availableTopics, setAvailableTopics] = useState([]);
-  const logContainerRef = useRef();
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const logContainerRef = useRef(null);
 
   useEffect(() => {
-    if (!ros) return;
+    if (!ros) {
+      console.warn('ROS connection not available for LogViewer');
+      setError('ROS connection not available');
+      setIsLoading(false);
+      return;
+    }
 
     // Get list of available topics
-    ros.getTopics((topics) => {
-      setAvailableTopics(topics);
-      if (topics.length > 0 && !selectedTopic) {
-        setSelectedTopic(topics[0]);
+    const getTopics = () => {
+      try {
+        const service = new ROSLIB.Service({
+          ros: ros,
+          name: '/rosapi/get_topics',
+          serviceType: 'rosapi_msgs/srv/GetTopics'
+        });
+
+        const request = new ROSLIB.ServiceRequest({});
+        
+        service.callService(request, (result) => {
+          if (result && result.topics) {
+            setAvailableTopics(result.topics);
+            console.log('Available topics:', result.topics);
+          } else {
+            console.warn('No topics available');
+            setAvailableTopics([]);
+          }
+          setIsLoading(false);
+        }, (error) => {
+          console.error('Error getting topics:', error);
+          setError('Failed to get available topics');
+          setIsLoading(false);
+        });
+      } catch (err) {
+        console.error('Error setting up topic service:', err);
+        setError('Failed to set up topic service');
+        setIsLoading(false);
       }
-    });
-
-    // Subscribe to rosout for system logs
-    const rosout = new ROSLIB.Topic({
-      ros: ros,
-      name: '/rosout',
-      messageType: 'rosgraph_msgs/Log'
-    });
-
-    rosout.subscribe((message) => {
-      addLog({
-        time: new Date(message.header.stamp.secs * 1000),
-        level: message.level,
-        name: message.name,
-        msg: message.msg
-      });
-    });
-
-    return () => {
-      rosout.unsubscribe();
     };
+
+    getTopics();
   }, [ros]);
 
   useEffect(() => {
-    if (!ros || !selectedTopic) return;
+    if (!ros || !selectedTopic) {
+      return;
+    }
 
-    // Subscribe to selected topic
-    const topic = new ROSLIB.Topic({
-      ros: ros,
-      name: selectedTopic,
-      messageType: 'std_msgs/String' // This should be determined dynamically
-    });
-
-    topic.subscribe((message) => {
-      addLog({
-        time: new Date(),
-        level: 'info',
+    let subscriber = null;
+    
+    try {
+      // Create a subscriber for the selected topic
+      subscriber = new ROSLIB.Topic({
+        ros: ros,
         name: selectedTopic,
-        msg: JSON.stringify(message)
+        messageType: 'std_msgs/String' // Default message type
       });
-    });
+
+      subscriber.subscribe((message) => {
+        setLogs(prevLogs => {
+          const newLog = {
+            timestamp: new Date().toISOString(),
+            topic: selectedTopic,
+            message: JSON.stringify(message)
+          };
+          
+          // Keep only the last 100 logs
+          const updatedLogs = [...prevLogs, newLog].slice(-100);
+          return updatedLogs;
+        });
+      });
+      
+      console.log(`Subscribed to topic: ${selectedTopic}`);
+    } catch (err) {
+      console.error(`Error subscribing to topic ${selectedTopic}:`, err);
+      setError(`Failed to subscribe to topic: ${selectedTopic}`);
+    }
 
     return () => {
-      topic.unsubscribe();
+      if (subscriber) {
+        subscriber.unsubscribe();
+        console.log(`Unsubscribed from topic: ${selectedTopic}`);
+      }
     };
   }, [ros, selectedTopic]);
 
-  const addLog = (log) => {
-    setLogs((prevLogs) => {
-      const newLogs = [...prevLogs, log].slice(-100); // Keep last 100 logs
-      return newLogs;
-    });
-
-    // Auto-scroll to bottom
+  // Auto-scroll to bottom when new logs are added
+  useEffect(() => {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
+  }, [logs]);
+
+  const handleTopicChange = (e) => {
+    setSelectedTopic(e.target.value);
+    setLogs([]); // Clear logs when changing topics
   };
 
-  const getLevelStyle = (level) => {
-    switch (level) {
-      case 1: // DEBUG
-        return { color: '#888' };
-      case 2: // INFO
-        return { color: '#fff' };
-      case 4: // WARN
-        return { color: '#ff8' };
-      case 8: // ERROR
-        return { color: '#f88' };
-      case 16: // FATAL
-        return { color: '#f00' };
-      default:
-        return { color: '#fff' };
-    }
+  const handleClearLogs = () => {
+    setLogs([]);
+  };
+
+  const formatTimestamp = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString();
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <select
-          value={selectedTopic}
-          onChange={(e) => setSelectedTopic(e.target.value)}
-          style={styles.topicSelect}
+    <div className="log-viewer">
+      <div className="log-viewer-header">
+        <h3>Log Viewer</h3>
+        <button 
+          className="clear-button" 
+          onClick={handleClearLogs}
+          disabled={logs.length === 0}
         >
-          {availableTopics.map((topic) => (
-            <option key={topic} value={topic}>
-              {topic}
-            </option>
-          ))}
-        </select>
-        <button
-          onClick={() => setLogs([])}
-          style={styles.clearButton}
-        >
-          Clear
+          Clear Logs
         </button>
       </div>
-      <div ref={logContainerRef} style={styles.logContainer}>
-        {logs.map((log, index) => (
-          <div key={index} style={styles.logEntry}>
-            <span style={styles.timestamp}>
-              {log.time.toLocaleTimeString()}
-            </span>
-            <span style={getLevelStyle(log.level)}>
-              [{log.name}] {log.msg}
-            </span>
-          </div>
-        ))}
+      
+      {error && <div className="error-message">{error}</div>}
+      
+      <div className="topic-selector">
+        <label htmlFor="topic-select">Select Topic:</label>
+        <select 
+          id="topic-select" 
+          value={selectedTopic} 
+          onChange={handleTopicChange}
+          disabled={isLoading || !ros}
+        >
+          <option value="/rosout">/rosout</option>
+          {Array.isArray(availableTopics) && availableTopics.map(topic => (
+            <option key={topic} value={topic}>{topic}</option>
+          ))}
+        </select>
+      </div>
+      
+      <div className="log-container" ref={logContainerRef}>
+        {isLoading ? (
+          <div className="loading">Loading topics...</div>
+        ) : logs.length === 0 ? (
+          <div className="no-logs">No logs available for this topic</div>
+        ) : (
+          logs.map((log, index) => (
+            <div key={index} className="log-entry">
+              <div className="log-header">
+                <span className="log-timestamp">{formatTimestamp(log.timestamp)}</span>
+                <span className="log-topic">{log.topic}</span>
+              </div>
+              <pre className="log-message">{log.message}</pre>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
-};
-
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    background: '#1e1e1e',
-  },
-  header: {
-    padding: 10,
-    borderBottom: '1px solid #333',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  topicSelect: {
-    background: '#333',
-    color: '#fff',
-    border: 'none',
-    padding: '5px 10px',
-    borderRadius: 3,
-  },
-  clearButton: {
-    background: '#444',
-    color: '#fff',
-    border: 'none',
-    padding: '5px 10px',
-    borderRadius: 3,
-    cursor: 'pointer',
-  },
-  logContainer: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: 10,
-    fontFamily: 'monospace',
-    fontSize: 12,
-  },
-  logEntry: {
-    marginBottom: 2,
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-all',
-  },
-  timestamp: {
-    color: '#666',
-    marginRight: 10,
-  },
 };
 
 export default LogViewer; 

@@ -37,6 +37,9 @@ module.exports = {
   resolve: {
     extensions: ['.js', '.jsx'],
   },
+  externals: {
+    'roslib': 'ROSLIB'
+  },
   devServer: {
     static: {
       directory: path.join(__dirname, 'dist'),
@@ -44,8 +47,8 @@ module.exports = {
     compress: true,
     port: 3000,
     proxy: {
-      '/rosbridge_websocket': 'ws://localhost:9090',
-      '/rosbridge_websocket/': 'ws://localhost:9090/',
+      '/rosbridge_websocket': 'ws://192.168.12.147:9090',
+      '/rosbridge_websocket/': 'ws://192.168.12.147:9090/',
     },
   },
 }; 

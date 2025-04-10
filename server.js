@@ -18,20 +18,36 @@ if (!fs.existsSync(distPath)) {
 // Serve static files from the dist directory
 app.use(express.static(distPath));
 
+// Track connected clients
+let connectedClients = 0;
+
 // Handle WebSocket connections
 io.on('connection', (socket) => {
-  console.log('Client connected');
+  connectedClients++;
+  const clientId = socket.id.substring(0, 8);
+  const clientIp = socket.handshake.address;
+  const timestamp = new Date().toISOString();
+  
+  console.log(`[${timestamp}] Client connected - ID: ${clientId}, IP: ${clientIp}, Total clients: ${connectedClients}`);
   
   // Handle robot control commands
   socket.on('robot_control', (data) => {
-    console.log('Robot control command:', data);
+    console.log(`[${new Date().toISOString()}] Robot control command from ${clientId}:`, data);
     // Broadcast to all connected clients
     io.emit('robot_control', data);
   });
   
   socket.on('disconnect', () => {
-    console.log('Client disconnected');
+    connectedClients--;
+    console.log(`[${new Date().toISOString()}] Client disconnected - ID: ${clientId}, Remaining clients: ${connectedClients}`);
   });
+});
+
+// Log HTTP requests
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] HTTP ${req.method} ${req.url}`);
+  next();
 });
 
 // Serve the main application for all routes
@@ -67,4 +83,5 @@ app.get('*', (req, res) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Open http://localhost:${PORT} in your browser`);
 }); 
