@@ -1,9 +1,18 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import '../styles/ControlOverlay.css';
 
 const ControlOverlay = ({ onControlChange, controlState }) => {
-  const overlayRef = useRef();
   const gamepadRef = useRef(null);
   const animationFrameRef = useRef();
+  const [buttonStates, setButtonStates] = useState({
+    // Face buttons
+    A: false, B: false, X: false, Y: false,
+    // D-pad
+    DpadUp: false, DpadDown: false, DpadLeft: false, DpadRight: false,
+    // Shoulder buttons
+    L1: false, L2: false, L3: false, L4: false,
+    R1: false, R2: false, R3: false, R4: false,
+  });
 
   useEffect(() => {
     const handleGamepadConnected = (e) => {
@@ -28,7 +37,32 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
         const gamepad = gamepads[gamepadRef.current.index];
 
         if (gamepad) {
-          // Steam Deck control mapping
+          // Update button states
+          const newButtonStates = {
+            // Face buttons (mapping may need adjustment based on your Steam Deck)
+            A: gamepad.buttons[0].pressed,
+            B: gamepad.buttons[1].pressed,
+            X: gamepad.buttons[2].pressed,
+            Y: gamepad.buttons[3].pressed,
+            // D-pad
+            DpadUp: gamepad.buttons[12].pressed,
+            DpadDown: gamepad.buttons[13].pressed,
+            DpadLeft: gamepad.buttons[14].pressed,
+            DpadRight: gamepad.buttons[15].pressed,
+            // Shoulder buttons
+            L1: gamepad.buttons[4].pressed,
+            L2: gamepad.buttons[6].pressed,
+            L3: gamepad.buttons[10].pressed,
+            L4: gamepad.buttons[8].pressed,
+            R1: gamepad.buttons[5].pressed,
+            R2: gamepad.buttons[7].pressed,
+            R3: gamepad.buttons[11].pressed,
+            R4: gamepad.buttons[9].pressed,
+          };
+
+          setButtonStates(newButtonStates);
+
+          // Update control state for ROS
           const newState = {
             linear: {
               x: gamepad.axes[0] * 1.0, // Left stick X
@@ -61,102 +95,102 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
   }, [onControlChange]);
 
   return (
-    <div ref={overlayRef} style={styles.overlay}>
-      {/* Left Stick */}
-      <div style={styles.stick}>
-        <div style={styles.stickLabel}>Left Stick</div>
-        <div style={styles.stickIndicator}>
-          <div style={{
-            ...styles.stickDot,
-            transform: `translate(${controlState.linear.x * 20}px, ${-controlState.linear.y * 20}px)`
-          }} />
+    <div className="control-overlay">
+      {/* Left Section - Left Stick and D-pad */}
+      <div className="control-section">
+        <div className="control-group">
+          <div className="control-label">Left Stick</div>
+          <div className="joystick-container">
+            <div 
+              className="joystick-dot"
+              style={{
+                transform: `translate(calc(-50% + ${controlState.linear.x * 20}px), calc(-50% + ${-controlState.linear.y * 20}px))`
+              }}
+            />
+          </div>
+          <div className="value-display">
+            X: {controlState.linear.x.toFixed(2)}
+            Y: {controlState.linear.y.toFixed(2)}
+          </div>
         </div>
-        <div style={styles.stickValues}>
-          X: {controlState.linear.x.toFixed(2)}
-          Y: {controlState.linear.y.toFixed(2)}
+
+        <div className="control-group">
+          <div className="control-label">D-pad</div>
+          <div className="dpad">
+            <div className={`dpad-button ${buttonStates.DpadUp ? 'pressed' : ''}`}>↑</div>
+            <div className={`dpad-button ${buttonStates.DpadRight ? 'pressed' : ''}`}>→</div>
+            <div className={`dpad-button ${buttonStates.DpadDown ? 'pressed' : ''}`}>↓</div>
+            <div className={`dpad-button ${buttonStates.DpadLeft ? 'pressed' : ''}`}>←</div>
+            <div className="dpad-button dpad-center"></div>
+          </div>
         </div>
       </div>
 
-      {/* Right Stick */}
-      <div style={{...styles.stick, right: 20}}>
-        <div style={styles.stickLabel}>Right Stick</div>
-        <div style={styles.stickIndicator}>
-          <div style={{
-            ...styles.stickDot,
-            transform: `translate(${controlState.angular.x * 20}px, ${-controlState.angular.y * 20}px)`
-          }} />
+      {/* Middle Section - Face Buttons and Right Stick */}
+      <div className="control-section">
+        <div className="control-group">
+          <div className="control-label">Face Buttons</div>
+          <div className="button-grid">
+            <div className={`button ${buttonStates.Y ? 'pressed' : ''}`}>Y</div>
+            <div className={`button ${buttonStates.B ? 'pressed' : ''}`}>B</div>
+            <div className={`button ${buttonStates.X ? 'pressed' : ''}`}>X</div>
+            <div className={`button ${buttonStates.A ? 'pressed' : ''}`}>A</div>
+          </div>
         </div>
-        <div style={styles.stickValues}>
-          X: {controlState.angular.x.toFixed(2)}
-          Y: {controlState.angular.y.toFixed(2)}
+
+        <div className="control-group">
+          <div className="control-label">Right Stick</div>
+          <div className="joystick-container">
+            <div 
+              className="joystick-dot"
+              style={{
+                transform: `translate(calc(-50% + ${controlState.angular.x * 20}px), calc(-50% + ${-controlState.angular.y * 20}px))`
+              }}
+            />
+          </div>
+          <div className="value-display">
+            X: {controlState.angular.x.toFixed(2)}
+            Y: {controlState.angular.y.toFixed(2)}
+          </div>
         </div>
       </div>
 
-      {/* Triggers */}
-      <div style={styles.triggers}>
-        <div>L2: {((controlState.linear.z + 0.5) * 100).toFixed(0)}%</div>
-        <div>R2: {((-controlState.linear.z + 0.5) * 100).toFixed(0)}%</div>
+      {/* Right Section - Triggers and Shoulder Buttons */}
+      <div className="control-section">
+        <div className="control-group">
+          <div className="control-label">Left Triggers</div>
+          <div className="trigger-container">
+            <div className="trigger">
+              <div 
+                className="trigger-fill"
+                style={{ width: `${(buttonStates.L2 ? 1 : 0) * 100}%` }}
+              />
+            </div>
+            <div className="value-display">L2: {((buttonStates.L2 ? 1 : 0) * 100).toFixed(0)}%</div>
+            <div className={`button ${buttonStates.L1 ? 'pressed' : ''}`}>L1</div>
+            <div className={`button ${buttonStates.L3 ? 'pressed' : ''}`}>L3</div>
+            <div className={`button ${buttonStates.L4 ? 'pressed' : ''}`}>L4</div>
+          </div>
+        </div>
+
+        <div className="control-group">
+          <div className="control-label">Right Triggers</div>
+          <div className="trigger-container">
+            <div className="trigger">
+              <div 
+                className="trigger-fill"
+                style={{ width: `${(buttonStates.R2 ? 1 : 0) * 100}%` }}
+              />
+            </div>
+            <div className="value-display">R2: {((buttonStates.R2 ? 1 : 0) * 100).toFixed(0)}%</div>
+            <div className={`button ${buttonStates.R1 ? 'pressed' : ''}`}>R1</div>
+            <div className={`button ${buttonStates.R3 ? 'pressed' : ''}`}>R3</div>
+            <div className={`button ${buttonStates.R4 ? 'pressed' : ''}`}>R4</div>
+          </div>
+        </div>
       </div>
     </div>
   );
-};
-
-const styles = {
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    pointerEvents: 'none',
-    zIndex: 1000,
-  },
-  stick: {
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    background: 'rgba(0, 0, 0, 0.5)',
-    padding: 10,
-    borderRadius: 5,
-  },
-  stickLabel: {
-    fontSize: 12,
-    marginBottom: 5,
-    color: '#fff',
-  },
-  stickIndicator: {
-    width: 40,
-    height: 40,
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    borderRadius: '50%',
-    position: 'relative',
-  },
-  stickDot: {
-    width: 8,
-    height: 8,
-    background: '#fff',
-    borderRadius: '50%',
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginLeft: -4,
-    marginTop: -4,
-  },
-  stickValues: {
-    fontSize: 10,
-    marginTop: 5,
-    color: '#fff',
-  },
-  triggers: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
-    background: 'rgba(0, 0, 0, 0.5)',
-    padding: 10,
-    borderRadius: 5,
-    color: '#fff',
-    fontSize: 12,
-  },
 };
 
 export default ControlOverlay; 
