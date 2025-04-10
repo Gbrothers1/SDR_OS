@@ -19,6 +19,38 @@
   position: relative;
   background-color: #2a2a2a;
   overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.viewer-container.fullscreen {
+  flex: 1;
+  width: 100%;
+}
+
+/* When log container is hidden, make viewer container take full width */
+.log-container.hidden ~ .viewer-container {
+  flex: 1;
+}
+
+.fullscreen-toggle {
+  position: absolute;
+  top: 60px; /* Position below settings icon */
+  right: 10px;
+  width: 40px;
+  height: 40px;
+  background-color: rgba(0, 0, 0, 0.5);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  transition: background-color 0.2s;
+  color: white;
+}
+
+.fullscreen-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.7);
 }
 
 .log-container {
@@ -28,6 +60,15 @@
   overflow: auto;
   background-color: #1a1a1a;
   color: #f5f5f5;
+  transition: flex 0.3s ease, width 0.3s ease;
+}
+
+.log-container.hidden {
+  flex: 0;
+  width: 0;
+  padding: 0;
+  border-left: none;
+  overflow: hidden;
 }
 
 .error {
@@ -59,9 +100,27 @@
     flex: 1;
   }
   
+  .viewer-container.fullscreen {
+    flex: 1;
+    height: 100%;
+  }
+  
   .log-container {
     flex: 1;
+    width: 100%;
     border-left: none;
     border-top: 1px solid #333;
+  }
+  
+  .log-container.hidden {
+    flex: 0;
+    height: 0;
+    width: 100%;
+  }
+  
+  .fullscreen-toggle {
+    top: auto;
+    bottom: 10px;
+    right: 10px;
   }
 } 

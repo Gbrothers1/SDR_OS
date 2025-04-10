@@ -9,7 +9,9 @@ const LogViewer = ({ ros }) => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [rosapiAvailable, setRosapiAvailable] = useState(false);
+  const [isLogging, setIsLogging] = useState(true);
   const logContainerRef = useRef(null);
+  const lastCmdVelState = useRef({ linear: { x: 0, y: 0, z: 0 }, angular: { x: 0, y: 0, z: 0 } });
 
   // Default topics with their correct message types
   const defaultTopics = [
@@ -35,11 +37,38 @@ const LogViewer = ({ ros }) => {
     }
   };
 
+  // Function to check if cmd_vel state has changed
+  const hasCmdVelChanged = (newState) => {
+    const lastState = lastCmdVelState.current;
+    
+    // Check if any value has changed
+    const linearChanged = 
+      newState.linear.x !== lastState.linear.x || 
+      newState.linear.y !== lastState.linear.y || 
+      newState.linear.z !== lastState.linear.z;
+      
+    const angularChanged = 
+      newState.angular.x !== lastState.angular.x || 
+      newState.angular.y !== lastState.angular.y || 
+      newState.angular.z !== lastState.angular.z;
+    
+    // Update the last state
+    lastCmdVelState.current = JSON.parse(JSON.stringify(newState));
+    
+    return linearChanged || angularChanged;
+  };
+
   // Function to format log message
   const formatLogMessage = (message) => {
     if (selectedTopic === '/rosout') {
       // For /rosout messages, show a more readable format
       return `${getLogLevel(message.level)} [${message.name}]: ${message.msg}`;
+    } else if (selectedTopic === '/cmd_vel') {
+      // For cmd_vel, only show if it has changed
+      if (hasCmdVelChanged(message)) {
+        return `Linear: x=${message.linear.x.toFixed(2)}, y=${message.linear.y.toFixed(2)}, z=${message.linear.z.toFixed(2)}\nAngular: x=${message.angular.x.toFixed(2)}, y=${message.angular.y.toFixed(2)}, z=${message.angular.z.toFixed(2)}`;
+      }
+      return null; // Return null to indicate no change
     }
     // For other topics, show the full message
     return JSON.stringify(message, null, 2);
@@ -148,7 +177,7 @@ const LogViewer = ({ ros }) => {
   }, [ros]);
 
   useEffect(() => {
-    if (!ros || !selectedTopic) {
+    if (!ros || !selectedTopic || !isLogging) {
       return;
     }
 
@@ -168,10 +197,17 @@ const LogViewer = ({ ros }) => {
 
       subscriber.subscribe((message) => {
         setLogs(prevLogs => {
+          const formattedMessage = formatLogMessage(message);
+          
+          // Skip if the message is null (no change for cmd_vel)
+          if (formattedMessage === null) {
+            return prevLogs;
+          }
+          
           const newLog = {
             timestamp: new Date().toISOString(),
             topic: selectedTopic,
-            message: formatLogMessage(message)
+            message: formattedMessage
           };
           
           // Keep only the last 100 logs
@@ -192,7 +228,7 @@ const LogViewer = ({ ros }) => {
         console.log(`Unsubscribed from topic: ${selectedTopic}`);
       }
     };
-  }, [ros, selectedTopic]);
+  }, [ros, selectedTopic, isLogging]);
 
   // Auto-scroll to bottom when new logs are added
   useEffect(() => {
@@ -210,6 +246,10 @@ const LogViewer = ({ ros }) => {
     setLogs([]);
   };
 
+  const handleToggleLogging = () => {
+    setIsLogging(!isLogging);
+  };
+
   const formatTimestamp = (timestamp) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString();
@@ -219,13 +259,21 @@ const LogViewer = ({ ros }) => {
     <div className="log-viewer">
       <div className="log-viewer-header">
         <h3>Log Viewer</h3>
-        <button 
-          className="clear-button" 
-          onClick={handleClearLogs}
-          disabled={logs.length === 0}
-        >
-          Clear Logs
-        </button>
+        <div className="log-controls">
+          <button 
+            className={`log-button ${isLogging ? 'stop-button' : 'start-button'}`}
+            onClick={handleToggleLogging}
+          >
+            {isLogging ? 'Stop' : 'Start'}
+          </button>
+          <button 
+            className="clear-button" 
+            onClick={handleClearLogs}
+            disabled={logs.length === 0}
+          >
+            Clear Logs
+          </button>
+        </div>
       </div>
       
       {error && <div className="error-message">{error}</div>}

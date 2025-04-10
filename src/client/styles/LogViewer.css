@@ -22,7 +22,12 @@
   font-size: 16px;
 }
 
-.clear-button {
+.log-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.log-button, .clear-button {
   background-color: #444;
   color: #fff;
   border: 1px solid #555;
@@ -33,13 +38,31 @@
   transition: background-color 0.2s;
 }
 
-.clear-button:hover:not(:disabled) {
+.log-button:hover:not(:disabled), .clear-button:hover:not(:disabled) {
   background-color: #555;
 }
 
-.clear-button:disabled {
+.log-button:disabled, .clear-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.stop-button {
+  background-color: #d9534f;
+  border-color: #c9302c;
+}
+
+.stop-button:hover:not(:disabled) {
+  background-color: #c9302c;
+}
+
+.start-button {
+  background-color: #5cb85c;
+  border-color: #4cae4c;
+}
+
+.start-button:hover:not(:disabled) {
+  background-color: #4cae4c;
 }
 
 .error-message {

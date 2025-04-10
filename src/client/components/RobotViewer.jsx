@@ -9,6 +9,7 @@ const RobotViewer = ({ ros }) => {
   const rendererRef = useRef();
   const controlsRef = useRef();
   const robotModelRef = useRef();
+  const resizeObserverRef = useRef();
 
   useEffect(() => {
     // Initialize Three.js scene
@@ -92,7 +93,7 @@ const RobotViewer = ({ ros }) => {
       rendererRef.current.render(sceneRef.current, cameraRef.current);
     };
 
-    // Handle window resize
+    // Handle container resize
     const handleResize = () => {
       if (containerRef.current && cameraRef.current && rendererRef.current) {
         const width = containerRef.current.clientWidth;
@@ -108,7 +109,16 @@ const RobotViewer = ({ ros }) => {
     // Initialize scene
     init();
 
-    // Add resize listener
+    // Add resize observer to detect container size changes
+    resizeObserverRef.current = new ResizeObserver(() => {
+      handleResize();
+    });
+    
+    if (containerRef.current) {
+      resizeObserverRef.current.observe(containerRef.current);
+    }
+
+    // Add window resize listener as a fallback
     window.addEventListener('resize', handleResize);
 
     // Subscribe to joint states if ROS is connected
@@ -127,6 +137,9 @@ const RobotViewer = ({ ros }) => {
     // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+      }
       if (containerRef.current && rendererRef.current) {
         containerRef.current.removeChild(rendererRef.current.domElement);
       }

@@ -18,6 +18,7 @@ const App = () => {
     angular: { x: 0, y: 0, z: 0 }
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isLogViewerVisible, setIsLogViewerVisible] = useState(true);
 
   useEffect(() => {
     let rosInstance = null;
@@ -153,57 +154,44 @@ const App = () => {
     setIsSettingsOpen(false);
   };
 
+  const toggleLogViewer = () => {
+    setIsLogViewerVisible(!isLogViewerVisible);
+  };
+
   return (
     <div className="app">
       <SettingsIcon onClick={handleOpenSettings} />
-      <div style={styles.container}>
+      <div className="app-container">
         {error && (
-          <div style={styles.error}>
+          <div className="error">
             {error}
           </div>
         )}
-        <div style={styles.viewerContainer}>
+        <div className={`viewer-container ${!isLogViewerVisible ? 'fullscreen' : ''}`}>
           <RobotViewer ros={ros} />
           <ControlOverlay 
             onControlChange={handleControlChange}
             controlState={controlState}
           />
+          <div className="fullscreen-toggle" onClick={toggleLogViewer}>
+            {isLogViewerVisible ? (
+              <svg viewBox="0 0 24 24" width="24" height="24">
+                <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="24" height="24">
+                <path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
+              </svg>
+            )}
+          </div>
         </div>
-        <div style={styles.logContainer}>
+        <div className={`log-container ${isLogViewerVisible ? 'visible' : 'hidden'}`}>
           <LogViewer ros={ros} />
         </div>
       </div>
       {isSettingsOpen && <SettingsModal onClose={handleCloseSettings} />}
     </div>
   );
-};
-
-const styles = {
-  container: {
-    display: 'flex',
-    width: '100%',
-    height: '100%',
-  },
-  viewerContainer: {
-    flex: '2',
-    position: 'relative',
-  },
-  logContainer: {
-    flex: '1',
-    borderLeft: '1px solid #333',
-    padding: '10px',
-  },
-  error: {
-    position: 'fixed',
-    top: '10px',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    backgroundColor: '#ff4444',
-    color: 'white',
-    padding: '10px 20px',
-    borderRadius: '5px',
-    zIndex: 1000,
-  },
 };
 
 export default App; 
