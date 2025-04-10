@@ -1,0 +1,155 @@
+import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+
+const RobotViewer = ({ ros }) => {
+  const containerRef = useRef();
+  const sceneRef = useRef();
+  const cameraRef = useRef();
+  const rendererRef = useRef();
+  const controlsRef = useRef();
+  const robotModelRef = useRef();
+
+  useEffect(() => {
+    // Initialize Three.js scene
+    const init = () => {
+      // Create scene
+      sceneRef.current = new THREE.Scene();
+      sceneRef.current.background = new THREE.Color(0x1a1a1a);
+
+      // Create camera
+      cameraRef.current = new THREE.PerspectiveCamera(
+        75,
+        containerRef.current.clientWidth / containerRef.current.clientHeight,
+        0.1,
+        1000
+      );
+      cameraRef.current.position.set(2, 2, 2);
+
+      // Create renderer
+      rendererRef.current = new THREE.WebGLRenderer({ antialias: true });
+      rendererRef.current.setSize(
+        containerRef.current.clientWidth,
+        containerRef.current.clientHeight
+      );
+      containerRef.current.appendChild(rendererRef.current.domElement);
+
+      // Add orbit controls
+      controlsRef.current = new OrbitControls(
+        cameraRef.current,
+        rendererRef.current.domElement
+      );
+      controlsRef.current.enableDamping = true;
+
+      // Add lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+      sceneRef.current.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(5, 5, 5);
+      sceneRef.current.add(directionalLight);
+
+      // Add grid helper
+      const gridHelper = new THREE.GridHelper(10, 10);
+      sceneRef.current.add(gridHelper);
+
+      // Create robot model
+      createRobotModel();
+
+      // Start animation loop
+      animate();
+    };
+
+    // Create basic robot model
+    const createRobotModel = () => {
+      const robotGroup = new THREE.Group();
+
+      // Base
+      const baseGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.2, 32);
+      const baseMaterial = new THREE.MeshPhongMaterial({ color: 0x666666 });
+      const base = new THREE.Mesh(baseGeometry, baseMaterial);
+      robotGroup.add(base);
+
+      // Body
+      const bodyGeometry = new THREE.BoxGeometry(0.8, 1, 0.4);
+      const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
+      const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+      body.position.y = 0.6;
+      robotGroup.add(body);
+
+      robotModelRef.current = robotGroup;
+      sceneRef.current.add(robotGroup);
+    };
+
+    // Animation loop
+    const animate = () => {
+      requestAnimationFrame(animate);
+
+      if (controlsRef.current) {
+        controlsRef.current.update();
+      }
+
+      rendererRef.current.render(sceneRef.current, cameraRef.current);
+    };
+
+    // Handle window resize
+    const handleResize = () => {
+      if (containerRef.current && cameraRef.current && rendererRef.current) {
+        const width = containerRef.current.clientWidth;
+        const height = containerRef.current.clientHeight;
+
+        cameraRef.current.aspect = width / height;
+        cameraRef.current.updateProjectionMatrix();
+
+        rendererRef.current.setSize(width, height);
+      }
+    };
+
+    // Initialize scene
+    init();
+
+    // Add resize listener
+    window.addEventListener('resize', handleResize);
+
+    // Subscribe to joint states if ROS is connected
+    if (ros) {
+      const jointStates = new ROSLIB.Topic({
+        ros: ros,
+        name: '/joint_states',
+        messageType: 'sensor_msgs/JointState'
+      });
+
+      jointStates.subscribe((message) => {
+        updateRobotModel(message);
+      });
+    }
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (containerRef.current && rendererRef.current) {
+        containerRef.current.removeChild(rendererRef.current.domElement);
+      }
+    };
+  }, [ros]);
+
+  // Update robot model based on joint states
+  const updateRobotModel = (jointState) => {
+    if (robotModelRef.current) {
+      // Update robot model based on joint state message
+      // This will need to be customized based on your robot's specific joint configuration
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        width: '100%',
+        height: '100%',
+      }}
+    />
+  );
+};
+
+export default RobotViewer; 
