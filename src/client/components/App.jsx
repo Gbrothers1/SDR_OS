@@ -4,6 +4,7 @@ import ControlOverlay from './ControlOverlay';
 import LogViewer from './LogViewer';
 import SettingsIcon from './SettingsIcon';
 import SettingsModal from './SettingsModal';
+import TelemetryPanel from './TelemetryPanel';
 import ROSLIB from 'roslib';
 import io from 'socket.io-client';
 import '../styles/App.css';
@@ -184,6 +185,8 @@ const App = () => {
               </svg>
             )}
           </div>
+          
+          <TelemetryPanel ros={ros} />
         </div>
         <div className={`log-container ${isLogViewerVisible ? 'visible' : 'hidden'}`}>
           <LogViewer ros={ros} />

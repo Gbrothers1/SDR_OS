@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import ROSLIB from 'roslib';
 
 const RobotViewer = ({ ros }) => {
   const containerRef = useRef();
@@ -12,6 +13,7 @@ const RobotViewer = ({ ros }) => {
   const resizeObserverRef = useRef();
   const [isResizing, setIsResizing] = useState(false);
   const resizeTimeoutRef = useRef(null);
+  const [imuData, setImuData] = useState(null);
 
   useEffect(() => {
     // Initialize Three.js scene
@@ -63,7 +65,7 @@ const RobotViewer = ({ ros }) => {
       animate();
     };
 
-    // Create basic robot model
+    // Create enhanced robot model with IMU indicators
     const createRobotModel = () => {
       const robotGroup = new THREE.Group();
 
@@ -79,6 +81,18 @@ const RobotViewer = ({ ros }) => {
       const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
       body.position.y = 0.6;
       robotGroup.add(body);
+      
+      // Add IMU sensor representation (a small box)
+      const imuGeometry = new THREE.BoxGeometry(0.2, 0.1, 0.2);
+      const imuMaterial = new THREE.MeshPhongMaterial({ color: 0x4CAF50 });
+      const imu = new THREE.Mesh(imuGeometry, imuMaterial);
+      imu.position.set(0, 1.2, 0);
+      robotGroup.add(imu);
+      
+      // Add orientation axes for IMU
+      const axesHelper = new THREE.AxesHelper(0.3);
+      axesHelper.position.copy(imu.position);
+      robotGroup.add(axesHelper);
 
       robotModelRef.current = robotGroup;
       sceneRef.current.add(robotGroup);
@@ -137,8 +151,36 @@ const RobotViewer = ({ ros }) => {
     // Add window resize listener as a fallback
     window.addEventListener('resize', handleResize);
 
-    // Subscribe to joint states if ROS is connected
+    // Subscribe to IMU data
     if (ros) {
+      // Subscribe to IMU topic
+      const imuTopic = new ROSLIB.Topic({
+        ros: ros,
+        name: '/robot/imu',
+        messageType: 'sensor_msgs/Imu'
+      });
+
+      imuTopic.subscribe((message) => {
+        setImuData(message);
+      });
+      
+      // Also subscribe to telemetry JSON for more detailed data if needed
+      const telemetryTopic = new ROSLIB.Topic({
+        ros: ros,
+        name: '/robot/telemetry/all',
+        messageType: 'std_msgs/String'
+      });
+      
+      telemetryTopic.subscribe((message) => {
+        try {
+          const data = JSON.parse(message.data);
+          // You can use this for additional telemetry data if needed
+        } catch (err) {
+          console.error('Error parsing telemetry data:', err);
+        }
+      });
+      
+      // Standard ROS joint states subscription
       const jointStates = new ROSLIB.Topic({
         ros: ros,
         name: '/joint_states',
@@ -146,7 +188,7 @@ const RobotViewer = ({ ros }) => {
       });
 
       jointStates.subscribe((message) => {
-        updateRobotModel(message);
+        // Handle joint state messages for standard robot joints
       });
     }
 
@@ -165,13 +207,25 @@ const RobotViewer = ({ ros }) => {
     };
   }, [ros]);
 
-  // Update robot model based on joint states
-  const updateRobotModel = (jointState) => {
-    if (robotModelRef.current) {
-      // Update robot model based on joint state message
-      // This will need to be customized based on your robot's specific joint configuration
+  // Update model when IMU data changes
+  useEffect(() => {
+    if (robotModelRef.current && imuData) {
+      // Apply IMU orientation to the robot model
+      const { orientation } = imuData;
+      
+      // Create a quaternion from the IMU data
+      const quaternion = new THREE.Quaternion(
+        orientation.x,
+        orientation.y,
+        orientation.z,
+        orientation.w
+      );
+      
+      // Apply the quaternion to the robot's rotation
+      // Note: We're only rotating the model, not changing its position
+      robotModelRef.current.quaternion.copy(quaternion);
     }
-  };
+  }, [imuData]);
 
   return (
     <div

@@ -1,0 +1,255 @@
+.telemetry-panel {
+  position: absolute;
+  top: 70px;
+  right: 20px;
+  width: 350px;
+  max-height: 80vh;
+  background-color: rgba(0, 0, 0, 0.8);
+  border-radius: 10px;
+  color: white;
+  font-family: 'Roboto', sans-serif;
+  transition: all 0.3s ease;
+  z-index: 800;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.telemetry-panel.collapsed {
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background-color: rgba(33, 150, 243, 0.8);
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toggle-button {
+  background-color: transparent;
+  border: none;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.toggle-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.panel-content {
+  padding: 15px;
+  max-height: calc(80vh - 42px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.error-message {
+  background-color: rgba(244, 67, 54, 0.7);
+  padding: 10px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.telemetry-section {
+  margin-bottom: 20px;
+}
+
+.telemetry-section h4 {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0 0 10px 0;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 15px;
+}
+
+.telemetry-chart {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 5px;
+  padding: 5px;
+  overflow: hidden;
+}
+
+.telemetry-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.sensor-group {
+  flex: 1;
+  min-width: 120px;
+}
+
+.sensor-group h5 {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 0 0 8px 0;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.value-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.value-row span:first-child {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.orientation-display {
+  margin-top: 15px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.orientation-box {
+  width: 120px;
+  height: 120px;
+  perspective: 400px;
+}
+
+.orientation-indicator {
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  position: relative;
+  transition: transform 0.1s ease;
+}
+
+.face {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 16px;
+  opacity: 0.7;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.face.front {
+  background-color: rgba(33, 150, 243, 0.7);
+  transform: translateZ(30px);
+}
+
+.face.back {
+  background-color: rgba(244, 67, 54, 0.7);
+  transform: rotateY(180deg) translateZ(30px);
+}
+
+.face.right {
+  background-color: rgba(76, 175, 80, 0.7);
+  transform: rotateY(90deg) translateZ(30px);
+}
+
+.face.left {
+  background-color: rgba(255, 152, 0, 0.7);
+  transform: rotateY(-90deg) translateZ(30px);
+}
+
+.face.top {
+  background-color: rgba(156, 39, 176, 0.7);
+  transform: rotateX(90deg) translateZ(30px);
+}
+
+.face.bottom {
+  background-color: rgba(255, 235, 59, 0.7);
+  transform: rotateX(-90deg) translateZ(30px);
+}
+
+.orientation-values {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.orientation-values div {
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.sensors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sensor-item {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 5px;
+  padding: 10px;
+}
+
+.sensor-name {
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.sensor-description {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .telemetry-panel {
+    top: auto;
+    bottom: 70px;
+    right: 10px;
+    width: 300px;
+    max-height: 60vh;
+  }
+  
+  .telemetry-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .telemetry-chart {
+    width: 100%;
+    overflow: auto;
+  }
+} 
