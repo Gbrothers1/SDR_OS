@@ -2,8 +2,11 @@ import React, { useEffect, useState } from 'react';
 import RobotViewer from './RobotViewer';
 import ControlOverlay from './ControlOverlay';
 import LogViewer from './LogViewer';
+import SettingsIcon from './SettingsIcon';
+import SettingsModal from './SettingsModal';
 import ROSLIB from 'roslib';
 import io from 'socket.io-client';
+import '../styles/App.css';
 
 const App = () => {
   const [ros, setRos] = useState(null);
@@ -14,6 +17,7 @@ const App = () => {
     linear: { x: 0, y: 0, z: 0 },
     angular: { x: 0, y: 0, z: 0 }
   });
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     let rosInstance = null;
@@ -141,23 +145,35 @@ const App = () => {
     }
   };
 
+  const handleOpenSettings = () => {
+    setIsSettingsOpen(true);
+  };
+
+  const handleCloseSettings = () => {
+    setIsSettingsOpen(false);
+  };
+
   return (
-    <div style={styles.container}>
-      {error && (
-        <div style={styles.error}>
-          {error}
+    <div className="app">
+      <SettingsIcon onClick={handleOpenSettings} />
+      <div style={styles.container}>
+        {error && (
+          <div style={styles.error}>
+            {error}
+          </div>
+        )}
+        <div style={styles.viewerContainer}>
+          <RobotViewer ros={ros} />
+          <ControlOverlay 
+            onControlChange={handleControlChange}
+            controlState={controlState}
+          />
         </div>
-      )}
-      <div style={styles.viewerContainer}>
-        <RobotViewer ros={ros} />
-        <ControlOverlay 
-          onControlChange={handleControlChange}
-          controlState={controlState}
-        />
+        <div style={styles.logContainer}>
+          <LogViewer ros={ros} />
+        </div>
       </div>
-      <div style={styles.logContainer}>
-        <LogViewer ros={ros} />
-      </div>
+      {isSettingsOpen && <SettingsModal onClose={handleCloseSettings} />}
     </div>
   );
 };
