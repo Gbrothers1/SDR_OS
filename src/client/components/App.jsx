@@ -22,15 +22,41 @@ const App = () => {
 
     const connectToROS = () => {
       try {
-        console.log('Attempting to connect to ROS at ws://192.168.12.147:9090');
+        // Use localhost if running on the same machine
+        const rosUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+          ? 'ws://localhost:9090'
+          : 'ws://192.168.12.147:9090';
+        
+        console.log(`Attempting to connect to ROS at ${rosUrl}`);
         rosInstance = new ROSLIB.Ros({
-          url: 'ws://192.168.12.147:9090'
+          url: rosUrl
         });
 
         rosInstance.on('connection', () => {
           console.log('Connected to ROS bridge');
           setConnected(true);
           setError(null);
+          
+          // Test if rosapi service is available
+          try {
+            const service = new ROSLIB.Service({
+              ros: rosInstance,
+              name: '/rosapi/get_topics',
+              serviceType: 'rosapi_msgs/srv/GetTopics'
+            });
+            
+            const request = new ROSLIB.ServiceRequest({});
+            
+            service.callService(request, (result) => {
+              console.log('ROSAPI service test successful:', result);
+            }, (error) => {
+              console.warn('ROSAPI service test failed:', error);
+              // Don't set an error here, just log it. The LogViewer will handle this case.
+            });
+          } catch (err) {
+            console.warn('Error testing ROSAPI service:', err);
+            // Don't set an error here, just log it. The LogViewer will handle this case.
+          }
         });
 
         rosInstance.on('error', (error) => {
