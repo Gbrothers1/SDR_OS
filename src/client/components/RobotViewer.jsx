@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
@@ -10,6 +10,8 @@ const RobotViewer = ({ ros }) => {
   const controlsRef = useRef();
   const robotModelRef = useRef();
   const resizeObserverRef = useRef();
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeTimeoutRef = useRef(null);
 
   useEffect(() => {
     // Initialize Three.js scene
@@ -96,13 +98,27 @@ const RobotViewer = ({ ros }) => {
     // Handle container resize
     const handleResize = () => {
       if (containerRef.current && cameraRef.current && rendererRef.current) {
-        const width = containerRef.current.clientWidth;
-        const height = containerRef.current.clientHeight;
+        // Set resizing state to true
+        setIsResizing(true);
+        
+        // Clear any existing timeout
+        if (resizeTimeoutRef.current) {
+          clearTimeout(resizeTimeoutRef.current);
+        }
+        
+        // Set a timeout to update the renderer after the CSS transition completes
+        resizeTimeoutRef.current = setTimeout(() => {
+          const width = containerRef.current.clientWidth;
+          const height = containerRef.current.clientHeight;
 
-        cameraRef.current.aspect = width / height;
-        cameraRef.current.updateProjectionMatrix();
+          cameraRef.current.aspect = width / height;
+          cameraRef.current.updateProjectionMatrix();
 
-        rendererRef.current.setSize(width, height);
+          rendererRef.current.setSize(width, height);
+          
+          // Set resizing state to false
+          setIsResizing(false);
+        }, 100); // Match the CSS transition duration (5x faster)
       }
     };
 
@@ -140,6 +156,9 @@ const RobotViewer = ({ ros }) => {
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
       }
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
+      }
       if (containerRef.current && rendererRef.current) {
         containerRef.current.removeChild(rendererRef.current.domElement);
       }
@@ -160,6 +179,8 @@ const RobotViewer = ({ ros }) => {
       style={{
         width: '100%',
         height: '100%',
+        opacity: isResizing ? 0.8 : 1,
+        transition: 'opacity 0.3s ease'
       }}
     />
   );
