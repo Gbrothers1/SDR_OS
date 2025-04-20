@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import '../styles/ControlOverlay.css';
+import ROSLIB from 'roslib';
 
-const ControlOverlay = ({ onControlChange, controlState }) => {
+const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
   const gamepadRef = useRef(null);
   const animationFrameRef = useRef();
   const [buttonStates, setButtonStates] = useState({
@@ -15,6 +16,12 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
   });
   const [showMappings, setShowMappings] = useState(false);
   const [isHidden, setIsHidden] = useState(true);
+  const [isGamepadConnected, setIsGamepadConnected] = useState(false);
+  // Store local controlState for non-gamepad clients
+  const [localControlState, setLocalControlState] = useState({
+    linear: { x: 0, y: 0, z: 0 },
+    angular: { x: 0, y: 0, z: 0 }
+  });
 
   // ROS mapping information with cmd_vel topic names
   const rosMappings = {
@@ -48,17 +55,66 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
     const handleGamepadConnected = (e) => {
       console.log('Gamepad connected:', e.gamepad);
       gamepadRef.current = e.gamepad;
+      setIsGamepadConnected(true);
     };
 
     const handleGamepadDisconnected = (e) => {
       console.log('Gamepad disconnected:', e.gamepad);
       if (gamepadRef.current && gamepadRef.current.index === e.gamepad.index) {
         gamepadRef.current = null;
+        setIsGamepadConnected(false);
       }
     };
 
     window.addEventListener('gamepadconnected', handleGamepadConnected);
     window.addEventListener('gamepaddisconnected', handleGamepadDisconnected);
+
+    // Subscribe to ROS topics for controller state updates
+    let telemetrySubscriber = null;
+    let buttonStatePublisher = null;
+    let joystickStatePublisher = null;
+
+    if (ros) {
+      // All clients subscribe to telemetry for a complete state picture
+      telemetrySubscriber = new ROSLIB.Topic({
+        ros: ros,
+        name: '/robot/telemetry/all',
+        messageType: 'std_msgs/String'
+      });
+
+      telemetrySubscriber.subscribe((message) => {
+        try {
+          const data = JSON.parse(message.data);
+          // If telemetry includes controller state data, use it (unless we have our own gamepad)
+          if (data.controller && !isGamepadConnected) {
+            if (data.controller.buttonStates) {
+              setButtonStates(data.controller.buttonStates);
+            }
+            
+            if (data.controller.joystickState) {
+              setLocalControlState(data.controller.joystickState);
+            }
+          }
+        } catch (err) {
+          console.error('Error parsing telemetry data:', err);
+        }
+      });
+
+      // For clients with a gamepad, create publishers for button and joystick states
+      if (isGamepadConnected) {
+        buttonStatePublisher = new ROSLIB.Topic({
+          ros: ros,
+          name: '/controller/button_states',
+          messageType: 'std_msgs/String'
+        });
+
+        joystickStatePublisher = new ROSLIB.Topic({
+          ros: ros,
+          name: '/controller/joystick_state',
+          messageType: 'std_msgs/String'
+        });
+      }
+    }
 
     // Start gamepad polling
     const pollGamepad = () => {
@@ -92,21 +148,45 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
 
           setButtonStates(newButtonStates);
 
-          // Update control state for ROS
+          // Update control state for ROS - using original mapping
           const newState = {
             linear: {
               x: gamepad.axes[0] * 1.0, // Left stick X
-              y: gamepad.axes[1] * 1.0, // Left stick Y (fixed inversion)
+              y: gamepad.axes[1] * 1.0, // Left stick Y
               z: (gamepad.buttons[6].value - gamepad.buttons[7].value) * 0.5 // L2 - R2
             },
             angular: {
               x: gamepad.axes[2] * 1.0, // Right stick X
-              y: gamepad.axes[3] * 1.0, // Right stick Y (fixed inversion)
+              y: gamepad.axes[3] * 1.0, // Right stick Y
               z: (gamepad.buttons[4].value - gamepad.buttons[5].value) * 1.0 // L1 - R1
             }
           };
+          
+          // Publish button states via ROS topic
+          if (buttonStatePublisher) {
+            const buttonStateMsg = new ROSLIB.Message({
+              data: JSON.stringify(newButtonStates)
+            });
+            buttonStatePublisher.publish(buttonStateMsg);
+          }
 
-          onControlChange(newState);
+          // Publish joystick state via ROS topic
+          if (joystickStatePublisher) {
+            const joystickStateMsg = new ROSLIB.Message({
+              data: JSON.stringify(newState)
+            });
+            joystickStatePublisher.publish(joystickStateMsg);
+          }
+
+          // Also use socket if available for backward compatibility
+          if (socket) {
+            socket.emit('controller_button_states', newButtonStates);
+            socket.emit('controller_joystick_state', newState);
+          }
+
+          if (onControlChange) {
+            onControlChange(newState);
+          }
         }
       }
 
@@ -121,8 +201,36 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
       }
       window.removeEventListener('gamepadconnected', handleGamepadConnected);
       window.removeEventListener('gamepaddisconnected', handleGamepadDisconnected);
+      if (telemetrySubscriber) {
+        telemetrySubscriber.unsubscribe();
+      }
     };
-  }, [onControlChange]);
+  }, [onControlChange, ros, socket, isGamepadConnected]);
+
+  // Socket.io event listener for backward compatibility
+  useEffect(() => {
+    if (socket && !isGamepadConnected) {
+      // Listen for button state updates from other clients
+      socket.on('controller_button_states', (remoteButtonStates) => {
+        // Only update if we don't have a gamepad connected
+        if (!isGamepadConnected) {
+          setButtonStates(remoteButtonStates);
+        }
+      });
+
+      // Listen for joystick state updates from other clients
+      socket.on('controller_joystick_state', (remoteJoystickState) => {
+        if (!isGamepadConnected) {
+          setLocalControlState(remoteJoystickState);
+        }
+      });
+
+      return () => {
+        socket.off('controller_button_states');
+        socket.off('controller_joystick_state');
+      };
+    }
+  }, [socket, isGamepadConnected]);
 
   const toggleMappings = (e) => {
     e.stopPropagation(); // Prevent click from toggling hide
@@ -139,6 +247,15 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
         setShowMappings(false);
       }
     }
+  };
+
+  // Use the appropriate control state based on whether this client has a gamepad or not
+  const displayControlState = isGamepadConnected ? controlState : localControlState;
+  
+  // Ensure controlState is defined to prevent errors
+  const safeControlState = displayControlState || {
+    linear: { x: 0, y: 0, z: 0 },
+    angular: { x: 0, y: 0, z: 0 }
   };
 
   return (
@@ -174,13 +291,13 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
                   <div 
                     className="joystick-dot"
                     style={{
-                      transform: `translate(${controlState.linear.x * 30}px, ${controlState.linear.y * 30}px)`
+                      transform: `translate(${safeControlState.linear.x * 30}px, ${safeControlState.linear.y * 30}px)`
                     }}
                   />
                 </div>
                 <div className="value-display">
-                  X: {controlState.linear.x.toFixed(2)}
-                  Y: {controlState.linear.y.toFixed(2)}
+                  X: {safeControlState.linear.x.toFixed(2)}
+                  Y: {safeControlState.linear.y.toFixed(2)}
                 </div>
               </div>
 
@@ -212,13 +329,13 @@ const ControlOverlay = ({ onControlChange, controlState }) => {
                   <div 
                     className="joystick-dot"
                     style={{
-                      transform: `translate(${controlState.angular.x * 30}px, ${controlState.angular.y * 30}px)`
+                      transform: `translate(${safeControlState.angular.x * 30}px, ${safeControlState.angular.y * 30}px)`
                     }}
                   />
                 </div>
                 <div className="value-display">
-                  X: {controlState.angular.x.toFixed(2)}
-                  Y: {controlState.angular.y.toFixed(2)}
+                  X: {safeControlState.angular.x.toFixed(2)}
+                  Y: {safeControlState.angular.y.toFixed(2)}
                 </div>
               </div>
 

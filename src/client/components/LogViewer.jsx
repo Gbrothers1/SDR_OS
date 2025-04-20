@@ -153,7 +153,7 @@ const LogViewer = ({ ros }) => {
       defaultTopics.forEach(topic => {
         try {
           const subscriber = new ROSLIB.Topic({
-            ros: ros,
+      ros: ros,
             name: topic.name,
             messageType: topic.type
           });
@@ -190,7 +190,7 @@ const LogViewer = ({ ros }) => {
       
       // Create a subscriber for the selected topic
       subscriber = new ROSLIB.Topic({
-        ros: ros,
+      ros: ros,
         name: selectedTopic,
         messageType: messageType
       });
@@ -213,8 +213,8 @@ const LogViewer = ({ ros }) => {
           // Keep only the last 100 logs
           const updatedLogs = [...prevLogs, newLog].slice(-100);
           return updatedLogs;
-        });
       });
+    });
       
       console.log(`Subscribed to topic: ${selectedTopic} with message type: ${messageType}`);
     } catch (err) {
@@ -280,9 +280,9 @@ const LogViewer = ({ ros }) => {
       
       <div className="topic-selector">
         <label htmlFor="topic-select">Select Topic:</label>
-        <select 
+        <select
           id="topic-select" 
-          value={selectedTopic} 
+          value={selectedTopic}
           onChange={handleTopicChange}
           disabled={isLoading || !ros}
         >
@@ -310,7 +310,7 @@ const LogViewer = ({ ros }) => {
                 <span className="log-topic">{log.topic}</span>
               </div>
               <pre className="log-message">{log.message}</pre>
-            </div>
+          </div>
           ))
         )}
       </div>

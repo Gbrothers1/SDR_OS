@@ -9,7 +9,7 @@ Usage:
     python3 iio_telemetry_publisher.py [--rate RATE]
 
 Arguments:
-    --rate RATE    Publishing rate in Hz (default: 10)
+    --rate RATE    Publishing rate in Hz (default: 30)
 """
 
 import os
@@ -25,7 +25,7 @@ from typing import Dict, List, Any, Optional
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, String
-from geometry_msgs.msg import Vector3, TransformStamped
+from geometry_msgs.msg import Vector3, TransformStamped, Twist
 from sensor_msgs.msg import Imu
 from tf2_ros import TransformBroadcaster
 
@@ -42,7 +42,7 @@ DEVICE_DESCRIPTIONS = {
 class IIOPublisherNode(Node):
     """ROS2 node for publishing IIO sensor data."""
 
-    def __init__(self, rate=10):
+    def __init__(self, rate=30):
         super().__init__('iio_telemetry_publisher')
         
         # Initialize parameters
@@ -58,6 +58,20 @@ class IIOPublisherNode(Node):
             'orientation': {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
         }
         
+        # Initialize controller state data
+        self.controller_data = {
+            'buttonStates': {
+                'A': False, 'B': False, 'X': False, 'Y': False,
+                'DpadUp': False, 'DpadDown': False, 'DpadLeft': False, 'DpadRight': False,
+                'L1': False, 'L2': False, 'L3': False, 'L4': False,
+                'R1': False, 'R2': False, 'R3': False, 'R4': False,
+            },
+            'joystickState': {
+                'linear': {'x': 0.0, 'y': 0.0, 'z': 0.0},
+                'angular': {'x': 0.0, 'y': 0.0, 'z': 0.0}
+            }
+        }
+        
         # Create publishers
         self.telemetry_publisher = self.create_publisher(
             String, 
@@ -68,6 +82,22 @@ class IIOPublisherNode(Node):
         self.imu_publisher = self.create_publisher(
             Imu,
             '/robot/imu',
+            10
+        )
+        
+        # Subscribe to controller button states
+        self.button_state_subscriber = self.create_subscription(
+            String,
+            '/controller/button_states',
+            self.button_state_callback,
+            10
+        )
+        
+        # Subscribe to controller joystick states
+        self.joystick_state_subscriber = self.create_subscription(
+            String,
+            '/controller/joystick_state',
+            self.joystick_state_callback,
             10
         )
         
@@ -231,6 +261,30 @@ class IIOPublisherNode(Node):
             self.imu_data['orientation']['pitch'] = pitch
             self.imu_data['orientation']['yaw'] = yaw
 
+    def button_state_callback(self, msg):
+        """Update controller button states from direct button state messages"""
+        try:
+            button_states = json.loads(msg.data)
+            # Update our controller data with the received button states
+            self.controller_data['buttonStates'].update(button_states)
+            
+            # Immediately publish the updated telemetry when button states change
+            self.publish_data()
+        except Exception as e:
+            self.get_logger().error(f'Error parsing button state data: {str(e)}')
+
+    def joystick_state_callback(self, msg):
+        """Update controller joystick state from direct joystick state messages"""
+        try:
+            joystick_state = json.loads(msg.data)
+            # Update our controller data with the received joystick state
+            self.controller_data['joystickState'] = joystick_state
+            
+            # Immediately publish the updated telemetry when joystick state changes
+            self.publish_data()
+        except Exception as e:
+            self.get_logger().error(f'Error parsing joystick state data: {str(e)}')
+
     def publish_data(self):
         """Publish the collected sensor data to ROS topics."""
         try:
@@ -239,7 +293,8 @@ class IIOPublisherNode(Node):
             telemetry_msg.data = json.dumps({
                 'timestamp': self.get_clock().now().to_msg().sec,
                 'devices': self.devices,
-                'imu': self.imu_data
+                'imu': self.imu_data,
+                'controller': self.controller_data  # Include controller data
             })
             self.telemetry_publisher.publish(telemetry_msg)
             
@@ -315,8 +370,8 @@ class IIOPublisherNode(Node):
 def main():
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(description='IIO Telemetry Publisher for Robot Controller')
-    parser.add_argument('--rate', type=float, default=10.0,
-                        help='Publishing rate in Hz (default: 10)')
+    parser.add_argument('--rate', type=float, default=30.0,
+                        help='Publishing rate in Hz (default: 30)')
     args = parser.parse_args()
     
     rclpy.init()

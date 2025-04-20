@@ -37,6 +37,18 @@ io.on('connection', (socket) => {
     io.emit('robot_control', data);
   });
   
+  // Handle controller button states with low latency
+  socket.on('controller_button_states', (buttonStates) => {
+    // Broadcast button states to all other clients immediately
+    socket.broadcast.emit('controller_button_states', buttonStates);
+  });
+  
+  // Handle joystick state updates with low latency
+  socket.on('controller_joystick_state', (joystickState) => {
+    // Broadcast joystick state to all other clients immediately
+    socket.broadcast.emit('controller_joystick_state', joystickState);
+  });
+  
   socket.on('disconnect', () => {
     connectedClients--;
     console.log(`[${new Date().toISOString()}] Client disconnected - ID: ${clientId}, Remaining clients: ${connectedClients}`);

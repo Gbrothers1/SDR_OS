@@ -1,58 +1,102 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import '../styles/SplashScreen.css';
 
 const SplashScreen = ({ onComplete }) => {
-  const [stage, setStage] = useState('initial'); // 'initial', 'diagnostic', 'loading', 'ready'
-  const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState([]);
-  const [diagnostics, setDiagnostics] = useState({
-    ros: { status: 'pending', label: 'ROS Bridge' },
-    sensors: { status: 'pending', label: 'Sensor Array' },
-    motors: { status: 'pending', label: 'Motor Controllers' },
-    camera: { status: 'pending', label: 'Camera Systems' }
+  const [stage, setStage] = useState('initial'); // initial, connecting, override, ready, launching
+  const [connectionStatus, setConnectionStatus] = useState({
+    ros: { status: 'OFFLINE', code: 'COMM2101-A', ready: false },
+    navigation: { status: 'STANDBY', code: 'NAV1001-B', ready: false },
+    sensors: { status: 'INITIALIZING', code: 'SENS441-C', ready: false },
+    control: { status: 'WAITING', code: 'CTRL992-D', ready: false }
   });
-  const [isSystemActive, setIsSystemActive] = useState(false);
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [errorState, setErrorState] = useState(null);
+  const terminalRef = useRef(null);
+  const [autoMode, setAutoMode] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const speechEnabled = localStorage.getItem('enableSpeech') !== 'false';
+  const [voices, setVoices] = useState([]);
+  const [selectedVoice, setSelectedVoice] = useState(null);
+  const savedVoiceName = localStorage.getItem('selectedVoice');
 
-  // Enhanced speech synthesis with sound effects
-  const playSound = (type) => {
-    const oscillator = new (window.AudioContext || window.webkitAudioContext)().createOscillator();
-    const gainNode = new (window.AudioContext || window.webkitAudioContext)().createGain();
+  // Initialize voices when component mounts
+  useEffect(() => {
+    const loadVoices = () => {
+      const availableVoices = window.speechSynthesis.getVoices();
+      setVoices(availableVoices);
+      
+      // Try to find the saved voice first
+      if (savedVoiceName) {
+        const savedVoice = availableVoices.find(voice => voice.name === savedVoiceName);
+        if (savedVoice) {
+          setSelectedVoice(savedVoice);
+          return;
+        }
+      }
+      
+      // If saved voice not found, find the best English voice
+      const englishVoices = availableVoices.filter(voice => 
+        voice.lang.startsWith('en-')
+      );
+      
+      if (englishVoices.length > 0) {
+        // Prefer female voices
+        const femaleVoice = englishVoices.find(voice => 
+          voice.name.includes('Female') || 
+          voice.name.includes('female') ||
+          voice.name.includes('Samantha') ||
+          voice.name.includes('Google US English Female')
+        );
+        
+        setSelectedVoice(femaleVoice || englishVoices[0]);
+      } else if (availableVoices.length > 0) {
+        setSelectedVoice(availableVoices[0]);
+      }
+    };
     
-    oscillator.connect(gainNode);
-    gainNode.connect(new (window.AudioContext || window.webkitAudioContext)().destination);
+    // Load voices immediately if available
+    loadVoices();
+    
+    // Also listen for voices to be loaded
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+    
+    return () => {
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, [savedVoiceName]);
 
-    switch(type) {
-      case 'startup':
-        oscillator.frequency.setValueAtTime(440, 0);
-        oscillator.frequency.linearRampToValueAtTime(880, 0.1);
-        gainNode.gain.setValueAtTime(0.5, 0);
-        gainNode.gain.linearRampToValueAtTime(0, 0.1);
-        break;
-      case 'success':
-        oscillator.frequency.setValueAtTime(587.33, 0);
-        oscillator.frequency.linearRampToValueAtTime(880, 0.1);
-        gainNode.gain.setValueAtTime(0.2, 0);
-        gainNode.gain.linearRampToValueAtTime(0, 0.2);
-        break;
-      case 'error':
-        oscillator.frequency.setValueAtTime(440, 0);
-        oscillator.frequency.linearRampToValueAtTime(220, 0.1);
-        gainNode.gain.setValueAtTime(0.3, 0);
-        gainNode.gain.linearRampToValueAtTime(0, 0.2);
-        break;
+  // Enhanced speech synthesis
+  const speak = useCallback((text, priority = 'normal') => {
+    if (!speechEnabled) {
+      playSound(priority === 'error' ? 'error' : priority === 'success' ? 'success' : 'startup');
+      return;
     }
 
-    oscillator.start();
-    oscillator.stop(0.2);
-  };
-
-  const speak = useCallback((text, priority = 'normal') => {
     if ('speechSynthesis' in window) {
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
+
+      if (!autoMode && priority !== 'high' && priority !== 'success') {
+        // In manual mode, only play sounds for most actions
+        playSound(priority === 'error' ? 'error' : priority === 'success' ? 'success' : 'startup');
+        return;
+      }
+
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.voice = speechSynthesis.getVoices()
-        .find(voice => voice.name.includes('Female')) || speechSynthesis.getVoices()[0];
-      utterance.pitch = 1.2;
-      utterance.rate = 0.9;
+      
+      // Use the selected voice if available
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+        utterance.lang = selectedVoice.lang;
+      }
+      
+      // Adjust speech parameters for better quality
+      utterance.pitch = 1.0;
+      utterance.rate = 0.9;  // Slightly slower for clarity
       
       switch(priority) {
         case 'high':
@@ -70,159 +114,321 @@ const SplashScreen = ({ onComplete }) => {
         default:
           utterance.volume = 0.7;
       }
+
+      setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
       
-      speechSynthesis.speak(utterance);
+      window.speechSynthesis.speak(utterance);
     }
-  }, []);
+  }, [speechEnabled, autoMode, selectedVoice]);
 
-  const addLog = useCallback((message, type = 'info') => {
-    setLogs(prev => [...prev, { message, type, timestamp: new Date().toISOString() }]);
-    speak(message, type);
-  }, [speak]);
+  // Sound effects for feedback
+  const playSound = (type) => {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
 
-  const runDiagnostics = useCallback(async () => {
-    console.log('Running diagnostics...');
-    setStage('diagnostic');
-    addLog('Initiating system diagnostics...', 'high');
+    switch(type) {
+      case 'startup':
+        oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(880, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        break;
+      case 'success':
+        oscillator.frequency.setValueAtTime(587.33, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(880, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+        break;
+      case 'error':
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(220, audioContext.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+        break;
+    }
 
-    const runSingleDiagnostic = async (key, delay) => {
-      console.log(`Running diagnostic for: ${key}`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      const success = Math.random() > 0.1;
-      setDiagnostics(prev => ({
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.3);
+  };
+
+  const addSystemLog = useCallback((message, type = 'info') => {
+    const newLog = {
+      timestamp: new Date().toISOString(),
+      message,
+      type,
+      id: `${Date.now()}-${Math.random()}`
+    };
+    setSystemLogs(prev => [...prev, newLog]);
+    
+    // Only speak important messages in manual mode
+    if (autoMode || type === 'high' || type === 'success' || type === 'error') {
+      speak(message, type);
+    } else {
+      playSound(type === 'error' ? 'error' : type === 'success' ? 'success' : 'startup');
+    }
+    
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [speak, autoMode]);
+
+  // Automatic system activation
+  const activateSystem = async (system) => {
+    const message = `Activating ${system.toUpperCase()} subsystem`;
+    addSystemLog(message, 'info');
+    
+    setConnectionStatus(prev => ({
+      ...prev,
+      [system]: { ...prev[system], status: 'CONNECTING' }
+    }));
+
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    // Simulate success most of the time, with occasional failures
+    const success = Math.random() > 0.1;
+    
+    if (success) {
+      setConnectionStatus(prev => ({
         ...prev,
-        [key]: { ...prev[key], status: success ? 'success' : 'error' }
+        [system]: { 
+          ...prev[system], 
+          status: 'ONLINE',
+          ready: true
+        }
       }));
-      addLog(
-        `${diagnostics[key].label} diagnostic ${success ? 'passed' : 'failed'}`,
-        success ? 'success' : 'error'
-      );
-      return success;
+      
+      addSystemLog(`${system.toUpperCase()} subsystem online`, 'success');
+    } else {
+      setConnectionStatus(prev => ({
+        ...prev,
+        [system]: { 
+          ...prev[system], 
+          status: 'ERROR',
+          ready: false
+        }
+      }));
+      
+      addSystemLog(`${system.toUpperCase()} subsystem initialization failed`, 'error');
+      setAutoMode(false);
+      setStage('override');
+      setErrorState({
+        code: `${system.toUpperCase()}_INIT_FAILURE`,
+        message: 'Automatic initialization failed - manual override required'
+      });
+      return false;
+    }
+    
+    return true;
+  };
+
+  // Manual system activation
+  const handleSystemActivation = async (system) => {
+    addSystemLog(`Manual activation of ${system} subsystem initiated`, 'warning');
+    
+    setConnectionStatus(prev => ({
+      ...prev,
+      [system]: { ...prev[system], status: 'CONNECTING' }
+    }));
+
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    // Simulate success most of the time
+    const success = Math.random() > 0.05;
+    
+    if (success) {
+      setConnectionStatus(prev => ({
+        ...prev,
+        [system]: { 
+          ...prev[system], 
+          status: 'ONLINE',
+          ready: true
+        }
+      }));
+      
+      addSystemLog(`${system.toUpperCase()} subsystem activated successfully`, 'success');
+    } else {
+      setConnectionStatus(prev => ({
+        ...prev,
+        [system]: { 
+          ...prev[system], 
+          status: 'ERROR',
+          ready: false
+        }
+      }));
+      
+      addSystemLog(`${system.toUpperCase()} activation failed - retry required`, 'error');
+      return false;
+    }
+    
+    // Check if all systems are ready
+    const allReady = Object.values(connectionStatus).every(status => status.ready);
+    
+    if (allReady) {
+      addSystemLog('All systems operational - Ready for launch', 'success');
+      setStage('ready');
+    }
+    
+    return true;
+  };
+
+  const handleManualOverride = () => {
+    addSystemLog('MANUAL OVERRIDE INITIATED', 'warning');
+    setAutoMode(false);
+    setStage('override');
+  };
+
+  const handleSystemLaunch = () => {
+    addSystemLog('LAUNCHING MAIN SYSTEM INTERFACE', 'success');
+    setStage('launching');
+    setTimeout(() => {
+      onComplete();
+    }, 1500);
+  };
+
+  // Initialize the system
+  useEffect(() => {
+    const initializeSystem = async () => {
+      addSystemLog('SYSTEM INITIALIZATION SEQUENCE STARTED', 'high');
+      setStage('connecting');
+      
+      try {
+        // Try automatic initialization first
+        if (autoMode) {
+          addSystemLog('Automatic initialization in progress', 'info');
+          
+          // Activate each system in sequence
+          const systems = Object.keys(connectionStatus);
+          let allSuccess = true;
+          
+          for (const system of systems) {
+            const success = await activateSystem(system);
+            if (!success) {
+              allSuccess = false;
+              break;
+            }
+            // Short delay between system activations
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+          
+          if (allSuccess) {
+            addSystemLog('Automatic initialization complete - All systems online', 'success');
+            setStage('ready');
+          }
+        } else {
+          // Manual override mode
+          addSystemLog('MANUAL OVERRIDE MODE ACTIVE - Activate each system manually', 'warning');
+          setStage('override');
+        }
+      } catch (error) {
+        addSystemLog('System initialization error - Manual override required', 'error');
+        setErrorState({
+          code: 'INIT_FAILURE',
+          message: 'Manual system activation required'
+        });
+        setAutoMode(false);
+        setStage('override');
+      }
     };
 
-    const results = await Promise.all([
-      runSingleDiagnostic('ros', 1000),
-      runSingleDiagnostic('sensors', 2000),
-      runSingleDiagnostic('motors', 3000),
-      runSingleDiagnostic('camera', 4000)
-    ]);
+    initializeSystem();
+  }, [addSystemLog]);
 
-    const allPassed = results.every(result => result);
-    if (allPassed) {
-      addLog('All diagnostics passed. System ready for initialization.', 'success');
-      setStage('ready');
-    } else {
-      addLog('Diagnostic failures detected. Manual override required.', 'error');
-      setStage('ready'); // Allow continue anyway for demo purposes
-    }
-  }, [addLog, diagnostics]);
-
-  const startSystem = useCallback(async () => {
-    if (stage === 'ready') {
-      setStage('loading');
-      setIsSystemActive(true);
-      addLog('System initialization sequence activated', 'high');
-
-      const steps = [
-        { message: 'Establishing ROS bridge connection', progress: 20 },
-        { message: 'Calibrating sensor arrays', progress: 40 },
-        { message: 'Initializing motor controllers', progress: 60 },
-        { message: 'Loading navigation systems', progress: 80 },
-        { message: 'System initialization complete', progress: 100 }
-      ];
-
-      for (const step of steps) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        setProgress(step.progress);
-        addLog(step.message, step.progress === 100 ? 'success' : 'info');
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      onComplete();
-    }
-  }, [stage, addLog, onComplete]);
-
+  // Prevent multiple launches
   useEffect(() => {
-    console.log('SplashScreen mounted, stage:', stage);
+    if (stage === 'launching') {
+      const launchTimeout = setTimeout(() => {
+        setStage('complete');
+      }, 1500);
+      return () => clearTimeout(launchTimeout);
+    }
+  }, [stage]);
+
+  // Add debug logging
+  useEffect(() => {
+    console.log('Current stage:', stage);
+    console.log('Connection status:', connectionStatus);
+  }, [stage, connectionStatus]);
+
+  // Add a useEffect to check if all systems are ready and update the stage
+  useEffect(() => {
+    // Check if all systems are ready
+    const allReady = Object.values(connectionStatus).every(status => status.ready);
     
-    // Ensure the component is mounted before starting diagnostics
-    const timeoutId = setTimeout(() => {
-      console.log('Starting initial diagnostics');
-      setStage('diagnostic');
-    }, 100);
-
-    return () => clearTimeout(timeoutId);
-  }, []);
-
-  useEffect(() => {
-    if (stage === 'initial') {
-      addLog('System diagnostic check required', 'high');
-      addLog('Press START to begin diagnostic sequence', 'info');
+    if (allReady && stage === 'override') {
+      addSystemLog('All systems operational - Ready for launch', 'success');
+      setStage('ready');
     }
-  }, [stage, addLog]);
+  }, [connectionStatus, stage, addSystemLog]);
 
   return (
-    <div className="splash-screen">
-      <div className="splash-content">
-        <h1 className="splash-title">ROBOT CONTROL INTERFACE</h1>
-        <div className="splash-subtitle">v1.0.0</div>
-
-        {stage === 'initial' && (
-          <button 
-            className="diagnostic-button"
-            onClick={() => runDiagnostics()}
-          >
-            START DIAGNOSTIC
-          </button>
-        )}
-
-        {stage === 'diagnostic' && (
-          <div className="diagnostic-panel">
-            {Object.entries(diagnostics).map(([key, value]) => (
-              <div key={key} className={`diagnostic-item ${value.status}`}>
-                <span className="diagnostic-label">{value.label}</span>
-                <span className="diagnostic-status">
-                  {value.status === 'pending' ? '...' : value.status === 'success' ? 'OK' : 'FAIL'}
-                </span>
+    <div className="splash-container">
+      <div className="splash-grid">
+        {/* Status Panel */}
+        <div className="status-panel">
+          <div className="panel-header">
+            SYSTEM CONTROL INTERFACE
+            <span className="stage-indicator">{stage.toUpperCase()}</span>
+          </div>
+          
+          <div className="connection-status">
+            {Object.entries(connectionStatus).map(([system, status]) => (
+              <div 
+                key={system} 
+                className={`status-item ${status.status.toLowerCase()} ${stage === 'override' ? 'interactive' : ''}`}
+                onClick={() => stage === 'override' && !status.ready && handleSystemActivation(system)}
+              >
+                <span className="system-name">{system.toUpperCase()}</span>
+                <span className="status-code">{status.code}</span>
+                <span className="status-text">{status.status}</span>
+                {stage === 'override' && !status.ready && (
+                  <span className="activation-prompt">CLICK TO ACTIVATE</span>
+                )}
               </div>
             ))}
           </div>
-        )}
+        </div>
 
-        {stage === 'ready' && (
-          <button 
-            className={`start-button ${isSystemActive ? 'active' : ''}`}
-            onClick={startSystem}
-            disabled={isSystemActive}
-          >
-            INITIALIZE SYSTEM
-          </button>
-        )}
+        {/* Control Panel */}
+        <div className="control-panel">
+          {stage === 'connecting' && autoMode && (
+            <button className="override-button" onClick={handleManualOverride}>
+              MANUAL OVERRIDE
+            </button>
+          )}
+          
+          {stage === 'ready' && (
+            <button className="launch-button pulse-animation" onClick={handleSystemLaunch}>
+              LAUNCH SYSTEM
+            </button>
+          )}
+        </div>
 
-        {stage === 'loading' && (
-          <div className="progress-container">
-            <div 
-              className="progress-bar" 
-              style={{ width: `${progress}%` }}
-            />
-            <div className="progress-text">{progress}%</div>
+        {/* Add stage indicator for debugging */}
+        <div className="debug-info">
+          Current Stage: {stage}
+          <br />
+          Systems Ready: {Object.values(connectionStatus).filter(sys => sys.ready).length}/{Object.values(connectionStatus).length}
+        </div>
+
+        {/* System Logs */}
+        <div className="system-terminal" ref={terminalRef}>
+          <div className="terminal-header">
+            SYSTEM LOG // MCRN CMD.LINK/override: {stage === 'override' ? 'Enabled' : 'Disabled'}
           </div>
-        )}
-
-        <div className="log-window">
-          <div className="log-header">
-            SYSTEM LOG
-            <div className="log-status">
-              {stage.toUpperCase()} MODE
-            </div>
-          </div>
-          <div className="log-content">
-            {logs.map((log, index) => (
-              <div key={index} className={`log-entry ${log.type}`}>
-                <span className="timestamp">
+          <div className="terminal-content">
+            {systemLogs.map(log => (
+              <div key={log.id} className={`log-line ${log.type}`}>
+                <span className="log-timestamp">
                   {new Date(log.timestamp).toLocaleTimeString()}
                 </span>
-                <span className="message">{log.message}</span>
+                <span className="log-message">{log.message}</span>
               </div>
             ))}
           </div>
