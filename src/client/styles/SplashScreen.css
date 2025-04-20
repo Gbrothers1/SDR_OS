@@ -1,0 +1,234 @@
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes glow {
+  0% { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
+  50% { text-shadow: 0 0 20px #0ff, 0 0 30px #0ff, 0 0 40px #0ff; }
+  100% { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+@keyframes flicker {
+  0% { opacity: 0.9; }
+  5% { opacity: 0.8; }
+  10% { opacity: 0.9; }
+  15% { opacity: 0.85; }
+  20% { opacity: 0.9; }
+  100% { opacity: 1; }
+}
+
+.splash-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.95);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  font-family: 'Courier New', monospace;
+}
+
+.splash-screen::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    transparent 50%,
+    rgba(0, 255, 255, 0.05) 50%
+  );
+  background-size: 100% 4px;
+  animation: scanline 6s linear infinite;
+  pointer-events: none;
+}
+
+.splash-content {
+  width: 90%;
+  max-width: 900px;
+  padding: 2rem;
+  background: rgba(0, 20, 20, 0.8);
+  border: 2px solid #0ff;
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+  animation: flicker 2s infinite;
+}
+
+.splash-title {
+  color: #0ff;
+  font-size: 2.5em;
+  text-align: center;
+  margin-bottom: 0.5em;
+  animation: glow 2s ease-in-out infinite;
+  letter-spacing: 0.2em;
+}
+
+.splash-subtitle {
+  color: #0aa;
+  text-align: center;
+  margin-bottom: 2em;
+  font-size: 1.2em;
+}
+
+.diagnostic-button, .start-button {
+  background: transparent;
+  border: 2px solid #0ff;
+  color: #0ff;
+  padding: 1em 2em;
+  font-size: 1.2em;
+  cursor: pointer;
+  margin: 1em auto;
+  display: block;
+  transition: all 0.3s ease;
+  font-family: 'Courier New', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  animation: pulse 2s infinite;
+}
+
+.diagnostic-button:hover, .start-button:hover {
+  background: rgba(0, 255, 255, 0.1);
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+  transform: scale(1.05);
+}
+
+.diagnostic-button:active, .start-button:active {
+  transform: scale(0.95);
+}
+
+.diagnostic-panel {
+  background: rgba(0, 20, 20, 0.6);
+  border: 1px solid #0ff;
+  padding: 1em;
+  margin: 2em 0;
+}
+
+.diagnostic-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5em;
+  margin: 0.5em 0;
+  border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+}
+
+.diagnostic-item.pending {
+  color: #0ff;
+}
+
+.diagnostic-item.success {
+  color: #0f0;
+}
+
+.diagnostic-item.error {
+  color: #f00;
+}
+
+.diagnostic-status {
+  font-weight: bold;
+}
+
+.log-window {
+  background: rgba(0, 20, 20, 0.6);
+  border: 1px solid #0ff;
+  margin-top: 2em;
+  height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.log-header {
+  background: rgba(0, 255, 255, 0.1);
+  padding: 0.5em;
+  color: #0ff;
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #0ff;
+}
+
+.log-status {
+  color: #0ff;
+  font-weight: bold;
+  animation: glow 2s infinite;
+}
+
+.log-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1em;
+}
+
+.log-entry {
+  margin: 0.3em 0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.log-entry .timestamp {
+  color: #666;
+  margin-right: 1em;
+}
+
+.log-entry.info .message { color: #0ff; }
+.log-entry.success .message { color: #0f0; }
+.log-entry.error .message { color: #f00; }
+.log-entry.high .message { color: #ff0; }
+
+.progress-container {
+  background: rgba(0, 20, 20, 0.6);
+  border: 1px solid #0ff;
+  height: 30px;
+  position: relative;
+  margin: 2em 0;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 255, 255, 0.3),
+    rgba(0, 255, 255, 0.8)
+  );
+  transition: width 0.5s ease-out;
+  position: relative;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  animation: scanline 2s linear infinite;
+}
+
+.progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #0ff;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+} 

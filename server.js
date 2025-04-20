@@ -51,33 +51,11 @@ app.use((req, res, next) => {
 });
 
 // Serve the main application for all routes
-app.get('*', (req, res) => {
-  const indexPath = path.join(distPath, 'index.html');
-  
-  // Check if index.html exists, if not, create a simple one
-  if (!fs.existsSync(indexPath)) {
-    console.log('index.html not found, creating a simple one');
-    const simpleHtml = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Robot Controller</title>
-          <style>
-            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-            h1 { color: #333; }
-            p { color: #666; }
-          </style>
-        </head>
-        <body>
-          <h1>Robot Controller</h1>
-          <p>Please run 'npm run build' to build the application.</p>
-        </body>
-      </html>
-    `;
-    fs.writeFileSync(indexPath, simpleHtml);
-  }
-  
-  res.sendFile(indexPath);
+app.get('/', (req, res) => {
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;

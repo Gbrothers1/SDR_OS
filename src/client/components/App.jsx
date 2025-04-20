@@ -8,11 +8,14 @@ import TelemetryPanel from './TelemetryPanel';
 import ROSLIB from 'roslib';
 import io from 'socket.io-client';
 import '../styles/App.css';
+import SplashScreen from './SplashScreen';
 
 const App = () => {
+  const [initialized, setInitialized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [ros, setRos] = useState(null);
-  const [connected, setConnected] = useState(false);
   const [socket, setSocket] = useState(null);
+  const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
   const [controlState, setControlState] = useState({
     linear: { x: 0, y: 0, z: 0 },
@@ -22,177 +25,108 @@ const App = () => {
   const [isLogViewerVisible, setIsLogViewerVisible] = useState(true);
 
   useEffect(() => {
-    let rosInstance = null;
-    let socketInstance = null;
-    let reconnectTimer = null;
-
-    const connectToROS = () => {
-      try {
-        // Use localhost if running on the same machine
-        const rosUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-          ? 'ws://localhost:9090'
-          : 'ws://192.168.12.147:9090';
-        
-        console.log(`Attempting to connect to ROS at ${rosUrl}`);
-        rosInstance = new ROSLIB.Ros({
-          url: rosUrl
-        });
-
-        rosInstance.on('connection', () => {
-          console.log('Connected to ROS bridge');
-          setConnected(true);
-          setError(null);
-          
-          // Test if rosapi service is available
-          try {
-            const service = new ROSLIB.Service({
-              ros: rosInstance,
-              name: '/rosapi/get_topics',
-              serviceType: 'rosapi_msgs/srv/GetTopics'
-            });
-            
-            const request = new ROSLIB.ServiceRequest({});
-            
-            service.callService(request, (result) => {
-              console.log('ROSAPI service test successful:', result);
-            }, (error) => {
-              console.warn('ROSAPI service test failed:', error);
-              // Don't set an error here, just log it. The LogViewer will handle this case.
-            });
-          } catch (err) {
-            console.warn('Error testing ROSAPI service:', err);
-            // Don't set an error here, just log it. The LogViewer will handle this case.
-          }
-        });
-
-        rosInstance.on('error', (error) => {
-          console.error('Error connecting to ROS:', error);
-          setConnected(false);
-          setError('Failed to connect to ROS bridge. Please ensure rosbridge-server is running.');
-          
-          // Try to reconnect after 5 seconds
-          reconnectTimer = setTimeout(connectToROS, 5000);
-        });
-
-        rosInstance.on('close', () => {
-          console.log('Connection to ROS closed');
-          setConnected(false);
-          
-          // Try to reconnect after 5 seconds
-          reconnectTimer = setTimeout(connectToROS, 5000);
-        });
-
-        setRos(rosInstance);
-      } catch (err) {
-        console.error('Error creating ROS instance:', err);
-        setError('Failed to initialize ROS connection. Please check if ROSLIB is properly loaded.');
-      }
-    };
-
-    // Connect to ROS
-    connectToROS();
-
-    // Connect to Socket.IO server
-    try {
-      console.log('Connecting to Socket.IO server');
-      socketInstance = io();
-      socketInstance.on('connect', () => {
-        console.log('Connected to Socket.IO server');
-      });
-
-      socketInstance.on('disconnect', () => {
-        console.log('Disconnected from Socket.IO server');
-      });
-
-      socketInstance.on('robot_control', (data) => {
-        console.log('Received robot control data:', data);
-        setControlState(data);
-      });
-
-      setSocket(socketInstance);
-    } catch (err) {
-      console.error('Error connecting to Socket.IO server:', err);
-      setError('Failed to connect to Socket.IO server');
-    }
-
-    return () => {
-      if (rosInstance) rosInstance.close();
-      if (socketInstance) socketInstance.disconnect();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-    };
+    console.log('App mounted - Showing splash screen');
+    setRos(null);
+    setSocket(null);
+    setConnected(false);
+    setError(null);
+    setInitialized(false);
+    setIsLoading(true);
   }, []);
 
-  const handleControlChange = (newState) => {
-    if (socket && connected) {
-      console.log('Sending control command:', newState);
-      socket.emit('robot_control', newState);
+  const handleSplashComplete = async () => {
+    console.log('Splash screen complete - Starting initialization');
+    try {
+      const rosBridgeUrl = localStorage.getItem('rosBridgeUrl') || 'ws://localhost:9090';
+      const socketUrl = localStorage.getItem('socketUrl') || 'http://localhost:3000';
+
+      console.log('Initializing connections:', { rosBridgeUrl, socketUrl });
+
+      const newRos = new ROSLIB.Ros({
+        url: rosBridgeUrl
+      });
+
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('ROS connection timeout')), 5000);
+
+        newRos.on('connection', () => {
+          clearTimeout(timeout);
+          console.log('ROS connection established');
+          setConnected(true);
+          resolve();
+        });
+
+        newRos.on('error', (error) => {
+          clearTimeout(timeout);
+          console.error('ROS connection error:', error);
+          reject(error);
+        });
+      });
+
+      setRos(newRos);
+
+      console.log('Connecting to Socket.IO');
+      const newSocket = io(socketUrl);
       
-      try {
-        // Publish to ROS topic
-        const cmdVel = new ROSLIB.Topic({
-          ros: ros,
-          name: '/cmd_vel',
-          messageType: 'geometry_msgs/Twist'
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Socket.IO connection timeout')), 5000);
+
+        newSocket.on('connect', () => {
+          clearTimeout(timeout);
+          console.log('Socket.IO connected');
+          resolve();
         });
 
-        const twist = new ROSLIB.Message({
-          linear: newState.linear,
-          angular: newState.angular
+        newSocket.on('connect_error', (error) => {
+          clearTimeout(timeout);
+          console.error('Socket.IO connection error:', error);
+          reject(error);
         });
+      });
 
-        cmdVel.publish(twist);
-      } catch (err) {
-        console.error('Error publishing to ROS topic:', err);
-      }
+      setSocket(newSocket);
+      setInitialized(true);
+      setIsLoading(false);
+      console.log('All systems initialized');
+
+    } catch (error) {
+      console.error('Initialization error:', error);
+      setError(`Initialization failed: ${error.message}`);
+      setInitialized(true);
+      setIsLoading(false);
     }
   };
 
-  const handleOpenSettings = () => {
-    setIsSettingsOpen(true);
-  };
+  if (!initialized || isLoading) {
+    console.log('Rendering splash screen');
+    return <SplashScreen onComplete={handleSplashComplete} />;
+  }
 
-  const handleCloseSettings = () => {
-    setIsSettingsOpen(false);
-  };
-
-  const toggleLogViewer = () => {
-    setIsLogViewerVisible(!isLogViewerVisible);
-  };
-
+  console.log('Rendering main application');
   return (
     <div className="app">
-      <SettingsIcon onClick={handleOpenSettings} />
-      <div className="app-container">
-        {error && (
-          <div className="error">
-            {error}
-          </div>
-        )}
-        <div className={`viewer-container ${!isLogViewerVisible ? 'fullscreen' : ''}`}>
-          <RobotViewer ros={ros} />
-          <ControlOverlay 
-            onControlChange={handleControlChange}
-            controlState={controlState}
-          />
-          <div className="fullscreen-toggle" onClick={toggleLogViewer}>
-            {isLogViewerVisible ? (
-              <svg viewBox="0 0 24 24" width="24" height="24">
-                <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" width="24" height="24">
-                <path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
-              </svg>
-            )}
-          </div>
-          
-          <TelemetryPanel ros={ros} />
+      {error && (
+        <div className="error-banner">
+          {error}
+          <button onClick={() => window.location.reload()}>
+            Retry
+          </button>
         </div>
-        <div className={`log-container ${isLogViewerVisible ? 'visible' : 'hidden'}`}>
-          <LogViewer ros={ros} />
-        </div>
+      )}
+      <div className="viewer-container">
+        <RobotViewer ros={ros} />
+        <ControlOverlay ros={ros} socket={socket} />
+        <TelemetryPanel ros={ros} />
       </div>
-      {isSettingsOpen && <SettingsModal onClose={handleCloseSettings} />}
+      {isLogViewerVisible && (
+        <LogViewer ros={ros} />
+      )}
+      <SettingsIcon onClick={() => setIsSettingsOpen(true)} />
+      {isSettingsOpen && (
+        <SettingsModal
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 };

@@ -50,5 +50,11 @@ module.exports = {
       '/rosbridge_websocket': 'ws://192.168.12.147:9090',
       '/rosbridge_websocket/': 'ws://192.168.12.147:9090/',
     },
+    hot: true,
+    client: {
+      overlay: true,
+      progress: true,
+      logging: 'info',
+    },
   },
 }; 
