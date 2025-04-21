@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import RobotViewer from './RobotViewer';
 import ControlOverlay from './ControlOverlay';
 import LogViewer from './LogViewer';
@@ -127,10 +127,11 @@ const App = () => {
     }
   };
 
-  const handleControlChange = (newState) => {
+  // Memoize handleControlChange to stabilize the prop passed to ControlOverlay
+  const handleControlChange = useCallback((newState) => {
     // Update local control state
     setControlState(newState);
-  };
+  }, []); // No dependencies, function doesn't rely on changing state/props
 
   const handleSettingsSave = (newSettings) => {
     // Update display settings state
@@ -217,7 +218,13 @@ const App = () => {
             controlState={controlState}
             onControlChange={handleControlChange}
           />
-          {displaySettings.showTelemetryPanel && <TelemetryPanel ros={ros} />}
+          {displaySettings.showTelemetryPanel && 
+            <TelemetryPanel 
+              ros={ros} 
+              // Pass updateInterval from settings state
+              updateInterval={appSettings?.telemetry?.updateInterval ?? 100} // Default 100ms
+            />
+          }
           
           <div className="toggle-buttons">
             <button className="toggle-log" onClick={toggleLogViewer}>

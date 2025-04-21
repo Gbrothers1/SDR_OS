@@ -12,7 +12,6 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
       buttonDebounceTime: 50,
     },
     telemetry: {
-      publishingRate: 10,
       updateInterval: 100,
       showTelemetryPanel: true,
     },
@@ -57,7 +56,12 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
       rosbridgeUrl: loadedSettings.rosbridgeUrl || localStorage.getItem('rosBridgeUrl') || prev.rosbridgeUrl,
       socketUrl: loadedSettings.socketUrl || localStorage.getItem('socketUrl') || prev.socketUrl,
       controller: { ...prev.controller, ...(loadedSettings.controller || {}) },
-      telemetry: { ...prev.telemetry, ...(loadedSettings.telemetry || {}) },
+      telemetry: {
+        ...prev.telemetry,
+        ...(loadedSettings.telemetry || {}),
+        updateInterval: loadedSettings.telemetry?.updateInterval !== undefined ? loadedSettings.telemetry.updateInterval : 100,
+        showTelemetryPanel: loadedSettings.telemetry?.showTelemetryPanel !== undefined ? loadedSettings.telemetry.showTelemetryPanel : true,
+      },
       logging: {
         ...prev.logging,
         ...(loadedSettings.logging || {}),
@@ -182,16 +186,6 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
 
           <div className="settings-section">
             <h3>Telemetry Settings</h3>
-            <div className="setting-item">
-              <label>Publishing Rate (Hz)</label>
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={settings.telemetry.publishingRate}
-                onChange={(e) => handleChange('telemetry', 'publishingRate', parseInt(e.target.value))}
-              />
-            </div>
             <div className="setting-item">
               <label>Update Interval (ms)</label>
               <input

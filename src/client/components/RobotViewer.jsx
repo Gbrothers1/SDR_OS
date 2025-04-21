@@ -153,8 +153,8 @@ const RobotViewer = ({ ros, tfThrottleRate }) => {
 
     // ROS Subscriptions
     if (ros) {
-      // Calculate throttle interval in milliseconds
-      const throttleIntervalMs = tfThrottleRate > 0 ? 1000 / tfThrottleRate : 0;
+      // Calculate throttle interval in milliseconds and ROUND it
+      const throttleIntervalMs = tfThrottleRate > 0 ? Math.round(1000 / tfThrottleRate) : 0;
 
       // Subscribe to IMU topic
       const imuTopic = new ROSLIB.Topic({
