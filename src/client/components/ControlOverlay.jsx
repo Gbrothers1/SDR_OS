@@ -207,6 +207,13 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
   const toggleMappings = (e) => {
     e.stopPropagation(); // Prevent click from toggling hide
     setShowMappings(!showMappings);
+    // Keep focus on the control area
+    setTimeout(() => {
+      const controlContent = document.querySelector('.control-content');
+      if (controlContent) {
+        controlContent.focus();
+      }
+    }, 100);
   };
 
   const toggleHide = (e) => {
@@ -231,168 +238,170 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
   };
 
   return (
-    <div 
-      className={`control-overlay ${isHidden ? 'hidden' : ''}`}
-      onClick={toggleHide} // Use onClick for both hidden and visible states, logic handled in toggleHide
-    >
-      <div className="control-border"></div>
-      {!isHidden && (
-        <>
-          {/* Control buttons */}
-          <div className="control-buttons">
-            <h3>CONTROLS</h3>
-            <div>
-              <button 
-                className="control-button mappings-toggle" 
-                onClick={toggleMappings}
-              >
-                {showMappings ? 'Hide Mappings' : 'Show Mappings'}
-              </button>
-              <button 
-                className="control-button hide-toggle" 
-                onClick={toggleHide} // Bind toggleHide to the hide button too
-              >
-                Hide
-              </button>
+    <div className="controls-container">
+      <div 
+        className={`control-overlay ${isHidden ? 'hidden' : ''}`}
+        onClick={toggleHide} // Use onClick for both hidden and visible states, logic handled in toggleHide
+      >
+        <div className="control-border"></div>
+        {!isHidden && (
+          <>
+            {/* Control buttons */}
+            <div className="control-buttons">
+              <h3>CONTROLS</h3>
+              <div>
+                <button 
+                  className="control-button mappings-toggle" 
+                  onClick={toggleMappings}
+                >
+                  {showMappings ? 'Hide Mappings' : 'Show Mappings'}
+                </button>
+                <button 
+                  className="control-button hide-toggle" 
+                  onClick={toggleHide} // Bind toggleHide to the hide button too
+                >
+                  Hide
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="control-content">
-            {/* ROS Mappings Section - Overlay */}
-            <div className={`mapping-section ${showMappings ? 'visible' : ''}`} onClick={(e) => e.stopPropagation()}>
-              {showMappings && (
-                <>
-                  <div className="mapping-title">ROS Mappings</div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Left Stick</div>
-                    <div>{rosMappings.leftStick.x}</div>
-                    <div>{rosMappings.leftStick.y}</div>
+            <div className="control-content">
+              <div className="control-section">
+                {/* Left Section - Left Stick and D-pad */}
+                <div className="control-group">
+                  <div className="control-label">Left Stick</div>
+                  <div className="joystick-container">
+                    <div 
+                      className="joystick-dot"
+                      style={{
+                        transform: `translate(${safeControlState.linear.x * 30}px, ${safeControlState.linear.y * 30}px)`
+                      }}
+                    />
                   </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Right Stick</div>
-                    <div>{rosMappings.rightStick.x}</div>
-                    <div>{rosMappings.rightStick.y}</div>
+                  <div className="value-display">
+                    X: {safeControlState.linear.x.toFixed(2)}
+                    Y: {safeControlState.linear.y.toFixed(2)}
                   </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Triggers</div>
-                    <div>{rosMappings.triggers.left}</div>
-                    <div>{rosMappings.triggers.right}</div>
+                </div>
+
+                <div className="control-group">
+                  <div className="control-label">D-pad</div>
+                  <div className="dpad">
+                    <div className={`dpad-button ${buttonStates.DpadUp ? 'pressed' : ''}`}>↑</div>
+                    <div className={`dpad-button ${buttonStates.DpadRight ? 'pressed' : ''}`}>→</div>
+                    <div className={`dpad-button ${buttonStates.DpadDown ? 'pressed' : ''}`}>↓</div>
+                    <div className={`dpad-button ${buttonStates.DpadLeft ? 'pressed' : ''}`}>←</div>
+                    <div className="dpad-button dpad-center"></div>
                   </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">D-pad</div>
-                    <div>{rosMappings.dpad.up}</div>
-                    <div>{rosMappings.dpad.down}</div>
-                    <div>{rosMappings.dpad.left}</div>
-                    <div>{rosMappings.dpad.right}</div>
+                </div>
+
+                {/* Middle Section - Face Buttons and Right Stick */}
+                <div className="control-group">
+                  <div className="control-label">Face Buttons</div>
+                  <div className="button-grid">
+                    <div className={`button ${buttonStates.Y ? 'pressed' : ''}`}><span>Y</span></div>
+                    <div className={`button ${buttonStates.B ? 'pressed' : ''}`}><span>B</span></div>
+                    <div className={`button ${buttonStates.X ? 'pressed' : ''}`}><span>X</span></div>
+                    <div className={`button ${buttonStates.A ? 'pressed' : ''}`}><span>A</span></div>
                   </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Buttons</div>
-                    <div>{rosMappings.buttons.A}</div>
-                    <div>{rosMappings.buttons.B}</div>
-                    <div>{rosMappings.buttons.X}</div>
-                    <div>{rosMappings.buttons.Y}</div>
+                </div>
+
+                <div className="control-group">
+                  <div className="control-label">Right Stick</div>
+                  <div className="joystick-container">
+                    <div 
+                      className="joystick-dot"
+                      style={{
+                        transform: `translate(${safeControlState.angular.x * 30}px, ${safeControlState.angular.y * 30}px)`
+                      }}
+                    />
                   </div>
-                </>
-              )}
+                  <div className="value-display">
+                    X: {safeControlState.angular.x.toFixed(2)}
+                    Y: {safeControlState.angular.y.toFixed(2)}
+                  </div>
+                </div>
+
+                {/* Right Section - Triggers and Shoulder Buttons */}
+                <div className="control-group">
+                  <div className="control-label">Left Triggers</div>
+                  <div className="trigger-container">
+                    <div className="trigger">
+                      <div 
+                        className="trigger-fill"
+                        style={{ width: `${(buttonStates.L2 ? 1 : 0) * 100}%` }}
+                      />
+                    </div>
+                    <div className="value-display">L2: {((buttonStates.L2 ? 1 : 0) * 100).toFixed(0)}%</div>
+                    <div className={`button ${buttonStates.L1 ? 'pressed' : ''}`}>L1</div>
+                    <div className={`button ${buttonStates.L3 ? 'pressed' : ''}`}>L3</div>
+                    <div className={`button ${buttonStates.L4 ? 'pressed' : ''}`}>L4</div>
+                  </div>
+                </div>
+
+                <div className="control-group">
+                  <div className="control-label">Right Triggers</div>
+                  <div className="trigger-container">
+                    <div className="trigger">
+                      <div 
+                        className="trigger-fill"
+                        style={{ width: `${(buttonStates.R2 ? 1 : 0) * 100}%` }}
+                      />
+                    </div>
+                    <div className="value-display">R2: {((buttonStates.R2 ? 1 : 0) * 100).toFixed(0)}%</div>
+                    <div className={`button ${buttonStates.R1 ? 'pressed' : ''}`}>R1</div>
+                    <div className={`button ${buttonStates.R3 ? 'pressed' : ''}`}>R3</div>
+                    <div className={`button ${buttonStates.R4 ? 'pressed' : ''}`}>R4</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+      
+      {/* Mappings panel is now outside of the control-overlay */}
+      <div className={`mapping-section ${showMappings ? 'visible' : ''}`} onClick={(e) => e.stopPropagation()}>
+        {showMappings && (
+          <div className="mapping-content">
+            <div className="mapping-title">ROS Mappings</div>
+            
+            <div className="mapping-info">
+              <div className="mapping-title">Left Stick</div>
+              <div>{rosMappings.leftStick.x}</div>
+              <div>{rosMappings.leftStick.y}</div>
             </div>
             
-            <div className="control-section">
-              {/* Left Section - Left Stick and D-pad */}
-              <div className="control-group">
-                <div className="control-label">Left Stick</div>
-                <div className="joystick-container">
-                  <div 
-                    className="joystick-dot"
-                    style={{
-                      transform: `translate(${safeControlState.linear.x * 30}px, ${safeControlState.linear.y * 30}px)`
-                    }}
-                  />
-                </div>
-                <div className="value-display">
-                  X: {safeControlState.linear.x.toFixed(2)}
-                  Y: {safeControlState.linear.y.toFixed(2)}
-                </div>
-              </div>
-
-              <div className="control-group">
-                <div className="control-label">D-pad</div>
-                <div className="dpad">
-                  <div className={`dpad-button ${buttonStates.DpadUp ? 'pressed' : ''}`}>↑</div>
-                  <div className={`dpad-button ${buttonStates.DpadRight ? 'pressed' : ''}`}>→</div>
-                  <div className={`dpad-button ${buttonStates.DpadDown ? 'pressed' : ''}`}>↓</div>
-                  <div className={`dpad-button ${buttonStates.DpadLeft ? 'pressed' : ''}`}>←</div>
-                  <div className="dpad-button dpad-center"></div>
-                </div>
-              </div>
-
-              {/* Middle Section - Face Buttons and Right Stick */}
-              <div className="control-group">
-                <div className="control-label">Face Buttons</div>
-                <div className="button-grid">
-                  <div className={`button ${buttonStates.Y ? 'pressed' : ''}`}><span>Y</span></div>
-                  <div className={`button ${buttonStates.B ? 'pressed' : ''}`}><span>B</span></div>
-                  <div className={`button ${buttonStates.X ? 'pressed' : ''}`}><span>X</span></div>
-                  <div className={`button ${buttonStates.A ? 'pressed' : ''}`}><span>A</span></div>
-                </div>
-              </div>
-
-              <div className="control-group">
-                <div className="control-label">Right Stick</div>
-                <div className="joystick-container">
-                  <div 
-                    className="joystick-dot"
-                    style={{
-                      transform: `translate(${safeControlState.angular.x * 30}px, ${safeControlState.angular.y * 30}px)`
-                    }}
-                  />
-                </div>
-                <div className="value-display">
-                  X: {safeControlState.angular.x.toFixed(2)}
-                  Y: {safeControlState.angular.y.toFixed(2)}
-                </div>
-              </div>
-
-              {/* Right Section - Triggers and Shoulder Buttons */}
-              <div className="control-group">
-                <div className="control-label">Left Triggers</div>
-                <div className="trigger-container">
-                  <div className="trigger">
-                    <div 
-                      className="trigger-fill"
-                      style={{ width: `${(buttonStates.L2 ? 1 : 0) * 100}%` }}
-                    />
-                  </div>
-                  <div className="value-display">L2: {((buttonStates.L2 ? 1 : 0) * 100).toFixed(0)}%</div>
-                  <div className={`button ${buttonStates.L1 ? 'pressed' : ''}`}>L1</div>
-                  <div className={`button ${buttonStates.L3 ? 'pressed' : ''}`}>L3</div>
-                  <div className={`button ${buttonStates.L4 ? 'pressed' : ''}`}>L4</div>
-                </div>
-              </div>
-
-              <div className="control-group">
-                <div className="control-label">Right Triggers</div>
-                <div className="trigger-container">
-                  <div className="trigger">
-                    <div 
-                      className="trigger-fill"
-                      style={{ width: `${(buttonStates.R2 ? 1 : 0) * 100}%` }}
-                    />
-                  </div>
-                  <div className="value-display">R2: {((buttonStates.R2 ? 1 : 0) * 100).toFixed(0)}%</div>
-                  <div className={`button ${buttonStates.R1 ? 'pressed' : ''}`}>R1</div>
-                  <div className={`button ${buttonStates.R3 ? 'pressed' : ''}`}>R3</div>
-                  <div className={`button ${buttonStates.R4 ? 'pressed' : ''}`}>R4</div>
-                </div>
-              </div>
+            <div className="mapping-info">
+              <div className="mapping-title">Right Stick</div>
+              <div>{rosMappings.rightStick.x}</div>
+              <div>{rosMappings.rightStick.y}</div>
+            </div>
+            
+            <div className="mapping-info">
+              <div className="mapping-title">Triggers</div>
+              <div>{rosMappings.triggers.left}</div>
+              <div>{rosMappings.triggers.right}</div>
+            </div>
+            
+            <div className="mapping-info">
+              <div className="mapping-title">D-pad</div>
+              <div>{rosMappings.dpad.up}</div>
+              <div>{rosMappings.dpad.down}</div>
+              <div>{rosMappings.dpad.left}</div>
+              <div>{rosMappings.dpad.right}</div>
+            </div>
+            
+            <div className="mapping-info">
+              <div className="mapping-title">Buttons</div>
+              <div>{rosMappings.buttons.A}</div>
+              <div>{rosMappings.buttons.B}</div>
+              <div>{rosMappings.buttons.X}</div>
+              <div>{rosMappings.buttons.Y}</div>
             </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 };

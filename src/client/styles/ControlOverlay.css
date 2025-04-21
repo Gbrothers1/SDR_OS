@@ -25,7 +25,6 @@
   backdrop-filter: blur(5px);
   box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
   pointer-events: auto;
-  transform: none !important;
 }
 
 .control-overlay::before {
@@ -215,21 +214,47 @@
   font-size: 14px;
 }
 
+/* Place the mapping panel outside the control overlay container */
+.controls-container {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 995;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+
 .mapping-section {
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 0;
+  position: fixed;
+  left: 450px;
+  bottom: 20px;
+  width: 280px;
+  max-height: 80vh;
   overflow-y: auto;
-  transition: width 0.3s ease, opacity 0.3s ease 0.1s;
-  border-right: 1px solid rgba(0, 229, 255, 0.2);
-  padding-right: 10px;
-  background-color: rgba(0, 0, 0, 0.2);
-  z-index: 10;
+  transition: all 0.3s ease;
+  padding: 15px;
+  background-color: rgba(12, 20, 35, 0.85);
+  z-index: 995; 
   opacity: 0;
   scrollbar-width: thin;
   scrollbar-color: #00e5ff rgba(0, 0, 0, 0.3);
+  clip-path: polygon(
+    0% 20px,    /* Top left */
+    20px 0%,    /* Top left inner corner */
+    calc(100% - 20px) 0%,   /* Top right inner corner */
+    100% 20px,  /* Top right */
+    100% calc(100% - 20px), /* Bottom right */
+    calc(100% - 20px) 100%, /* Bottom right inner corner */
+    20px 100%,  /* Bottom left inner corner */
+    0% calc(100% - 20px)    /* Bottom left */
+  );
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  transform: translateX(-50px);
+  display: none;
 }
 
 .mapping-section::-webkit-scrollbar {
@@ -246,12 +271,28 @@
 }
 
 .mapping-section.visible {
-  width: 200px;
   opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+  display: block;
 }
 
-.mapping-section.visible + .control-section {
-  margin-left: 200px; /* Push control section to the right when mapping is visible */
+/* Add new styles for the mapping contents */
+.mapping-content {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.mapping-title {
+  color: #f89406;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(248, 148, 6, 0.3);
+  padding-bottom: 5px;
 }
 
 .control-group {
@@ -445,21 +486,15 @@
   border-radius: 3px;
 }
 
-.mapping-title {
-  color: #f89406;
-  font-size: 0.9rem;
-  font-weight: 600;
-  margin-bottom: 10px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  border-bottom: 1px solid rgba(248, 148, 6, 0.3);
-  padding-bottom: 5px;
-}
-
 @media (max-width: 768px) {
-  .control-overlay {
+  .controls-container {
     bottom: 10px;
     left: 10px;
+  }
+
+  .control-overlay {
+    bottom: 0;
+    left: 0;
     width: 300px;
     max-height: 95vh;
   }
@@ -491,8 +526,10 @@
     font-size: 0.7rem;
   }
   
-  .mapping-section.visible {
-    width: 150px;
+  .mapping-section {
+    left: 320px;
+    width: 220px;
+    bottom: 10px;
   }
 
   .control-label {
@@ -510,5 +547,9 @@
   .control-content {
     max-height: calc(95vh - 60px);
     padding: 10px;
+  }
+
+  .mapping-section.visible {
+    transform: translateX(0);
   }
 } 
