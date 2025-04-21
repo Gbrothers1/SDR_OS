@@ -27,6 +27,7 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
       gridSize: 1.0,
       gridColor: '#333333',
       tfThrottleRate: 10,
+      showCameraFeed: false,
     },
     control: {
       enableKeyboard: true,
@@ -72,6 +73,7 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
         ...prev.visualization,
         ...(loadedSettings.visualization || {}),
         tfThrottleRate: loadedSettings.visualization?.tfThrottleRate !== undefined ? loadedSettings.visualization.tfThrottleRate : 10,
+        showCameraFeed: loadedSettings.visualization?.showCameraFeed !== undefined ? loadedSettings.visualization.showCameraFeed : false,
       },
       control: { ...prev.control, ...(loadedSettings.control || {}) },
       topics: { ...prev.topics, ...(loadedSettings.topics || {}) },
@@ -297,6 +299,14 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
                 step="1"
                 value={settings.visualization.tfThrottleRate}
                 onChange={(e) => handleChange('visualization', 'tfThrottleRate', parseInt(e.target.value) || 1)}
+              />
+            </div>
+            <div className="setting-item">
+              <label>Show Camera Feed</label>
+              <input
+                type="checkbox"
+                checked={settings.visualization.showCameraFeed}
+                onChange={(e) => handleChange('visualization', 'showCameraFeed', e.target.checked)}
               />
             </div>
           </div>

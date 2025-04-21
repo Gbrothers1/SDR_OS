@@ -6,6 +6,7 @@ import SettingsIcon from './SettingsIcon';
 import SettingsModal from './SettingsModal';
 import TelemetryPanel from './TelemetryPanel';
 import SplashScreen from './SplashScreen';
+import CameraViewer from './CameraViewer';
 import ROSLIB from 'roslib';
 import io from 'socket.io-client';
 import '../styles/App.css';
@@ -20,7 +21,8 @@ const App = () => {
   const [isLogViewerVisible, setIsLogViewerVisible] = useState(false);
   const [displaySettings, setDisplaySettings] = useState({
     showLogViewer: false,
-    showTelemetryPanel: true
+    showTelemetryPanel: true,
+    showCameraFeed: false,
   });
   const [controlState, setControlState] = useState({
     linear: { x: 0, y: 0, z: 0 },
@@ -134,19 +136,18 @@ const App = () => {
   }, []); // No dependencies, function doesn't rely on changing state/props
 
   const handleSettingsSave = (newSettings) => {
-    // Update display settings state
-    setDisplaySettings({
+    // Update display settings state (including camera)
+    const newDisplaySettings = {
       showLogViewer: displaySettings.showLogViewer,
-      showTelemetryPanel: newSettings.telemetry.showTelemetryPanel
-    });
+      showTelemetryPanel: newSettings.telemetry.showTelemetryPanel,
+      showCameraFeed: newSettings.visualization.showCameraFeed,
+    };
+    setDisplaySettings(newDisplaySettings);
     // Update full settings state
     setAppSettings(newSettings);
     
     // Save display settings (for initial load)
-    localStorage.setItem('displaySettings', JSON.stringify({
-      showLogViewer: displaySettings.showLogViewer,
-      showTelemetryPanel: newSettings.telemetry.showTelemetryPanel
-    }));
+    localStorage.setItem('displaySettings', JSON.stringify(newDisplaySettings));
     
     // Save the full settings object (used by Settings.jsx and passed down)
     localStorage.setItem('robotControllerSettings', JSON.stringify(newSettings));
@@ -162,13 +163,17 @@ const App = () => {
         console.error('Error loading full settings:', e);
       }
     }
-    // Load display settings (redundant? Could derive from full settings)
+    // Load display settings 
     const savedDisplaySettings = localStorage.getItem('displaySettings');
     if (savedDisplaySettings) {
       try {
-        const settings = JSON.parse(savedDisplaySettings);
-        setDisplaySettings(settings);
-        setIsLogViewerVisible(settings.showLogViewer);
+        const loadedDisplay = JSON.parse(savedDisplaySettings);
+        // Ensure all expected fields exist
+        setDisplaySettings(prev => ({ 
+          ...prev, // Start with defaults
+          ...loadedDisplay // Override with loaded values
+        }));
+        setIsLogViewerVisible(loadedDisplay.showLogViewer);
       } catch (e) {
         console.error('Error loading display settings:', e);
       }
@@ -223,6 +228,13 @@ const App = () => {
               ros={ros} 
               // Pass updateInterval from settings state
               updateInterval={appSettings?.telemetry?.updateInterval ?? 100} // Default 100ms
+            />
+          }
+          {displaySettings.showCameraFeed && 
+            <CameraViewer 
+              ros={ros} 
+              // topic={appSettings?.topics?.camera ?? '/webcam/image_raw'} // Example if topic is in settings
+              topic={'/webcam/image_raw'} // Hardcode for now
             />
           }
           

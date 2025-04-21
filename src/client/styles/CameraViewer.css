@@ -1,0 +1,57 @@
+.camera-viewer {
+  position: absolute;
+  bottom: 20px; /* Position near the bottom */
+  left: 20px;   /* Position on the left */
+  width: 320px; /* Adjust width as needed */
+  /* height: 240px; /* Adjust height as needed */
+  background-color: rgba(0, 0, 0, 0.75);
+  border: 1px solid #555;
+  border-radius: 8px;
+  color: white;
+  font-family: 'Roboto', sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Ensures content stays within borders */
+  z-index: 900; /* Ensure it's above other elements like RobotViewer */
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.camera-header {
+  background-color: rgba(60, 60, 60, 0.9);
+  padding: 5px 10px;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  border-bottom: 1px solid #555;
+}
+
+.camera-content {
+  flex-grow: 1; /* Take remaining space */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 5px; /* Small padding around the image */
+  background-color: rgba(20, 20, 20, 0.8); /* Darker background for content */
+}
+
+.camera-content img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%; 
+  height: auto; /* Maintain aspect ratio */
+  width: auto; /* Maintain aspect ratio */
+  object-fit: contain; /* Fit image within container without stretching */
+  background-color: #000; /* Black background if image doesn't fill space */
+}
+
+.camera-loading,
+.camera-error {
+  padding: 20px;
+  text-align: center;
+  font-size: 14px;
+  color: #ccc;
+}
+
+.camera-error {
+  color: #ff6b6b; /* Reddish color for errors */
+} 
