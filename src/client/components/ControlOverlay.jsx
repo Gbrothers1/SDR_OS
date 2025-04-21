@@ -235,26 +235,72 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
       className={`control-overlay ${isHidden ? 'hidden' : ''}`}
       onClick={toggleHide} // Use onClick for both hidden and visible states, logic handled in toggleHide
     >
+      <div className="control-border"></div>
       {!isHidden && (
         <>
           {/* Control buttons */}
           <div className="control-buttons">
-            <button 
-              className="control-button mappings-toggle" 
-              onClick={toggleMappings}
-            >
-              {showMappings ? 'Hide Mappings' : 'Show Mappings'}
-            </button>
-            <button 
-              className="control-button hide-toggle" 
-              onClick={toggleHide} // Bind toggleHide to the hide button too
-            >
-              Hide Controls
-            </button>
+            <h3>CONTROLS</h3>
+            <div>
+              <button 
+                className="control-button mappings-toggle" 
+                onClick={toggleMappings}
+              >
+                {showMappings ? 'Hide Mappings' : 'Show Mappings'}
+              </button>
+              <button 
+                className="control-button hide-toggle" 
+                onClick={toggleHide} // Bind toggleHide to the hide button too
+              >
+                Hide
+              </button>
+            </div>
           </div>
 
-          <div className="control-content" onClick={(e) => e.stopPropagation()}> {/* Prevent clicks inside content from hiding overlay */}
-            {/* Controls Section */}
+          <div className="control-content">
+            {/* ROS Mappings Section - Overlay */}
+            <div className={`mapping-section ${showMappings ? 'visible' : ''}`} onClick={(e) => e.stopPropagation()}>
+              {showMappings && (
+                <>
+                  <div className="mapping-title">ROS Mappings</div>
+                  
+                  <div className="mapping-info">
+                    <div className="mapping-title">Left Stick</div>
+                    <div>{rosMappings.leftStick.x}</div>
+                    <div>{rosMappings.leftStick.y}</div>
+                  </div>
+                  
+                  <div className="mapping-info">
+                    <div className="mapping-title">Right Stick</div>
+                    <div>{rosMappings.rightStick.x}</div>
+                    <div>{rosMappings.rightStick.y}</div>
+                  </div>
+                  
+                  <div className="mapping-info">
+                    <div className="mapping-title">Triggers</div>
+                    <div>{rosMappings.triggers.left}</div>
+                    <div>{rosMappings.triggers.right}</div>
+                  </div>
+                  
+                  <div className="mapping-info">
+                    <div className="mapping-title">D-pad</div>
+                    <div>{rosMappings.dpad.up}</div>
+                    <div>{rosMappings.dpad.down}</div>
+                    <div>{rosMappings.dpad.left}</div>
+                    <div>{rosMappings.dpad.right}</div>
+                  </div>
+                  
+                  <div className="mapping-info">
+                    <div className="mapping-title">Buttons</div>
+                    <div>{rosMappings.buttons.A}</div>
+                    <div>{rosMappings.buttons.B}</div>
+                    <div>{rosMappings.buttons.X}</div>
+                    <div>{rosMappings.buttons.Y}</div>
+                  </div>
+                </>
+              )}
+            </div>
+            
             <div className="control-section">
               {/* Left Section - Left Stick and D-pad */}
               <div className="control-group">
@@ -288,10 +334,10 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
               <div className="control-group">
                 <div className="control-label">Face Buttons</div>
                 <div className="button-grid">
-                  <div className={`button ${buttonStates.Y ? 'pressed' : ''}`}>Y</div>
-                  <div className={`button ${buttonStates.B ? 'pressed' : ''}`}>B</div>
-                  <div className={`button ${buttonStates.X ? 'pressed' : ''}`}>X</div>
-                  <div className={`button ${buttonStates.A ? 'pressed' : ''}`}>A</div>
+                  <div className={`button ${buttonStates.Y ? 'pressed' : ''}`}><span>Y</span></div>
+                  <div className={`button ${buttonStates.B ? 'pressed' : ''}`}><span>B</span></div>
+                  <div className={`button ${buttonStates.X ? 'pressed' : ''}`}><span>X</span></div>
+                  <div className={`button ${buttonStates.A ? 'pressed' : ''}`}><span>A</span></div>
                 </div>
               </div>
 
@@ -343,49 +389,6 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
                   <div className={`button ${buttonStates.R4 ? 'pressed' : ''}`}>R4</div>
                 </div>
               </div>
-            </div>
-
-            {/* ROS Mappings Section - Overlay */}
-            <div className={`mapping-section ${showMappings ? 'visible' : ''}`} onClick={(e) => e.stopPropagation()}> {/* Prevent clicks inside mapping from hiding overlay */}
-              {showMappings && (
-                <>
-                  <div className="mapping-title">ROS Mappings</div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Left Stick</div>
-                    <div>{rosMappings.leftStick.x}</div>
-                    <div>{rosMappings.leftStick.y}</div>
-                  </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Right Stick</div>
-                    <div>{rosMappings.rightStick.x}</div>
-                    <div>{rosMappings.rightStick.y}</div>
-                  </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Triggers</div>
-                    <div>{rosMappings.triggers.left}</div>
-                    <div>{rosMappings.triggers.right}</div>
-                  </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">D-pad</div>
-                    <div>{rosMappings.dpad.up}</div>
-                    <div>{rosMappings.dpad.down}</div>
-                    <div>{rosMappings.dpad.left}</div>
-                    <div>{rosMappings.dpad.right}</div>
-                  </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Buttons</div>
-                    <div>{rosMappings.buttons.A}</div>
-                    <div>{rosMappings.buttons.B}</div>
-                    <div>{rosMappings.buttons.X}</div>
-                    <div>{rosMappings.buttons.Y}</div>
-                  </div>
-                </>
-              )}
             </div>
           </div>
         </>

@@ -271,14 +271,12 @@ const App = () => {
         </div>
         
         {isLogViewerVisible && (
-          <div className="log-container">
-            <LogViewer 
-              ros={ros} 
-              // Pass subscription settings from state (or default)
-              subscribeRosout={appSettings?.logging?.subscribeRosout ?? true}
-              subscribeDiagnostics={appSettings?.logging?.subscribeDiagnostics ?? true}
-            />
-          </div>
+          <LogViewer 
+            ros={ros} 
+            // Pass subscription settings from state (or default)
+            subscribeRosout={appSettings?.logging?.subscribeRosout ?? true}
+            subscribeDiagnostics={appSettings?.logging?.subscribeDiagnostics ?? true}
+          />
         )}
       </div>
       

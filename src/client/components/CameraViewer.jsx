@@ -178,6 +178,7 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
       }}
       onMouseDown={handleMouseDown}
     >
+      <div className="camera-border"></div>
       <div className="camera-header">
         <span>Camera Feed</span>
         <div className="camera-controls">

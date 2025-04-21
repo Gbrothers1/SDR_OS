@@ -1,30 +1,101 @@
 .control-overlay {
-  position: absolute;
+  position: fixed;
   bottom: 20px;
   left: 20px;
-  background-color: rgba(0, 0, 0, 0.8);
-  border-radius: 10px;
-  padding: 15px;
+  width: 400px;
+  max-height: 80vh;
+  background-color: rgba(12, 20, 35, 0.4);
   color: white;
-  font-family: 'Roboto', sans-serif;
-  max-width: 400px;
-  max-height: 600px;
-  height: 600px;
-  transition: transform 0.3s ease, opacity 0.3s ease, width 0.3s ease, height 0.3s ease, padding 0.3s ease, border-radius 0.3s ease;
+  font-family: 'Rajdhani', 'Orbitron', sans-serif;
+  transition: all 0.3s ease;
   z-index: 1000;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  transform-origin: bottom left;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  clip-path: polygon(
+    0% 20px,    /* Top left */
+    20px 0%,    /* Top left inner corner */
+    calc(100% - 20px) 0%,   /* Top right inner corner */
+    100% 20px,  /* Top right */
+    100% calc(100% - 20px), /* Bottom right */
+    calc(100% - 20px) 100%, /* Bottom right inner corner */
+    20px 100%,  /* Bottom left inner corner */
+    0% calc(100% - 20px)    /* Bottom left */
+  );
+  backdrop-filter: blur(5px);
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  transform: none !important;
+}
+
+.control-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='rgba(255,255,255,0.03)' fill-rule='evenodd'/%3E%3C/svg%3E");
+  opacity: 0.5;
+  z-index: -1;
+}
+
+.control-overlay::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent 48%, #00e5ff 49%, #00e5ff 51%, transparent 52%);
+  background-size: 10px 10px;
+  opacity: 0.03;
+  z-index: -1;
+}
+
+.control-border {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.control-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background: #00e5ff;
+  box-shadow: 0 0 15px #00e5ff, 0 0 5px #00e5ff;
+}
+
+.control-border::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background: #00e5ff;
+  box-shadow: 0 0 15px #00e5ff, 0 0 5px #00e5ff;
 }
 
 .control-overlay.hidden {
   width: 50px;
   height: 50px;
-  padding: 0;
-  border-radius: 50%;
+  clip-path: none;
+  border-radius: 8px;
   cursor: pointer;
   overflow: hidden;
+  padding: 0;
+  background-color: rgba(12, 20, 35, 0.4);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
 }
 
 .control-overlay.hidden::after {
@@ -35,9 +106,10 @@
   transform: translate(-50%, -50%);
   width: 30px;
   height: 30px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M21 6H3C1.9 6 1 6.9 1 8v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2300e5ff'%3E%3Cpath d='M21 6H3C1.9 6 1 6.9 1 8v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z'/%3E%3C/svg%3E");
   background-size: contain;
   background-repeat: no-repeat;
+  z-index: 10;
 }
 
 .control-overlay.hidden .control-buttons,
@@ -50,39 +122,85 @@
   display: flex;
   justify-content: space-between;
   margin-bottom: 15px;
+  padding: 12px 15px;
   transition: opacity 0.3s ease 0.1s;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.05), transparent);
+  border-bottom: 1px solid rgba(0, 229, 255, 0.2);
+  position: relative;
+}
+
+.control-buttons h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #00e5ff;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
 }
 
 .control-button {
-  background-color: #2196F3;
-  color: white;
-  border: none;
-  border-radius: 5px;
+  background-color: rgba(0, 229, 255, 0.1);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  color: #00e5ff;
+  border-radius: 3px;
   padding: 8px 12px;
   cursor: pointer;
   font-size: 14px;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
+  font-family: 'Rajdhani', 'Orbitron', sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .control-button:hover {
-  background-color: #1976D2;
+  background-color: rgba(0, 229, 255, 0.2);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
 }
 
 .hide-toggle {
-  background-color: #f44336;
+  background-color: rgba(248, 148, 6, 0.1);
+  border: 1px solid rgba(248, 148, 6, 0.3);
+  color: #f89406;
 }
 
 .hide-toggle:hover {
-  background-color: #d32f2f;
+  background-color: rgba(248, 148, 6, 0.2);
+  box-shadow: 0 0 10px rgba(248, 148, 6, 0.3);
+  color: #ffb54d;
 }
 
 .control-content {
-  display: flex;
-  flex-direction: row;
-  height: calc(100% - 50px);
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 15px;
   position: relative;
-  transition: opacity 0.3s ease 0.1s;
-  overflow: hidden;
+  max-height: calc(80vh - 60px);
+  scrollbar-width: thin;
+  scrollbar-color: #00e5ff rgba(0, 0, 0, 0.3);
+}
+
+/* Make scrollbar more visible */
+.control-content::-webkit-scrollbar {
+  width: 16px;
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+.control-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+}
+
+.control-content::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, #0051ff, #00e5ff);
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  min-height: 40px;
 }
 
 .control-section {
@@ -90,38 +208,41 @@
   grid-template-columns: repeat(2, 1fr);
   gap: 15px;
   flex: 1;
-  padding-right: 10px;
+  padding: 15px;
   overflow: hidden;
+  margin-left: auto;
+  transition: margin-left 0.3s ease;
+  font-size: 14px;
 }
 
 .mapping-section {
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
   bottom: 0;
   width: 0;
   overflow-y: auto;
   transition: width 0.3s ease, opacity 0.3s ease 0.1s;
-  border-left: 1px solid rgba(255, 255, 255, 0.2);
-  padding-left: 10px;
-  background-color: rgba(0, 0, 0, 0.8);
+  border-right: 1px solid rgba(0, 229, 255, 0.2);
+  padding-right: 10px;
+  background-color: rgba(0, 0, 0, 0.2);
   z-index: 10;
   opacity: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  scrollbar-color: #00e5ff rgba(0, 0, 0, 0.3);
 }
 
 .mapping-section::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .mapping-section::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(0, 0, 0, 0.3);
 }
 
 .mapping-section::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
+  background: linear-gradient(to bottom, #0051ff, #00e5ff);
+  border-radius: 4px;
 }
 
 .mapping-section.visible {
@@ -129,38 +250,76 @@
   opacity: 1;
 }
 
+.mapping-section.visible + .control-section {
+  margin-left: 200px; /* Push control section to the right when mapping is visible */
+}
+
 .control-group {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 15px;
+  border: 1px solid rgba(0, 229, 255, 0.15);
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.control-group::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00e5ff, transparent);
+  opacity: 0.6;
 }
 
 .control-label {
-  font-weight: bold;
-  font-size: 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f89406;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+}
+
+.control-label::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background: #f89406;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  opacity: 0.7;
+  margin-right: 8px;
 }
 
 .joystick-container {
   width: 60px;
   height: 60px;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(0, 0, 0, 0.3);
   border-radius: 50%;
   position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
 }
 
 .joystick-dot {
   width: 12px;
   height: 12px;
-  background-color: #4CAF50;
+  background-color: #00e5ff;
   border-radius: 50%;
   position: absolute;
   transition: transform 0.1s ease;
   transform: translate(0, 0);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.8);
 }
 
 .trigger-container {
@@ -174,16 +333,24 @@
 .trigger {
   width: 100%;
   height: 20px;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  background-color: rgba(0, 0, 0, 0.3);
+  border-radius: 0;
   position: relative;
   overflow: hidden;
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  clip-path: polygon(0% 0%, 95% 0%, 100% 50%, 95% 100%, 0% 100%);
 }
 
 .trigger-fill {
   height: 100%;
-  background-color: #FF9800;
+  background-color: rgba(0, 229, 255, 0.5);
   transition: width 0.1s ease, margin-left 0.1s ease;
+  background-image: linear-gradient(
+    to right,
+    rgba(0, 229, 255, 0.3),
+    rgba(0, 229, 255, 0.7)
+  );
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
 }
 
 .dpad {
@@ -198,99 +365,150 @@
 .dpad-button {
   width: 30px;
   height: 30px;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
+  min-width: 30px;
+  min-height: 30px;
+  background-color: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 229, 255, 0.2);
   display: flex;
   justify-content: center;
   align-items: center;
-  font-size: 18px;
-  transition: background-color 0.1s ease;
+  font-size: 0.75rem;
+  transition: all 0.1s ease;
+  border-radius: 50%;
 }
 
 .dpad-button.pressed {
-  background-color: #9C27B0;
+  background-color: rgba(0, 229, 255, 0.5);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+  border-color: rgba(0, 229, 255, 0.8);
 }
 
 .dpad-center {
   background-color: transparent;
+  border: none;
+  clip-path: none;
 }
 
 .button-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  grid-gap: 12px;
+  width: 100%;
 }
 
 .button {
   width: 40px;
   height: 40px;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
+  min-width: 40px;
+  min-height: 40px;
   display: flex;
   justify-content: center;
   align-items: center;
-  font-size: 16px;
-  transition: background-color 0.1s ease;
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+  position: relative;
+  margin: 0 auto;
+  background-color: rgba(0, 229, 255, 0.1);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  font-size: 0.75rem;
+  padding: 4px;
+}
+
+.button span {
+  display: block;
+  font-size: 0.75rem;
 }
 
 .button.pressed {
-  background-color: #E91E63;
+  background-color: rgba(0, 229, 255, 0.4);
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.6);
+  transform: scale(0.9);
 }
 
 .value-display {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.8rem;
+  color: #00e5ff;
+  margin-top: 2px;
 }
 
 .mapping-info {
-  font-size: 12px;
+  font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.7);
   text-align: left;
   margin-top: 5px;
   padding: 5px;
-  background-color: rgba(0, 0, 0, 0.3);
-  border-radius: 5px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(0, 229, 255, 0.1);
+  border-radius: 3px;
 }
 
 .mapping-title {
-  font-weight: bold;
-  margin-bottom: 5px;
-  color: #2196F3;
+  color: #f89406;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(248, 148, 6, 0.3);
+  padding-bottom: 5px;
 }
 
 @media (max-width: 768px) {
   .control-overlay {
     bottom: 10px;
     left: 10px;
-    padding: 10px;
-    max-width: 300px;
-    max-height: 500px;
-    height: 500px;
+    width: 300px;
+    max-height: 95vh;
   }
-
+  
   .control-section {
-    grid-template-columns: 1fr;
+    padding: 10px;
     gap: 10px;
+    font-size: 12px;
   }
-
+  
   .dpad {
-    width: 90px;
-    height: 90px;
+    width: 100px;
+    height: 100px;
   }
-
+  
   .dpad-button {
     width: 25px;
     height: 25px;
-    font-size: 14px;
+    min-width: 25px;
+    min-height: 25px;
+    font-size: 0.7rem;
   }
-
+  
   .button {
     width: 35px;
     height: 35px;
-    font-size: 14px;
+    min-width: 35px;
+    min-height: 35px;
+    font-size: 0.7rem;
   }
   
   .mapping-section.visible {
     width: 150px;
+  }
+
+  .control-label {
+    font-size: 0.75rem;
+  }
+
+  .value-display {
+    font-size: 0.7rem;
+  }
+
+  .button span {
+    font-size: 0.7rem;
+  }
+
+  .control-content {
+    max-height: calc(95vh - 60px);
+    padding: 10px;
   }
 } 

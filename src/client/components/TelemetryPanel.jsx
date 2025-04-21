@@ -318,11 +318,12 @@ const TelemetryPanel = ({ ros, updateInterval }) => {
   console.log('--- Rendering TelemetryPanel --- State:', { telemetryData, dataHistory, error, showPanel });
 
   return (
-    <div className={`telemetry-panel ${showPanel ? '' : 'collapsed'}`}>
+    <div className={`telemetry-panel ${!showPanel ? 'collapsed' : ''}`}>
+      <div className="telemetry-panel-border"></div>
       <div className="panel-header">
-        <h3>Sensor Telemetry</h3>
+        <h3>Telemetry</h3>
         <button className="toggle-button" onClick={togglePanel}>
-          {showPanel ? '−' : '+'}
+          <span>{showPanel ? "📊" : "📊"}</span>
         </button>
       </div>
       

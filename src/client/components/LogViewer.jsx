@@ -10,6 +10,7 @@ const LogViewer = ({ ros, subscribeRosout, subscribeDiagnostics }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [rosapiAvailable, setRosapiAvailable] = useState(false);
   const [isLogging, setIsLogging] = useState(true);
+  const [showPanel, setShowPanel] = useState(true);
   const logContainerRef = useRef(null);
   const lastCmdVelState = useRef({ linear: { x: 0, y: 0, z: 0 }, angular: { x: 0, y: 0, z: 0 } });
 
@@ -269,8 +270,13 @@ const LogViewer = ({ ros, subscribeRosout, subscribeDiagnostics }) => {
     return date.toLocaleTimeString();
   };
 
+  // Add toggle panel function
+  const togglePanel = () => {
+    setShowPanel(!showPanel);
+  };
+
   return (
-    <div className="log-viewer">
+    <div className={`log-viewer ${!showPanel ? 'collapsed' : ''}`}>
       <div className="log-viewer-header">
         <h3>Log Viewer</h3>
         <div className="log-controls">
@@ -278,56 +284,63 @@ const LogViewer = ({ ros, subscribeRosout, subscribeDiagnostics }) => {
             className={`log-button ${isLogging ? 'stop-button' : 'start-button'}`}
             onClick={handleToggleLogging}
           >
-            {isLogging ? 'Stop' : 'Start'}
+            <span>{isLogging ? '⏹' : '▶'}</span>
           </button>
           <button 
             className="clear-button" 
             onClick={handleClearLogs}
             disabled={logs.length === 0}
           >
-            Clear Logs
+            <span>🗑️</span>
+          </button>
+          <button className="toggle-button" onClick={togglePanel}>
+            <span>{showPanel ? "📋" : "📋"}</span>
           </button>
         </div>
       </div>
       
-      {error && <div className="error-message">{error}</div>}
-      
-      <div className="topic-selector">
-        <label htmlFor="topic-select">Select Topic:</label>
-        <select
-          id="topic-select" 
-          value={selectedTopic}
-          onChange={handleTopicChange}
-          disabled={isLoading || !ros}
-        >
-          {defaultTopics.map(topic => (
-            <option key={topic.name} value={topic.name}>{topic.name}</option>
-          ))}
-        </select>
-        {!rosapiAvailable && (
-          <div className="warning-message">
-            Using default topics (ROSAPI not available)
-          </div>
-        )}
-      </div>
-      
-      <div className="log-container" ref={logContainerRef}>
-        {isLoading ? (
-          <div className="loading">Loading topics...</div>
-        ) : logs.length === 0 ? (
-          <div className="no-logs">No logs available for this topic</div>
-        ) : (
-          logs.map((log, index) => (
-            <div key={index} className="log-entry">
-              <div className="log-header">
-                <span className="log-timestamp">{formatTimestamp(log.timestamp)}</span>
-                <span className="log-topic">{log.topic}</span>
+      {showPanel && (
+        <>
+          {error && <div className="error-message">{error}</div>}
+          
+          <div className="topic-selector">
+            <label htmlFor="topic-select">Select Topic:</label>
+            <select
+              id="topic-select" 
+              value={selectedTopic}
+              onChange={handleTopicChange}
+              disabled={isLoading || !ros}
+            >
+              {defaultTopics.map(topic => (
+                <option key={topic.name} value={topic.name}>{topic.name}</option>
+              ))}
+            </select>
+            {!rosapiAvailable && (
+              <div className="warning-message">
+                Using default topics (ROSAPI not available)
               </div>
-              <pre className="log-message">{log.message}</pre>
+            )}
           </div>
-          ))
-        )}
-      </div>
+          
+          <div className="log-container" ref={logContainerRef}>
+            {isLoading ? (
+              <div className="loading">Loading topics...</div>
+            ) : logs.length === 0 ? (
+              <div className="no-logs">No logs available for this topic</div>
+            ) : (
+              logs.map((log, index) => (
+                <div key={index} className="log-entry">
+                  <div className="log-header">
+                    <span className="log-timestamp">{formatTimestamp(log.timestamp)}</span>
+                    <span className="log-topic">{log.topic}</span>
+                  </div>
+                  <pre className="log-message">{log.message}</pre>
+              </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 };

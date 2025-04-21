@@ -279,9 +279,28 @@ const SplashScreen = ({ onComplete }) => {
   };
 
   const handleManualOverride = () => {
-    addSystemLog('MANUAL OVERRIDE INITIATED', 'warning');
+    addSystemLog('MANUAL OVERRIDE INITIATED - BYPASSING INITIALIZATION', 'warning');
     setAutoMode(false);
-    setStage('override');
+    // Set all systems to ready state
+    setConnectionStatus(prev => {
+      const newStatus = {};
+      Object.keys(prev).forEach(system => {
+        newStatus[system] = {
+          ...prev[system],
+          status: 'BYPASSED',
+          ready: true
+        };
+      });
+      return newStatus;
+    });
+    // Add a brief delay before launching
+    setTimeout(() => {
+      addSystemLog('LAUNCHING MAIN SYSTEM INTERFACE', 'success');
+      setStage('launching');
+      setTimeout(() => {
+        onComplete();
+      }, 1000);
+    }, 500);
   };
 
   const handleSystemLaunch = () => {
