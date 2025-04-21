@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import '../styles/Settings.css';
 
-const Settings = ({ isOpen, onClose, onSave }) => {
+const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
   const [settings, setSettings] = useState({
+    rosbridgeUrl: localStorage.getItem('rosBridgeUrl') || 'ws://localhost:9090',
+    socketUrl: localStorage.getItem('socketUrl') || 'http://localhost:3000',
     controller: {
       joystickSensitivity: 1.0,
       joystickDeadzone: 0.1,
@@ -12,16 +14,20 @@ const Settings = ({ isOpen, onClose, onSave }) => {
     telemetry: {
       publishingRate: 10,
       updateInterval: 100,
+      showTelemetryPanel: true,
     },
     logging: {
       logLevel: 'info',
       filterTopics: '',
       maxLogEntries: 1000,
+      subscribeRosout: true,
+      subscribeDiagnostics: true,
     },
     visualization: {
       showGrid: true,
       gridSize: 1.0,
       gridColor: '#333333',
+      tfThrottleRate: 10,
     },
     control: {
       enableKeyboard: true,
@@ -37,24 +43,57 @@ const Settings = ({ isOpen, onClose, onSave }) => {
   });
 
   useEffect(() => {
-    // Load saved settings from localStorage
     const savedSettings = localStorage.getItem('robotControllerSettings');
-    if (savedSettings) {
-      setSettings(JSON.parse(savedSettings));
+    let loadedSettings = {};
+    if (initialSettings) {
+      loadedSettings = initialSettings;
+    } else if (savedSettings) {
+      loadedSettings = JSON.parse(savedSettings);
     }
-  }, []);
 
-  const handleChange = (section, field, value) => {
     setSettings(prev => ({
       ...prev,
-      [section]: {
-        ...prev[section],
-        [field]: value,
+      ...loadedSettings,
+      rosbridgeUrl: loadedSettings.rosbridgeUrl || localStorage.getItem('rosBridgeUrl') || prev.rosbridgeUrl,
+      socketUrl: loadedSettings.socketUrl || localStorage.getItem('socketUrl') || prev.socketUrl,
+      controller: { ...prev.controller, ...(loadedSettings.controller || {}) },
+      telemetry: { ...prev.telemetry, ...(loadedSettings.telemetry || {}) },
+      logging: {
+        ...prev.logging,
+        ...(loadedSettings.logging || {}),
+        subscribeRosout: loadedSettings.logging?.subscribeRosout !== undefined ? loadedSettings.logging.subscribeRosout : true,
+        subscribeDiagnostics: loadedSettings.logging?.subscribeDiagnostics !== undefined ? loadedSettings.logging.subscribeDiagnostics : true,
       },
+      visualization: {
+        ...prev.visualization,
+        ...(loadedSettings.visualization || {}),
+        tfThrottleRate: loadedSettings.visualization?.tfThrottleRate !== undefined ? loadedSettings.visualization.tfThrottleRate : 10,
+      },
+      control: { ...prev.control, ...(loadedSettings.control || {}) },
+      topics: { ...prev.topics, ...(loadedSettings.topics || {}) },
     }));
+  }, [initialSettings]);
+
+  const handleChange = (section, field, value) => {
+    if (section === 'connection') {
+      setSettings(prev => ({
+        ...prev,
+        [field]: value,
+      }));
+    } else {
+      setSettings(prev => ({
+        ...prev,
+        [section]: {
+          ...prev[section],
+          [field]: value,
+        },
+      }));
+    }
   };
 
   const handleSave = () => {
+    localStorage.setItem('rosBridgeUrl', settings.rosbridgeUrl);
+    localStorage.setItem('socketUrl', settings.socketUrl);
     localStorage.setItem('robotControllerSettings', JSON.stringify(settings));
     onSave(settings);
     onClose();
@@ -70,6 +109,26 @@ const Settings = ({ isOpen, onClose, onSave }) => {
           <button className="close-button" onClick={onClose}>&times;</button>
         </div>
         <div className="settings-content">
+          <div className="settings-section">
+            <h3>Connection Settings</h3>
+            <div className="setting-item">
+              <label>ROS Bridge URL</label>
+              <input
+                type="text"
+                value={settings.rosbridgeUrl}
+                onChange={(e) => handleChange('connection', 'rosbridgeUrl', e.target.value)}
+              />
+            </div>
+            <div className="setting-item">
+              <label>Socket.IO URL</label>
+              <input
+                type="text"
+                value={settings.socketUrl}
+                onChange={(e) => handleChange('connection', 'socketUrl', e.target.value)}
+              />
+            </div>
+          </div>
+
           <div className="settings-section">
             <h3>Controller Settings</h3>
             <div className="setting-item">
@@ -144,6 +203,14 @@ const Settings = ({ isOpen, onClose, onSave }) => {
                 onChange={(e) => handleChange('telemetry', 'updateInterval', parseInt(e.target.value))}
               />
             </div>
+            <div className="setting-item">
+              <label>Show Telemetry Panel</label>
+              <input
+                type="checkbox"
+                checked={settings.telemetry.showTelemetryPanel}
+                onChange={(e) => handleChange('telemetry', 'showTelemetryPanel', e.target.checked)}
+              />
+            </div>
           </div>
 
           <div className="settings-section">
@@ -180,6 +247,22 @@ const Settings = ({ isOpen, onClose, onSave }) => {
                 onChange={(e) => handleChange('logging', 'maxLogEntries', parseInt(e.target.value))}
               />
             </div>
+            <div className="setting-item">
+              <label>Subscribe to /rosout</label>
+              <input
+                type="checkbox"
+                checked={settings.logging.subscribeRosout}
+                onChange={(e) => handleChange('logging', 'subscribeRosout', e.target.checked)}
+              />
+            </div>
+            <div className="setting-item">
+              <label>Subscribe to /diagnostics</label>
+              <input
+                type="checkbox"
+                checked={settings.logging.subscribeDiagnostics}
+                onChange={(e) => handleChange('logging', 'subscribeDiagnostics', e.target.checked)}
+              />
+            </div>
           </div>
 
           <div className="settings-section">
@@ -209,6 +292,17 @@ const Settings = ({ isOpen, onClose, onSave }) => {
                 type="color"
                 value={settings.visualization.gridColor}
                 onChange={(e) => handleChange('visualization', 'gridColor', e.target.value)}
+              />
+            </div>
+            <div className="setting-item">
+              <label>TF Throttle Rate (Hz)</label>
+              <input
+                type="number"
+                min="1"
+                max="60"
+                step="1"
+                value={settings.visualization.tfThrottleRate}
+                onChange={(e) => handleChange('visualization', 'tfThrottleRate', parseInt(e.target.value) || 1)}
               />
             </div>
           </div>

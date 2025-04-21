@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import ROSLIB from 'roslib';
 
-const RobotViewer = ({ ros }) => {
+const RobotViewer = ({ ros, tfThrottleRate }) => {
   const containerRef = useRef();
   const sceneRef = useRef();
   const cameraRef = useRef();
@@ -151,8 +151,11 @@ const RobotViewer = ({ ros }) => {
     // Add window resize listener as a fallback
     window.addEventListener('resize', handleResize);
 
-    // Subscribe to IMU data
+    // ROS Subscriptions
     if (ros) {
+      // Calculate throttle interval in milliseconds
+      const throttleIntervalMs = tfThrottleRate > 0 ? 1000 / tfThrottleRate : 0;
+
       // Subscribe to IMU topic
       const imuTopic = new ROSLIB.Topic({
         ros: ros,
@@ -164,32 +167,44 @@ const RobotViewer = ({ ros }) => {
         setImuData(message);
       });
       
-      // Also subscribe to telemetry JSON for more detailed data if needed
-      const telemetryTopic = new ROSLIB.Topic({
-        ros: ros,
-        name: '/robot/telemetry/all',
-        messageType: 'std_msgs/String'
-      });
-      
-      telemetryTopic.subscribe((message) => {
-        try {
-          const data = JSON.parse(message.data);
-          // You can use this for additional telemetry data if needed
-        } catch (err) {
-          console.error('Error parsing telemetry data:', err);
-        }
-      });
-      
-      // Standard ROS joint states subscription
-      const jointStates = new ROSLIB.Topic({
+      // Standard ROS joint states subscription (consider throttling?)
+      const jointStatesTopic = new ROSLIB.Topic({
         ros: ros,
         name: '/joint_states',
         messageType: 'sensor_msgs/JointState'
+        // throttle_rate: throttleIntervalMs, // Can also throttle this if needed
       });
 
-      jointStates.subscribe((message) => {
+      jointStatesTopic.subscribe((message) => {
         // Handle joint state messages for standard robot joints
+        // console.log('Joint States:', message); 
       });
+
+      // Subscribe to TF and TF_Static with throttling
+      const tfTopic = new ROSLIB.Topic({
+        ros: ros,
+        name: '/tf',
+        messageType: 'tf2_msgs/msg/TFMessage',
+        throttle_rate: throttleIntervalMs
+      });
+
+      tfTopic.subscribe((message) => {
+        // Process TF messages (likely handled by a TF client library later)
+        // console.log('TF Message (throttled):', message);
+      });
+
+      const tfStaticTopic = new ROSLIB.Topic({
+        ros: ros,
+        name: '/tf_static',
+        messageType: 'tf2_msgs/msg/TFMessage',
+        throttle_rate: throttleIntervalMs // Throttle static potentially less useful, but consistent
+      });
+
+      tfStaticTopic.subscribe((message) => {
+        // Process TF static messages
+        // console.log('TF Static Message (throttled):', message);
+      });
+
     }
 
     // Cleanup
@@ -205,7 +220,7 @@ const RobotViewer = ({ ros }) => {
         containerRef.current.removeChild(rendererRef.current.domElement);
       }
     };
-  }, [ros]);
+  }, [ros, tfThrottleRate]);
 
   // Update model when IMU data changes
   useEffect(() => {

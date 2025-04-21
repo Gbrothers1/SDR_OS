@@ -1,6 +1,19 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import ROSLIB from 'roslib';
 import '../styles/TelemetryPanel.css';
+
+// Debounce utility function
+const debounce = (func, wait) => {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+};
 
 const TelemetryPanel = ({ ros }) => {
   const [telemetryData, setTelemetryData] = useState(null);
@@ -34,54 +47,56 @@ const TelemetryPanel = ({ ros }) => {
     gyroZ: Array(chartConfig.dataPoints).fill(0),
   });
 
+  // Debounced handler for telemetry data
+  const debouncedHandleTelemetryData = useCallback(debounce((message) => {
+    try {
+      const data = JSON.parse(message.data);
+      setTelemetryData(data); // Update main data state
+      
+      // Update data history for charts
+      if (data.imu) {
+        setDataHistory(prev => {
+          const newHistory = { ...prev };
+          newHistory.accelX = [...prev.accelX.slice(1), data.imu.accel.x];
+          newHistory.accelY = [...prev.accelY.slice(1), data.imu.accel.y];
+          newHistory.accelZ = [...prev.accelZ.slice(1), data.imu.accel.z];
+          newHistory.gyroX = [...prev.gyroX.slice(1), data.imu.gyro.x];
+          newHistory.gyroY = [...prev.gyroY.slice(1), data.imu.gyro.y];
+          newHistory.gyroZ = [...prev.gyroZ.slice(1), data.imu.gyro.z];
+          return newHistory;
+        });
+      }
+    } catch (err) {
+      console.error('Error parsing telemetry data:', err);
+      setError('Error parsing telemetry data');
+    }
+  }, 100), []); // Debounce time: 100ms
+
   useEffect(() => {
     if (!ros) {
       setError('ROS connection not available');
       return;
     }
 
-    // Subscribe to telemetry data
-    const telemetryTopic = new ROSLIB.Topic({
+    let telemetryTopic = null;
+
+    telemetryTopic = new ROSLIB.Topic({
       ros: ros,
       name: '/robot/telemetry/all',
       messageType: 'std_msgs/String'
     });
 
-    const handleTelemetryData = (message) => {
-      try {
-        const data = JSON.parse(message.data);
-        setTelemetryData(data);
-        
-        // Update data history for charts
-        if (data.imu) {
-          setDataHistory(prev => {
-            const newHistory = { ...prev };
-            
-            // Update accelerometer data
-            newHistory.accelX = [...prev.accelX.slice(1), data.imu.accel.x];
-            newHistory.accelY = [...prev.accelY.slice(1), data.imu.accel.y];
-            newHistory.accelZ = [...prev.accelZ.slice(1), data.imu.accel.z];
-            
-            // Update gyroscope data
-            newHistory.gyroX = [...prev.gyroX.slice(1), data.imu.gyro.x];
-            newHistory.gyroY = [...prev.gyroY.slice(1), data.imu.gyro.y];
-            newHistory.gyroZ = [...prev.gyroZ.slice(1), data.imu.gyro.z];
-            
-            return newHistory;
-          });
-        }
-      } catch (err) {
-        console.error('Error parsing telemetry data:', err);
-        setError('Error parsing telemetry data');
-      }
-    };
-
-    telemetryTopic.subscribe(handleTelemetryData);
+    // Use the debounced handler in the subscription
+    telemetryTopic.subscribe(debouncedHandleTelemetryData);
+    console.log('TelemetryPanel mounted, subscribed to /robot/telemetry/all');
 
     return () => {
-      telemetryTopic.unsubscribe();
+      if (telemetryTopic) {
+        telemetryTopic.unsubscribe();
+        console.log('TelemetryPanel unmounted, unsubscribed from /robot/telemetry/all');
+      }
     };
-  }, [ros]);
+  }, [ros, debouncedHandleTelemetryData]); // Add debounced handler to dependencies
   
   // Draw charts when data history changes
   useEffect(() => {

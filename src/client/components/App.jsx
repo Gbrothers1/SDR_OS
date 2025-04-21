@@ -30,6 +30,9 @@ const App = () => {
   // Track if this client has a gamepad connected
   const [hasGamepad, setHasGamepad] = useState(false);
 
+  // Store the full settings object in state to easily pass down parts
+  const [appSettings, setAppSettings] = useState(null);
+
   const initializeConnections = async () => {
     try {
       const rosBridgeUrl = localStorage.getItem('rosBridgeUrl') || 'ws://localhost:9090';
@@ -129,32 +132,40 @@ const App = () => {
     setControlState(newState);
   };
 
-  const handleSettingsSave = (settings) => {
-    // Update display settings if provided
-    if (settings.displaySettings) {
-      setDisplaySettings(settings.displaySettings);
-    }
+  const handleSettingsSave = (newSettings) => {
+    // Update display settings state
+    setDisplaySettings({
+      showLogViewer: displaySettings.showLogViewer,
+      showTelemetryPanel: newSettings.telemetry.showTelemetryPanel
+    });
+    // Update full settings state
+    setAppSettings(newSettings);
     
-    // Reconnect to ROS and Socket.IO with new settings
-    if (settings.rosbridgeUrl || settings.socketUrl) {
-      // Close existing connections
-      if (ros) {
-        ros.close();
-      }
-      if (socket) {
-        socket.disconnect();
-      }
-      
-      // Reinitialize connections
-      initializeConnections();
-    }
+    // Save display settings (for initial load)
+    localStorage.setItem('displaySettings', JSON.stringify({
+      showLogViewer: displaySettings.showLogViewer,
+      showTelemetryPanel: newSettings.telemetry.showTelemetryPanel
+    }));
+    
+    // Save the full settings object (used by Settings.jsx and passed down)
+    localStorage.setItem('robotControllerSettings', JSON.stringify(newSettings));
   };
 
   useEffect(() => {
-    const savedSettings = localStorage.getItem('displaySettings');
-    if (savedSettings) {
+    // Load full settings on initial mount
+    const savedFullSettings = localStorage.getItem('robotControllerSettings');
+    if (savedFullSettings) {
       try {
-        const settings = JSON.parse(savedSettings);
+        setAppSettings(JSON.parse(savedFullSettings));
+      } catch (e) {
+        console.error('Error loading full settings:', e);
+      }
+    }
+    // Load display settings (redundant? Could derive from full settings)
+    const savedDisplaySettings = localStorage.getItem('displaySettings');
+    if (savedDisplaySettings) {
+      try {
+        const settings = JSON.parse(savedDisplaySettings);
         setDisplaySettings(settings);
         setIsLogViewerVisible(settings.showLogViewer);
       } catch (e) {
@@ -195,7 +206,11 @@ const App = () => {
       
       <div className="app-container">
         <div className="viewer-container">
-          <RobotViewer ros={ros} />
+          <RobotViewer 
+            ros={ros} 
+            // Pass throttle rate from state (or default)
+            tfThrottleRate={appSettings?.visualization?.tfThrottleRate ?? 10}
+          />
           <ControlOverlay 
             ros={ros} 
             socket={socket} 
@@ -213,7 +228,12 @@ const App = () => {
         
         {isLogViewerVisible && (
           <div className="log-container">
-            <LogViewer ros={ros} />
+            <LogViewer 
+              ros={ros} 
+              // Pass subscription settings from state (or default)
+              subscribeRosout={appSettings?.logging?.subscribeRosout ?? true}
+              subscribeDiagnostics={appSettings?.logging?.subscribeDiagnostics ?? true}
+            />
           </div>
         )}
       </div>

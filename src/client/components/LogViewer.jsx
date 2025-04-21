@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ROSLIB from 'roslib';
 import '../styles/LogViewer.css';
 
-const LogViewer = ({ ros }) => {
+const LogViewer = ({ ros, subscribeRosout, subscribeDiagnostics }) => {
   const [logs, setLogs] = useState([]);
   const [selectedTopic, setSelectedTopic] = useState('/rosout');
   const [availableTopics, setAvailableTopics] = useState([]);
@@ -177,9 +177,22 @@ const LogViewer = ({ ros }) => {
   }, [ros]);
 
   useEffect(() => {
+    // Check if logging is enabled and ROS is connected
     if (!ros || !selectedTopic || !isLogging) {
       return;
     }
+
+    // Check settings before subscribing to /rosout
+    if (selectedTopic === '/rosout' && !subscribeRosout) {
+        console.log('LogViewer: Subscription to /rosout disabled by settings.');
+        return; // Do not subscribe if disabled in settings
+    }
+    
+    // Potentially add a similar check for /diagnostics if it were handled differently
+    // if (selectedTopic === '/diagnostics' && !subscribeDiagnostics) {
+    //     console.log('LogViewer: Subscription to /diagnostics disabled by settings.');
+    //     return; 
+    // }
 
     let subscriber = null;
     
@@ -213,22 +226,23 @@ const LogViewer = ({ ros }) => {
           // Keep only the last 100 logs
           const updatedLogs = [...prevLogs, newLog].slice(-100);
           return updatedLogs;
+        });
       });
-    });
       
-      console.log(`Subscribed to topic: ${selectedTopic} with message type: ${messageType}`);
+      console.log(`LogViewer: Subscribed to topic: ${selectedTopic} with message type: ${messageType}`);
     } catch (err) {
-      console.error(`Error subscribing to topic ${selectedTopic}:`, err);
+      console.error(`LogViewer: Error subscribing to topic ${selectedTopic}:`, err);
       setError(`Failed to subscribe to topic: ${selectedTopic}`);
     }
 
+    // Cleanup function
     return () => {
       if (subscriber) {
         subscriber.unsubscribe();
-        console.log(`Unsubscribed from topic: ${selectedTopic}`);
+        console.log(`LogViewer: Unsubscribed from topic: ${selectedTopic}`);
       }
     };
-  }, [ros, selectedTopic, isLogging]);
+  }, [ros, selectedTopic, isLogging, subscribeRosout, subscribeDiagnostics]);
 
   // Auto-scroll to bottom when new logs are added
   useEffect(() => {

@@ -75,31 +75,6 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
     let joystickStatePublisher = null;
 
     if (ros) {
-      // All clients subscribe to telemetry for a complete state picture
-      telemetrySubscriber = new ROSLIB.Topic({
-        ros: ros,
-        name: '/robot/telemetry/all',
-        messageType: 'std_msgs/String'
-      });
-
-      telemetrySubscriber.subscribe((message) => {
-        try {
-          const data = JSON.parse(message.data);
-          // If telemetry includes controller state data, use it (unless we have our own gamepad)
-          if (data.controller && !isGamepadConnected) {
-            if (data.controller.buttonStates) {
-              setButtonStates(data.controller.buttonStates);
-            }
-            
-            if (data.controller.joystickState) {
-              setLocalControlState(data.controller.joystickState);
-            }
-          }
-        } catch (err) {
-          console.error('Error parsing telemetry data:', err);
-        }
-      });
-
       // For clients with a gamepad, create publishers for button and joystick states
       if (isGamepadConnected) {
         buttonStatePublisher = new ROSLIB.Topic({
@@ -201,9 +176,6 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
       }
       window.removeEventListener('gamepadconnected', handleGamepadConnected);
       window.removeEventListener('gamepaddisconnected', handleGamepadDisconnected);
-      if (telemetrySubscriber) {
-        telemetrySubscriber.unsubscribe();
-      }
     };
   }, [onControlChange, ros, socket, isGamepadConnected]);
 
