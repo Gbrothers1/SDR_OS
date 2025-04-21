@@ -147,20 +147,24 @@ const App = () => {
   }, []); // No dependencies, function doesn't rely on changing state/props
 
   const handleSettingsSave = (newSettings) => {
+    console.log("Saving settings:", newSettings);
+    
     // Update display settings state (including camera)
     const newDisplaySettings = {
       showLogViewer: displaySettings.showLogViewer,
-      showTelemetryPanel: newSettings.telemetry.showTelemetryPanel,
-      showCameraFeed: newSettings.visualization.showCameraFeed,
+      showTelemetryPanel: newSettings.telemetry?.showTelemetryPanel ?? true,
+      showCameraFeed: newSettings.visualization?.showCameraFeed ?? false,
     };
+    
     setDisplaySettings(newDisplaySettings);
+    
     // Update full settings state
     setAppSettings(newSettings);
     
     // Save display settings (for initial load)
     localStorage.setItem('displaySettings', JSON.stringify(newDisplaySettings));
     
-    // Save the full settings object (used by Settings.jsx and passed down)
+    // Save the full settings object
     localStorage.setItem('robotControllerSettings', JSON.stringify(newSettings));
   };
 
