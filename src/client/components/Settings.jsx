@@ -1,26 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import '../styles/Settings.css';
+
+const truncateVoiceName = (name) => {
+  if (!name) return '';
+  return name.length > 30 ? `${name.substring(0, 30)}...` : name;
+};
+
+const formatVoiceOption = (voice) => {
+  if (!voice) return '';
+  const truncatedName = truncateVoiceName(voice.name);
+  return `${truncatedName} (${voice.lang})`;
+};
 
 const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
   const [settings, setSettings] = useState({
-    rosbridgeUrl: localStorage.getItem('rosBridgeUrl') || 'ws://localhost:9090',
-    socketUrl: localStorage.getItem('socketUrl') || 'http://localhost:3000',
-    controller: {
-      joystickSensitivity: 1.0,
-      joystickDeadzone: 0.1,
-      triggerSensitivity: 1.0,
-      buttonDebounceTime: 50,
-    },
     telemetry: {
-      updateInterval: 100,
       showTelemetryPanel: true,
-    },
-    logging: {
-      logLevel: 'info',
-      filterTopics: '',
-      maxLogEntries: 1000,
-      subscribeRosout: true,
-      subscribeDiagnostics: true,
+      updateInterval: 100,
     },
     visualization: {
       showGrid: true,
@@ -31,174 +27,139 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
     },
     control: {
       enableKeyboard: true,
-      enableJoystick: true,
-      enableTouch: true,
+      maxLinearSpeed: 1.0,
+      maxAngularSpeed: 1.0,
+      deadzone: 0.1,
     },
     topics: {
-      cmdVel: '/cmd_vel',
+      cmd_vel: '/cmd_vel',
       odom: '/odom',
-      jointStates: '/joint_states',
-      diagnostics: '/diagnostics',
+      imu: '/imu/data',
     },
+    voice: {
+      selectedVoice: '',
+      volume: 1.0,
+      rate: 1.0,
+      pitch: 1.0,
+    }
   });
 
+  // Load settings on component mount or when initialSettings changes
   useEffect(() => {
-    const savedSettings = localStorage.getItem('robotControllerSettings');
-    let loadedSettings = {};
     if (initialSettings) {
-      loadedSettings = initialSettings;
-    } else if (savedSettings) {
-      loadedSettings = JSON.parse(savedSettings);
+      // Deep merge settings ensuring telemetry and visualization nested objects are preserved
+      setSettings(prevSettings => {
+        const newSettings = { ...prevSettings };
+        
+        // Handle telemetry settings
+        if (initialSettings.telemetry) {
+          newSettings.telemetry = { 
+            ...prevSettings.telemetry, 
+            ...initialSettings.telemetry 
+          };
+        }
+        
+        // Handle visualization settings
+        if (initialSettings.visualization) {
+          newSettings.visualization = { 
+            ...prevSettings.visualization, 
+            ...initialSettings.visualization 
+          };
+        }
+        
+        // Handle control settings
+        if (initialSettings.control) {
+          newSettings.control = { 
+            ...prevSettings.control, 
+            ...initialSettings.control 
+          };
+        }
+        
+        // Handle topics settings
+        if (initialSettings.topics) {
+          newSettings.topics = { 
+            ...prevSettings.topics, 
+            ...initialSettings.topics 
+          };
+        }
+        
+        // Handle voice settings
+        if (initialSettings.voice) {
+          newSettings.voice = { 
+            ...prevSettings.voice, 
+            ...initialSettings.voice 
+          };
+        }
+        
+        return newSettings;
+      });
     }
+  }, [initialSettings, isOpen]);
 
+  // Handle changes for nested settings
+  const handleChange = useCallback((section, key, value) => {
     setSettings(prev => ({
       ...prev,
-      ...loadedSettings,
-      rosbridgeUrl: loadedSettings.rosbridgeUrl || localStorage.getItem('rosBridgeUrl') || prev.rosbridgeUrl,
-      socketUrl: loadedSettings.socketUrl || localStorage.getItem('socketUrl') || prev.socketUrl,
-      controller: { ...prev.controller, ...(loadedSettings.controller || {}) },
-      telemetry: {
-        ...prev.telemetry,
-        ...(loadedSettings.telemetry || {}),
-        updateInterval: loadedSettings.telemetry?.updateInterval !== undefined ? loadedSettings.telemetry.updateInterval : 100,
-        showTelemetryPanel: loadedSettings.telemetry?.showTelemetryPanel !== undefined ? loadedSettings.telemetry.showTelemetryPanel : true,
-      },
-      logging: {
-        ...prev.logging,
-        ...(loadedSettings.logging || {}),
-        subscribeRosout: loadedSettings.logging?.subscribeRosout !== undefined ? loadedSettings.logging.subscribeRosout : true,
-        subscribeDiagnostics: loadedSettings.logging?.subscribeDiagnostics !== undefined ? loadedSettings.logging.subscribeDiagnostics : true,
-      },
-      visualization: {
-        ...prev.visualization,
-        ...(loadedSettings.visualization || {}),
-        tfThrottleRate: loadedSettings.visualization?.tfThrottleRate !== undefined ? loadedSettings.visualization.tfThrottleRate : 10,
-        showCameraFeed: loadedSettings.visualization?.showCameraFeed !== undefined ? loadedSettings.visualization.showCameraFeed : false,
-      },
-      control: { ...prev.control, ...(loadedSettings.control || {}) },
-      topics: { ...prev.topics, ...(loadedSettings.topics || {}) },
+      [section]: {
+        ...prev[section],
+        [key]: value
+      }
     }));
-  }, [initialSettings]);
+  }, []);
 
-  const handleChange = (section, field, value) => {
-    if (section === 'connection') {
-      setSettings(prev => ({
-        ...prev,
-        [field]: value,
-      }));
-    } else {
-      setSettings(prev => ({
-        ...prev,
-        [section]: {
-          ...prev[section],
-          [field]: value,
-        },
-      }));
+  // Handle save button click
+  const handleSave = useCallback(() => {
+    // Check if onSave is provided
+    if (typeof onSave === 'function') {
+      onSave(settings);
     }
-  };
+    
+    // Check if onClose is provided
+    if (typeof onClose === 'function') {
+      onClose();
+    }
+  }, [settings, onSave, onClose]);
 
-  const handleSave = () => {
-    localStorage.setItem('rosBridgeUrl', settings.rosbridgeUrl);
-    localStorage.setItem('socketUrl', settings.socketUrl);
-    localStorage.setItem('robotControllerSettings', JSON.stringify(settings));
-    onSave(settings);
-    onClose();
-  };
+  // Handle slider value updates
+  const handleSliderChange = useCallback((section, key, value, min, max) => {
+    const numValue = parseFloat(value);
+    if (!isNaN(numValue) && numValue >= min && numValue <= max) {
+      handleChange(section, key, numValue);
+    }
+  }, [handleChange]);
+
+  // Update slider visual fill
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const sliders = document.querySelectorAll('input[type="range"]');
+    sliders.forEach(slider => {
+      const value = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
+      slider.style.setProperty('--value-percent', `${value}%`);
+    });
+  }, [settings, isOpen]);
+
+  const handleOverlayClick = useCallback((e) => {
+    if (e.target.className === 'settings-overlay') {
+      onClose();
+    }
+  }, [onClose]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="settings-overlay">
-      <div className="settings-modal">
+    <div className="settings-overlay" onClick={handleOverlayClick}>
+      <div className="settings-modal" onClick={e => e.stopPropagation()}>
+        <div className="settings-modal-border"></div>
         <div className="settings-header">
-          <h2>Settings</h2>
-          <button className="close-button" onClick={onClose}>&times;</button>
+          <h2>SETTINGS</h2>
+          <button className="close-button" onClick={onClose}></button>
         </div>
+        
         <div className="settings-content">
+          {/* Telemetry Section */}
           <div className="settings-section">
-            <h3>Connection Settings</h3>
-            <div className="setting-item">
-              <label>ROS Bridge URL</label>
-              <input
-                type="text"
-                value={settings.rosbridgeUrl}
-                onChange={(e) => handleChange('connection', 'rosbridgeUrl', e.target.value)}
-              />
-            </div>
-            <div className="setting-item">
-              <label>Socket.IO URL</label>
-              <input
-                type="text"
-                value={settings.socketUrl}
-                onChange={(e) => handleChange('connection', 'socketUrl', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="settings-section">
-            <h3>Controller Settings</h3>
-            <div className="setting-item">
-              <label>Joystick Sensitivity</label>
-              <input
-                type="range"
-                min="0.1"
-                max="2.0"
-                step="0.1"
-                value={settings.controller.joystickSensitivity}
-                onChange={(e) => handleChange('controller', 'joystickSensitivity', parseFloat(e.target.value))}
-              />
-              <span className="setting-value">{settings.controller.joystickSensitivity.toFixed(1)}</span>
-            </div>
-            <div className="setting-item">
-              <label>Joystick Deadzone</label>
-              <input
-                type="range"
-                min="0"
-                max="0.5"
-                step="0.05"
-                value={settings.controller.joystickDeadzone}
-                onChange={(e) => handleChange('controller', 'joystickDeadzone', parseFloat(e.target.value))}
-              />
-              <span className="setting-value">{settings.controller.joystickDeadzone.toFixed(2)}</span>
-            </div>
-            <div className="setting-item">
-              <label>Trigger Sensitivity</label>
-              <input
-                type="range"
-                min="0.1"
-                max="2.0"
-                step="0.1"
-                value={settings.controller.triggerSensitivity}
-                onChange={(e) => handleChange('controller', 'triggerSensitivity', parseFloat(e.target.value))}
-              />
-              <span className="setting-value">{settings.controller.triggerSensitivity.toFixed(1)}</span>
-            </div>
-            <div className="setting-item">
-              <label>Button Debounce Time (ms)</label>
-              <input
-                type="number"
-                min="0"
-                max="500"
-                step="10"
-                value={settings.controller.buttonDebounceTime}
-                onChange={(e) => handleChange('controller', 'buttonDebounceTime', parseInt(e.target.value))}
-              />
-            </div>
-          </div>
-
-          <div className="settings-section">
-            <h3>Telemetry Settings</h3>
-            <div className="setting-item">
-              <label>Update Interval (ms)</label>
-              <input
-                type="number"
-                min="10"
-                max="1000"
-                step="10"
-                value={settings.telemetry.updateInterval}
-                onChange={(e) => handleChange('telemetry', 'updateInterval', parseInt(e.target.value))}
-              />
-            </div>
+            <h3>Telemetry</h3>
             <div className="setting-item">
               <label>Show Telemetry Panel</label>
               <input
@@ -207,98 +168,65 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
                 onChange={(e) => handleChange('telemetry', 'showTelemetryPanel', e.target.checked)}
               />
             </div>
-          </div>
-
-          <div className="settings-section">
-            <h3>Log Settings</h3>
             <div className="setting-item">
-              <label>Log Level</label>
-              <select
-                value={settings.logging.logLevel}
-                onChange={(e) => handleChange('logging', 'logLevel', e.target.value)}
-              >
-                <option value="debug">Debug</option>
-                <option value="info">Info</option>
-                <option value="warn">Warning</option>
-                <option value="error">Error</option>
-              </select>
-            </div>
-            <div className="setting-item">
-              <label>Filter Topics</label>
+              <label>Update Interval (ms)</label>
               <input
-                type="text"
-                value={settings.logging.filterTopics}
-                onChange={(e) => handleChange('logging', 'filterTopics', e.target.value)}
-                placeholder="Comma-separated topics"
+                type="range"
+                min="50"
+                max="1000"
+                value={settings.telemetry.updateInterval}
+                onChange={(e) => handleSliderChange('telemetry', 'updateInterval', e.target.value, 50, 1000)}
               />
-            </div>
-            <div className="setting-item">
-              <label>Max Log Entries</label>
-              <input
-                type="number"
-                min="100"
-                max="10000"
-                step="100"
-                value={settings.logging.maxLogEntries}
-                onChange={(e) => handleChange('logging', 'maxLogEntries', parseInt(e.target.value))}
-              />
-            </div>
-            <div className="setting-item">
-              <label>Subscribe to /rosout</label>
-              <input
-                type="checkbox"
-                checked={settings.logging.subscribeRosout}
-                onChange={(e) => handleChange('logging', 'subscribeRosout', e.target.checked)}
-              />
-            </div>
-            <div className="setting-item">
-              <label>Subscribe to /diagnostics</label>
-              <input
-                type="checkbox"
-                checked={settings.logging.subscribeDiagnostics}
-                onChange={(e) => handleChange('logging', 'subscribeDiagnostics', e.target.checked)}
-              />
+              <span className="setting-value">{settings.telemetry.updateInterval}ms</span>
             </div>
           </div>
 
+          {/* Control Section */}
           <div className="settings-section">
-            <h3>Visualization Settings</h3>
+            <h3>Control</h3>
+            <div className="setting-item">
+              <label>Enable Keyboard Control</label>
+              <input
+                type="checkbox"
+                checked={settings.control.enableKeyboard}
+                onChange={(e) => handleChange('control', 'enableKeyboard', e.target.checked)}
+              />
+            </div>
+            <div className="setting-item">
+              <label>Max Linear Speed (m/s)</label>
+              <input
+                type="range"
+                min="0.1"
+                max="2.0"
+                step="0.1"
+                value={settings.control.maxLinearSpeed}
+                onChange={(e) => handleSliderChange('control', 'maxLinearSpeed', e.target.value, 0.1, 2.0)}
+              />
+              <span className="setting-value">{settings.control.maxLinearSpeed.toFixed(1)} m/s</span>
+            </div>
+            <div className="setting-item">
+              <label>Max Angular Speed (rad/s)</label>
+              <input
+                type="range"
+                min="0.1"
+                max="3.0"
+                step="0.1"
+                value={settings.control.maxAngularSpeed}
+                onChange={(e) => handleSliderChange('control', 'maxAngularSpeed', e.target.value, 0.1, 3.0)}
+              />
+              <span className="setting-value">{settings.control.maxAngularSpeed.toFixed(1)} rad/s</span>
+            </div>
+          </div>
+
+          {/* Visualization Section */}
+          <div className="settings-section">
+            <h3>Visualization</h3>
             <div className="setting-item">
               <label>Show Grid</label>
               <input
                 type="checkbox"
                 checked={settings.visualization.showGrid}
                 onChange={(e) => handleChange('visualization', 'showGrid', e.target.checked)}
-              />
-            </div>
-            <div className="setting-item">
-              <label>Grid Size</label>
-              <input
-                type="number"
-                min="0.1"
-                max="5.0"
-                step="0.1"
-                value={settings.visualization.gridSize}
-                onChange={(e) => handleChange('visualization', 'gridSize', parseFloat(e.target.value))}
-              />
-            </div>
-            <div className="setting-item">
-              <label>Grid Color</label>
-              <input
-                type="color"
-                value={settings.visualization.gridColor}
-                onChange={(e) => handleChange('visualization', 'gridColor', e.target.value)}
-              />
-            </div>
-            <div className="setting-item">
-              <label>TF Throttle Rate (Hz)</label>
-              <input
-                type="number"
-                min="1"
-                max="60"
-                step="1"
-                value={settings.visualization.tfThrottleRate}
-                onChange={(e) => handleChange('visualization', 'tfThrottleRate', parseInt(e.target.value) || 1)}
               />
             </div>
             <div className="setting-item">
@@ -309,48 +237,33 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
                 onChange={(e) => handleChange('visualization', 'showCameraFeed', e.target.checked)}
               />
             </div>
-          </div>
-
-          <div className="settings-section">
-            <h3>Control Settings</h3>
             <div className="setting-item">
-              <label>Enable Keyboard</label>
+              <label>Grid Size</label>
               <input
-                type="checkbox"
-                checked={settings.control.enableKeyboard}
-                onChange={(e) => handleChange('control', 'enableKeyboard', e.target.checked)}
+                type="range"
+                min="0.1"
+                max="5.0"
+                step="0.1"
+                value={settings.visualization.gridSize}
+                onChange={(e) => handleSliderChange('visualization', 'gridSize', e.target.value, 0.1, 5.0)}
               />
-            </div>
-            <div className="setting-item">
-              <label>Enable Joystick</label>
-              <input
-                type="checkbox"
-                checked={settings.control.enableJoystick}
-                onChange={(e) => handleChange('control', 'enableJoystick', e.target.checked)}
-              />
-            </div>
-            <div className="setting-item">
-              <label>Enable Touch</label>
-              <input
-                type="checkbox"
-                checked={settings.control.enableTouch}
-                onChange={(e) => handleChange('control', 'enableTouch', e.target.checked)}
-              />
+              <span className="setting-value">{settings.visualization.gridSize.toFixed(1)}m</span>
             </div>
           </div>
 
+          {/* Topics Section */}
           <div className="settings-section">
-            <h3>Topic Settings</h3>
+            <h3>Topics</h3>
             <div className="setting-item">
-              <label>Command Velocity Topic</label>
+              <label>Command Velocity</label>
               <input
                 type="text"
-                value={settings.topics.cmdVel}
-                onChange={(e) => handleChange('topics', 'cmdVel', e.target.value)}
+                value={settings.topics.cmd_vel}
+                onChange={(e) => handleChange('topics', 'cmd_vel', e.target.value)}
               />
             </div>
             <div className="setting-item">
-              <label>Odometry Topic</label>
+              <label>Odometry</label>
               <input
                 type="text"
                 value={settings.topics.odom}
@@ -358,25 +271,20 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
               />
             </div>
             <div className="setting-item">
-              <label>Joint States Topic</label>
+              <label>IMU Data</label>
               <input
                 type="text"
-                value={settings.topics.jointStates}
-                onChange={(e) => handleChange('topics', 'jointStates', e.target.value)}
-              />
-            </div>
-            <div className="setting-item">
-              <label>Diagnostics Topic</label>
-              <input
-                type="text"
-                value={settings.topics.diagnostics}
-                onChange={(e) => handleChange('topics', 'diagnostics', e.target.value)}
+                value={settings.topics.imu}
+                onChange={(e) => handleChange('topics', 'imu', e.target.value)}
               />
             </div>
           </div>
         </div>
+
         <div className="settings-footer">
-          <button className="save-button" onClick={handleSave}>Save Settings</button>
+          <button className="save-button" onClick={handleSave}>
+            Save Changes
+          </button>
         </div>
       </div>
     </div>

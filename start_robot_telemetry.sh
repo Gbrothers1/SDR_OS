@@ -26,9 +26,9 @@ echo "Starting Webcam Publisher..."
 gnome-terminal --tab --title="WebcamPub" -- bash -c "python3 webcam_publisher.py --rate 15; exec bash" &
 sleep 2
 
-# Start web_video_server in a separate terminal
+# Start web_video_server in a separate terminal with image_transport parameter
 echo "Starting Web Video Server..."
-gnome-terminal --tab --title="WebVideoSrv" -- bash -c "ros2 run web_video_server web_video_server; exec bash" &
+gnome-terminal --tab --title="WebVideoSrv" -- bash -c "ros2 run web_video_server web_video_server --ros-args --remap _image_transport:=compressed; exec bash" &
 sleep 2
 
 # Run the IIO telemetry publisher

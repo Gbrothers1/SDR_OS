@@ -1,0 +1,33 @@
+.camera-icon {
+  position: fixed;
+  bottom: 80px; /* Position above the settings icon */
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #2196F3;
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  z-index: 1000;
+}
+
+.camera-icon:hover {
+  background-color: #1976D2;
+  transform: scale(1.1);
+}
+
+.camera-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.camera-icon.active {
+  background-color: #4CAF50;
+} 

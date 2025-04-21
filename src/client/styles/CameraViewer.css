@@ -1,57 +1,123 @@
 .camera-viewer {
   position: absolute;
-  bottom: 20px; /* Position near the bottom */
-  left: 20px;   /* Position on the left */
-  width: 320px; /* Adjust width as needed */
-  /* height: 240px; /* Adjust height as needed */
-  background-color: rgba(0, 0, 0, 0.75);
+  background-color: rgba(0, 0, 0, 0.8);
   border: 1px solid #555;
-  border-radius: 8px;
-  color: white;
-  font-family: 'Roboto', sans-serif;
+  border-radius: 5px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* Ensures content stays within borders */
-  z-index: 900; /* Ensure it's above other elements like RobotViewer */
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  min-width: 320px;
+  min-height: 280px;
+  resize: both;
 }
 
 .camera-header {
-  background-color: rgba(60, 60, 60, 0.9);
-  padding: 5px 10px;
-  font-size: 14px;
-  font-weight: 500;
-  text-align: center;
-  border-bottom: 1px solid #555;
+  padding: 8px 12px;
+  background-color: #333;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: grab;
+  user-select: none;
+  flex: 0 0 auto;
+  height: 40px;
+  box-sizing: border-box;
+}
+
+.camera-controls {
+  display: flex;
+  align-items: center;
+}
+
+.camera-controls select {
+  margin-right: 10px;
+  background-color: #444;
+  color: white;
+  border: 1px solid #666;
+  border-radius: 3px;
+  padding: 3px 5px;
+}
+
+.minimize-button,
+.fullscreen-button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 5px;
+  transition: color 0.2s ease;
+}
+
+.minimize-button:hover,
+.fullscreen-button:hover {
+  color: #4CAF50;
+}
+
+.minimize-button {
+  margin-right: 5px;
 }
 
 .camera-content {
-  flex-grow: 1; /* Take remaining space */
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 5px; /* Small padding around the image */
-  background-color: rgba(20, 20, 20, 0.8); /* Darker background for content */
+  background-color: #222;
+  position: relative;
+  overflow: hidden;
+  flex: 1;
 }
 
 .camera-content img {
   display: block;
-  max-width: 100%;
-  max-height: 100%; 
-  height: auto; /* Maintain aspect ratio */
-  width: auto; /* Maintain aspect ratio */
-  object-fit: contain; /* Fit image within container without stretching */
-  background-color: #000; /* Black background if image doesn't fill space */
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
 }
 
-.camera-loading,
+.camera-content iframe {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: none;
+}
+
+.camera-viewer.minimized {
+  height: auto;
+}
+
+.camera-viewer.minimized .camera-content {
+  display: none;
+}
+
 .camera-error {
-  padding: 20px;
+  color: #ff6b6b;
+  padding: 10px;
   text-align: center;
-  font-size: 14px;
-  color: #ccc;
+  background-color: rgba(0, 0, 0, 0.5);
+  width: 100%;
 }
 
-.camera-error {
-  color: #ff6b6b; /* Reddish color for errors */
+.camera-loading {
+  color: #ddd;
+  text-align: center;
+  padding: 20px;
+}
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 15px;
+  height: 15px;
+  cursor: se-resize;
+  background: linear-gradient(135deg, transparent 50%, #666 50%);
+  z-index: 2;
+}
+
+.resize-handle:hover {
+  background: linear-gradient(135deg, transparent 50%, #888 50%);
 } 

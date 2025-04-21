@@ -3,6 +3,7 @@ import RobotViewer from './RobotViewer';
 import ControlOverlay from './ControlOverlay';
 import LogViewer from './LogViewer';
 import SettingsIcon from './SettingsIcon';
+import CameraIcon from './CameraIcon';
 import SettingsModal from './SettingsModal';
 import TelemetryPanel from './TelemetryPanel';
 import SplashScreen from './SplashScreen';
@@ -34,6 +35,8 @@ const App = () => {
 
   // Store the full settings object in state to easily pass down parts
   const [appSettings, setAppSettings] = useState(null);
+
+  const [isCameraVisible, setIsCameraVisible] = useState(false);
 
   const initializeConnections = async () => {
     try {
@@ -117,6 +120,14 @@ const App = () => {
     }));
   };
 
+  const toggleCamera = () => {
+    setIsCameraVisible(prev => !prev);
+    setDisplaySettings(prev => ({
+      ...prev,
+      showCameraFeed: !prev.showCameraFeed
+    }));
+  };
+
   const handleSplashComplete = async () => {
     console.log('Splash screen complete, initializing connections...');
     const success = await initializeConnections();
@@ -152,6 +163,16 @@ const App = () => {
     // Save the full settings object (used by Settings.jsx and passed down)
     localStorage.setItem('robotControllerSettings', JSON.stringify(newSettings));
   };
+
+  const toggleSettings = useCallback(() => {
+    setIsSettingsOpen(prev => !prev);
+    console.log("Settings toggled:", !isSettingsOpen);
+  }, [isSettingsOpen]);
+
+  const closeSettings = useCallback(() => {
+    setIsSettingsOpen(false);
+    console.log("Settings closed");
+  }, []);
 
   useEffect(() => {
     // Load full settings on initial mount
@@ -233,8 +254,8 @@ const App = () => {
           {displaySettings.showCameraFeed && 
             <CameraViewer 
               ros={ros} 
-              // topic={appSettings?.topics?.camera ?? '/webcam/image_raw'} // Example if topic is in settings
-              topic={'/webcam/image_raw'} // Hardcode for now
+              topic={'/webcam/image_raw'}
+              host={appSettings?.webVideoHost || localStorage.getItem('webVideoHost') || 'localhost'}
             />
           }
           
@@ -257,15 +278,18 @@ const App = () => {
         )}
       </div>
       
-      <SettingsIcon onClick={() => setIsSettingsOpen(true)} />
+      <CameraIcon 
+        onClick={toggleCamera}
+        className={isCameraVisible ? 'active' : ''}
+      />
+      <SettingsIcon onClick={toggleSettings} />
       
-      {isSettingsOpen && (
-        <SettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
-          onSave={handleSettingsSave}
-        />
-      )}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={closeSettings}
+        onSave={handleSettingsSave}
+        initialSettings={appSettings}
+      />
     </div>
   );
 };
