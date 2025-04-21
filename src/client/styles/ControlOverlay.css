@@ -59,7 +59,7 @@
   right: 0;
   bottom: 0;
   pointer-events: none;
-  z-index: 2;
+  z-index: 5;
 }
 
 .control-border::before {
@@ -71,6 +71,8 @@
   height: 2px;
   background: #00e5ff;
   box-shadow: 0 0 15px #00e5ff, 0 0 5px #00e5ff;
+  opacity: 1;
+  transition: opacity 0.3s ease;
 }
 
 .control-border::after {
@@ -82,6 +84,17 @@
   height: 2px;
   background: #00e5ff;
   box-shadow: 0 0 15px #00e5ff, 0 0 5px #00e5ff;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+/* When mappings are visible */
+.controls-container:has(.mapping-section.visible) .control-border::before {
+  opacity: 0.3;
+}
+
+.controls-container:has(.mapping-section.visible) .control-border::after {
+  opacity: 1;
 }
 
 .control-overlay.hidden {
@@ -154,6 +167,37 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.control-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  background: rgba(0, 229, 255, 0.8);
+  opacity: 0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  transition: all 0.3s ease;
+}
+
+.control-button:active::after {
+  animation: buttonPulse 0.3s ease-out;
+}
+
+@keyframes buttonPulse {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(20);
+  }
 }
 
 .control-button:hover {
@@ -257,6 +301,51 @@
   display: none;
 }
 
+.mapping-border {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.mapping-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background: #00e5ff;
+  box-shadow: 0 0 15px #00e5ff, 0 0 5px #00e5ff;
+}
+
+.mapping-border::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background: #00e5ff;
+  box-shadow: 0 0 15px #00e5ff, 0 0 5px #00e5ff;
+}
+
+.mapping-section.visible .mapping-border {
+  opacity: 1;
+}
+
+.mapping-section.visible {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+  display: block;
+}
+
 .mapping-section::-webkit-scrollbar {
   width: 8px;
 }
@@ -268,13 +357,6 @@
 .mapping-section::-webkit-scrollbar-thumb {
   background: linear-gradient(to bottom, #0051ff, #00e5ff);
   border-radius: 4px;
-}
-
-.mapping-section.visible {
-  opacity: 1;
-  transform: translateX(0);
-  pointer-events: auto;
-  display: block;
 }
 
 /* Add new styles for the mapping contents */
@@ -416,12 +498,56 @@
   font-size: 0.75rem;
   transition: all 0.1s ease;
   border-radius: 50%;
+  position: relative;
+  overflow: hidden;
+}
+
+.dpad-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  background: rgba(0, 229, 255, 0.8);
+  opacity: 0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  transition: all 0.3s ease;
+}
+
+.dpad-button:active::after {
+  animation: dpadPulse 0.2s ease-out;
+}
+
+@keyframes dpadPulse {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(15);
+  }
 }
 
 .dpad-button.pressed {
   background-color: rgba(0, 229, 255, 0.5);
   box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
   border-color: rgba(0, 229, 255, 0.8);
+  animation: dpadPress 0.15s ease-out;
+}
+
+@keyframes dpadPress {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .dpad-center {
@@ -456,17 +582,44 @@
   transition: all 0.2s ease;
   font-size: 0.75rem;
   padding: 4px;
+  overflow: hidden;
 }
 
-.button span {
-  display: block;
-  font-size: 0.75rem;
+.button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  background: rgba(0, 229, 255, 0.8);
+  opacity: 0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  transition: all 0.3s ease;
+}
+
+.button:active::after {
+  animation: buttonPulse 0.3s ease-out;
 }
 
 .button.pressed {
   background-color: rgba(0, 229, 255, 0.4);
   box-shadow: 0 0 15px rgba(0, 229, 255, 0.6);
   transform: scale(0.9);
+  animation: buttonPress 0.2s ease-out;
+}
+
+@keyframes buttonPress {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.85);
+  }
+  100% {
+    transform: scale(0.9);
+  }
 }
 
 .value-display {

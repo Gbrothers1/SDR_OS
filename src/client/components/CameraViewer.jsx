@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../styles/CameraViewer.css';
+import ROSLIB from 'roslib';
 
 const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') || 'localhost' }) => {
   const [error, setError] = useState(null);
@@ -67,10 +68,40 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
     setStreamUrl(url);
     console.log(`CameraViewer: Setting up stream for ${selectedCamera} on host ${currentHost}`);
 
+    // Create a camera subscriber
+    let cameraSubscriber = null;
+    if (ros && selectedCamera) {
+      try {
+        cameraSubscriber = new ROSLIB.Topic({
+          ros: ros,
+          name: selectedCamera,
+          messageType: 'sensor_msgs/msg/Image'
+        });
+
+        cameraSubscriber.subscribe(() => {
+          // Just monitoring the topic, actual image handling is done by web_video_server
+          console.log(`CameraViewer: Successfully subscribed to ${selectedCamera}`);
+        });
+      } catch (err) {
+        console.error(`CameraViewer: Error subscribing to ${selectedCamera}:`, err);
+      }
+    }
+
     return () => {
       console.log(`CameraViewer: Cleaning up stream for ${selectedCamera}`);
+      // Clear the stream URL
+      setStreamUrl('');
+      // Unsubscribe from the camera topic
+      if (cameraSubscriber) {
+        try {
+          cameraSubscriber.unsubscribe();
+          console.log(`CameraViewer: Unsubscribed from ${selectedCamera}`);
+        } catch (err) {
+          console.error(`CameraViewer: Error unsubscribing from ${selectedCamera}:`, err);
+        }
+      }
     };
-  }, [selectedCamera, currentHost, isMinimized]);
+  }, [selectedCamera, currentHost, isMinimized, ros]);
 
   // Handle iframe load errors
   const handleIframeError = () => {
