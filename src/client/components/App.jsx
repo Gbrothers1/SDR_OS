@@ -121,11 +121,22 @@ const App = () => {
   };
 
   const toggleCamera = () => {
-    setIsCameraVisible(prev => !prev);
+    // Toggle camera visibility
+    const newCameraVisible = !isCameraVisible;
+    setIsCameraVisible(newCameraVisible);
+    
+    // Update display settings for camera
     setDisplaySettings(prev => ({
       ...prev,
-      showCameraFeed: !prev.showCameraFeed
+      showCameraFeed: newCameraVisible
     }));
+    
+    // Store the settings in localStorage
+    const updatedSettings = {
+      ...displaySettings,
+      showCameraFeed: newCameraVisible
+    };
+    localStorage.setItem('displaySettings', JSON.stringify(updatedSettings));
   };
 
   const handleSplashComplete = async () => {
@@ -199,6 +210,7 @@ const App = () => {
           ...loadedDisplay // Override with loaded values
         }));
         setIsLogViewerVisible(loadedDisplay.showLogViewer);
+        setIsCameraVisible(loadedDisplay.showCameraFeed || false);
       } catch (e) {
         console.error('Error loading display settings:', e);
       }
@@ -216,8 +228,13 @@ const App = () => {
     };
   }, []);
 
+  // Store display settings (but throttle the updates)
   useEffect(() => {
-    localStorage.setItem('displaySettings', JSON.stringify(displaySettings));
+    const debounceTimer = setTimeout(() => {
+      localStorage.setItem('displaySettings', JSON.stringify(displaySettings));
+    }, 1000); // Throttle to once every second
+    
+    return () => clearTimeout(debounceTimer);
   }, [displaySettings]);
 
   if (isLoading) {
@@ -248,13 +265,12 @@ const App = () => {
             controlState={controlState}
             onControlChange={handleControlChange}
           />
-          {displaySettings.showTelemetryPanel && 
-            <TelemetryPanel 
-              ros={ros} 
-              // Pass updateInterval from settings state
-              updateInterval={appSettings?.telemetry?.updateInterval ?? 100} // Default 100ms
-            />
-          }
+          <TelemetryPanel 
+            ros={ros} 
+            // Pass updateInterval from settings state
+            updateInterval={appSettings?.telemetry?.updateInterval ?? 100} // Default 100ms
+            initialShowPanel={displaySettings.showTelemetryPanel}
+          />
           {displaySettings.showCameraFeed && 
             <CameraViewer 
               ros={ros} 

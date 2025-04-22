@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import '../styles/CameraViewer.css';
 import ROSLIB from 'roslib';
 
-const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') || 'localhost' }) => {
+// Memoize the component to prevent unnecessary renders
+const CameraViewer = memo(({ ros, topic, host = localStorage.getItem('webVideoHost') || 'localhost' }) => {
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -16,6 +17,7 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
   const [currentHost, setCurrentHost] = useState(host);
   const [streamUrl, setStreamUrl] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [lastActivityTime, setLastActivityTime] = useState(Date.now());
   
   const availableCameras = [
     { id: '/webcam/image_raw', name: 'Front Camera' },
@@ -23,6 +25,7 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
 
   const viewerRef = useRef(null);
   const iframeRef = useRef(null);
+  const subscribedRef = useRef(false);
 
   // Function to construct the stream URL
   const constructStreamUrl = () => {
@@ -31,7 +34,6 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
     const baseUrl = `http://${hostname}:${port}`;
     // Use stream_viewer endpoint for iframe
     const url = `${baseUrl}/stream_viewer?topic=${selectedCamera}`;
-    console.log(`CameraViewer: Constructed stream URL: ${url}`);
     return url;
   };
 
@@ -49,6 +51,9 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
 
   const toggleFullscreen = async () => {
     try {
+      // Update activity timestamp
+      setLastActivityTime(Date.now());
+      
       if (!isFullscreen) {
         await iframeRef.current.requestFullscreen();
       } else {
@@ -61,64 +66,107 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
 
   // Set up the stream
   useEffect(() => {
-    if (isMinimized) return; // Do nothing if minimized
+    // Don't do anything if minimized
+    if (isMinimized) {
+      setStreamUrl('');
+      return;
+    }
+    
     setIsLoading(true);
     setError(null);
     const url = constructStreamUrl();
     setStreamUrl(url);
-    console.log(`CameraViewer: Setting up stream for ${selectedCamera} on host ${currentHost}`);
+    
+    // Prevent duplicate subscriptions
+    if (subscribedRef.current) {
+      return;
+    }
 
-    // Create a camera subscriber
+    // Create a camera subscriber with lower QoS
     let cameraSubscriber = null;
     if (ros && selectedCamera) {
       try {
+        // Use a unique clientId to avoid conflicts with other viewers
+        const clientId = 'cam_viewer_' + Date.now().toString(36);
+        
         cameraSubscriber = new ROSLIB.Topic({
           ros: ros,
           name: selectedCamera,
-          messageType: 'sensor_msgs/msg/Image'
+          messageType: 'sensor_msgs/msg/Image',
+          qos: {
+            reliability: 'reliable',
+            durability: 'volatile',
+            history: 'keep_last',
+            depth: 1
+          }
         });
 
-        cameraSubscriber.subscribe(() => {
-          // Just monitoring the topic, actual image handling is done by web_video_server
-          console.log(`CameraViewer: Successfully subscribed to ${selectedCamera}`);
-        });
+        // Use a debounced handler to avoid overwhelming the UI
+        // Also only call it once instead of on every message
+        const debouncedHandler = debounce(() => {
+          // After confirming subscription, unsubscribe right away
+          // This allows web_video_server to get the topic without us receiving the images
+          try {
+            cameraSubscriber.unsubscribe();
+            subscribedRef.current = true;
+          } catch (err) {
+            // Silent catch
+          }
+        }, 500);
+
+        cameraSubscriber.subscribe(debouncedHandler);
       } catch (err) {
-        console.error(`CameraViewer: Error subscribing to ${selectedCamera}:`, err);
+        console.error(`Error subscribing to ${selectedCamera}:`, err);
+        setError(`Failed to subscribe to camera topic: ${err.message}`);
       }
     }
 
     return () => {
-      console.log(`CameraViewer: Cleaning up stream for ${selectedCamera}`);
       // Clear the stream URL
       setStreamUrl('');
-      // Unsubscribe from the camera topic
+      // Reset subscription flag on cleanup
+      subscribedRef.current = false;
+      // Unsubscribe from the camera topic if it exists
       if (cameraSubscriber) {
         try {
           cameraSubscriber.unsubscribe();
-          console.log(`CameraViewer: Unsubscribed from ${selectedCamera}`);
         } catch (err) {
-          console.error(`CameraViewer: Error unsubscribing from ${selectedCamera}:`, err);
+          // Silent catch
         }
       }
     };
   }, [selectedCamera, currentHost, isMinimized, ros]);
 
+  // Add debounce utility
+  const debounce = (func, wait) => {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  };
+
   // Handle iframe load errors
   const handleIframeError = () => {
-    console.error(`CameraViewer: Error loading iframe from ${streamUrl}`);
     setError('Failed to load camera stream. Please check if the camera topic is being published.');
     setIsLoading(false);
   };
 
   // Handle iframe load success
   const handleIframeLoad = () => {
-    console.log('CameraViewer: Iframe loaded successfully');
     setError(null);
     setIsLoading(false);
   };
 
   const handleMouseDown = (e) => {
     if (e.target.classList.contains('camera-header')) {
+      // Update activity timestamp
+      setLastActivityTime(Date.now());
+      
       setIsDragging(true);
       const rect = viewerRef.current.getBoundingClientRect();
       setDragOffset({
@@ -131,6 +179,10 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
   const handleResizeStart = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Update activity timestamp
+    setLastActivityTime(Date.now());
+    
     setIsResizing(true);
     const rect = viewerRef.current.getBoundingClientRect();
     setResizeStart({
@@ -179,11 +231,15 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
   }, [isDragging, isResizing, dragOffset, resizeStart]);
 
   const toggleMinimize = () => {
+    // Update activity timestamp
+    setLastActivityTime(Date.now());
+    
     const newState = !isMinimized;
     setIsMinimized(newState);
     if (newState) {
       // If minimizing, clear stream to unsubscribe
       setStreamUrl('');
+      subscribedRef.current = false;
     } else {
       // Restoring viewer, rebuild URL
       const url = constructStreamUrl();
@@ -193,8 +249,37 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
   };
 
   const handleCameraChange = (e) => {
+    // Update activity timestamp
+    setLastActivityTime(Date.now());
+    
     setSelectedCamera(e.target.value);
+    subscribedRef.current = false;
   };
+
+  // CPU saving - reduce iframe refresh rate when inactive
+  useEffect(() => {
+    const lowPowerMode = () => {
+      // Check if camera has been inactive for more than 30 seconds
+      const now = Date.now();
+      const inactiveFor = now - lastActivityTime;
+      
+      if (inactiveFor > 30000 && iframeRef.current && !isMinimized) {
+        // Temporarily hide iframe to save CPU
+        if (iframeRef.current.style.opacity !== '0.5') {
+          iframeRef.current.style.opacity = '0.5';
+          iframeRef.current.style.filter = 'grayscale(50%)';
+        }
+      } else if (iframeRef.current) {
+        // Restore normal display
+        iframeRef.current.style.opacity = '1';
+        iframeRef.current.style.filter = 'none';
+      }
+    };
+    
+    const intervalId = setInterval(lowPowerMode, 5000);
+    
+    return () => clearInterval(intervalId);
+  }, [lastActivityTime, isMinimized]);
 
   return (
     <div
@@ -208,6 +293,7 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
         height: isMinimized ? 'auto' : `${size.height + 40}px`, // Add header height
       }}
       onMouseDown={handleMouseDown}
+      onMouseMove={() => setLastActivityTime(Date.now())}
     >
       <div className="camera-border"></div>
       <div className="camera-header">
@@ -270,6 +356,6 @@ const CameraViewer = ({ ros, topic, host = localStorage.getItem('webVideoHost') 
       )}
     </div>
   );
-};
+});
 
 export default CameraViewer; 

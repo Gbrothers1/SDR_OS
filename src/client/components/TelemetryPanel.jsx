@@ -32,10 +32,10 @@ const throttle = (func, limit) => {
   };
 };
 
-const TelemetryPanel = ({ ros, updateInterval }) => {
+const TelemetryPanel = ({ ros, updateInterval, initialShowPanel = true }) => {
   const [telemetryData, setTelemetryData] = useState(null);
   const [error, setError] = useState(null);
-  const [showPanel, setShowPanel] = useState(true);
+  const [showPanel, setShowPanel] = useState(initialShowPanel);
   const chartCanvasRef = useRef(null);
   
   // Chart configuration
@@ -68,79 +68,108 @@ const TelemetryPanel = ({ ros, updateInterval }) => {
   const throttledUpdateState = useCallback(
     throttle((data) => {
       try {
-        // Log the parsed data structure - check browser console!
-        console.log('>>> TelemetryPanel PARSED data (throttled):', data);
-        setTelemetryData(data); // Update main data state
-
-        // Update data history for charts
-        if (data.imu) {
-          // Log the IMU data being used for history update
-          console.log('>>> TelemetryPanel Updating History with IMU (throttled):', data.imu);
+        // Only update if we have IMU data
+        if (data?.imu) {
+          // Extract values
+          const { accel, gyro } = data.imu;
+          const values = {
+            ax: accel.x,
+            ay: accel.y,
+            az: accel.z,
+            gx: gyro.x,
+            gy: gyro.y,
+            gz: gyro.z
+          };
+          
+          // Update history
           setDataHistory(prev => {
             const newHistory = { ...prev };
-            // Log the actual values being pushed
-            console.log('>>> Pushing values (throttled):', {ax: data.imu.accel?.x, ay: data.imu.accel?.y, az: data.imu.accel?.z, gx: data.imu.gyro?.x, gy: data.imu.gyro?.y, gz: data.imu.gyro?.z });
-            newHistory.accelX = [...prev.accelX.slice(1), data.imu.accel?.x ?? 0]; 
-            newHistory.accelY = [...prev.accelY.slice(1), data.imu.accel?.y ?? 0];
-            newHistory.accelZ = [...prev.accelZ.slice(1), data.imu.accel?.z ?? 0];
-            newHistory.gyroX = [...prev.gyroX.slice(1), data.imu.gyro?.x ?? 0];
-            newHistory.gyroY = [...prev.gyroY.slice(1), data.imu.gyro?.y ?? 0];
-            newHistory.gyroZ = [...prev.gyroZ.slice(1), data.imu.gyro?.z ?? 0];
-            console.log('>>> New History State (throttled):', newHistory); // Log the new history state before returning
+            Object.keys(values).forEach(key => {
+              const historyKey = key === 'ax' ? 'accelX' :
+                               key === 'ay' ? 'accelY' :
+                               key === 'az' ? 'accelZ' :
+                               key === 'gx' ? 'gyroX' :
+                               key === 'gy' ? 'gyroY' :
+                               'gyroZ';
+              newHistory[historyKey] = [...prev[historyKey].slice(1), values[key]];
+            });
             return newHistory;
           });
-        } else {
-          console.warn('>>> TelemetryPanel: data.imu not found in message, skipping history update (throttled).');
+          
+          // Update telemetry data
+          setTelemetryData(data);
         }
       } catch (err) {
-         // Note: Errors inside the throttle might be less obvious
-        console.error('Error during throttled state update:', err);
+        console.error('Error in throttledUpdateState:', err);
         setError('Error processing telemetry data');
       }
-    }, updateInterval ?? 100), // Throttle based on prop, default 100ms
-    [updateInterval] // Recreate throttle function if interval changes
+    }, updateInterval || 100),
+    [updateInterval]
   );
 
-  // Direct handler for incoming messages - parses JSON and calls throttled update
-  const handleTelemetryData = useCallback((message) => {
-    // Log the raw incoming message data - check browser console!
-    console.log('>>> TelemetryPanel RAW message.data:', message.data);
-    try {
-      const data = JSON.parse(message.data);
-      // Call the throttled function to handle state updates
-      throttledUpdateState(data);
-    } catch (err) {
-      console.error('Error parsing telemetry data:', err);
-      setError('Error parsing telemetry data');
-    } 
-  }, [throttledUpdateState]); // Depends on the throttled function instance
+  // For message handler, do not create a new function on each render when showPanel changes
+  // This prevents the cycle of subscribe/unsubscribe
+  const messageHandlerRef = useRef(null);
+  
+  // Update the handler reference when throttledUpdateState changes
+  useEffect(() => {
+    messageHandlerRef.current = (message) => {
+      try {
+        // Skip processing if panel isn't visible, but don't recreate the handler
+        if (!showPanel) return;
+        
+        const data = JSON.parse(message.data);
+        throttledUpdateState(data);
+      } catch (err) {
+        console.error('Error parsing telemetry data:', err);
+        setError('Error parsing telemetry data');
+      }
+    };
+  }, [throttledUpdateState, showPanel]);
 
+  // Create a stable subscription handler that uses the current ref value
+  const stableMessageHandler = useCallback((message) => {
+    if (messageHandlerRef.current) {
+      messageHandlerRef.current(message);
+    }
+  }, []);
+
+  // Subscribe to telemetry topic only once when component mounts
   useEffect(() => {
     if (!ros) {
       setError('ROS connection not available');
       return;
     }
-
+    
     let telemetryTopic = null;
-
-    telemetryTopic = new ROSLIB.Topic({
-      ros: ros,
-      name: '/robot/telemetry/all',
-      messageType: 'std_msgs/String'
-    });
-
-    // Subscribe using the direct handler (which then calls the throttled one)
-    telemetryTopic.subscribe(handleTelemetryData);
-    console.log('TelemetryPanel mounted, subscribed to /robot/telemetry/all');
-
+    
+    try {
+      telemetryTopic = new ROSLIB.Topic({
+        ros: ros,
+        name: '/robot/telemetry/all',
+        messageType: 'std_msgs/String'
+      });
+      
+      // Using our stable handler
+      telemetryTopic.subscribe(stableMessageHandler);
+      console.log('TelemetryPanel mounted, subscribed to /robot/telemetry/all');
+    } catch (err) {
+      console.error('Error subscribing to telemetry topic:', err);
+      setError('Failed to subscribe to telemetry topic');
+    }
+    
+    // Only unsubscribe when component unmounts
     return () => {
       if (telemetryTopic) {
-        telemetryTopic.unsubscribe();
-        console.log('TelemetryPanel unmounted, unsubscribed from /robot/telemetry/all');
+        try {
+          telemetryTopic.unsubscribe();
+          console.log('TelemetryPanel unmounted, unsubscribed from /robot/telemetry/all');
+        } catch (err) {
+          console.error('Error unsubscribing from telemetry topic:', err);
+        }
       }
     };
-  // Dependency: only re-subscribe if ros changes or the handler function itself changes
-  }, [ros, handleTelemetryData]);
+  }, [ros, stableMessageHandler]);
   
   // Draw charts when data history changes
   useEffect(() => {
@@ -269,7 +298,12 @@ const TelemetryPanel = ({ ros, updateInterval }) => {
       // Catch and log any errors during drawing
       console.error('!!! ERROR in Chart Drawing Effect:', error);
     }
-  }, [dataHistory, chartConfig]);
+  }, [dataHistory, chartConfig]);  // Remove showPanel from dependencies
+
+  // Initialize showPanel based on prop
+  useEffect(() => {
+    setShowPanel(initialShowPanel);
+  }, [initialShowPanel]);
 
   const togglePanel = () => {
     setShowPanel(!showPanel);

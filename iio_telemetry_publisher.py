@@ -24,6 +24,7 @@ from typing import Dict, List, Any, Optional
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from std_msgs.msg import Float32MultiArray, String
 from geometry_msgs.msg import Vector3, TransformStamped, Twist
 from sensor_msgs.msg import Imu
@@ -72,17 +73,24 @@ class IIOPublisherNode(Node):
             }
         }
         
+        # Create QoS profile for better handling of multiple subscribers
+        qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        
         # Create publishers
         self.telemetry_publisher = self.create_publisher(
             String, 
             '/robot/telemetry/all', 
-            10
+            qos
         )
         
         self.imu_publisher = self.create_publisher(
             Imu,
             '/robot/imu',
-            10
+            qos
         )
         
         # Subscribe to controller button states
