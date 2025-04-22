@@ -318,17 +318,24 @@ const TelemetryPanel = ({ ros, updateInterval, initialShowPanel = true }) => {
   const renderOrientationDisplay = (orientation) => {
     if (!orientation) return null;
     
-    const roll = orientation.roll * (180 / Math.PI);  // Convert to degrees
+    // Convert to degrees for display
+    const roll = orientation.roll * (180 / Math.PI);
     const pitch = orientation.pitch * (180 / Math.PI);
     const yaw = orientation.yaw * (180 / Math.PI);
     
+    // CSS 3D transforms use a different convention than ROS
+    // For proper orientation representation, the order and signs need to be adjusted
     return (
       <div className="orientation-display">
         <div className="orientation-box">
           <div 
             className="orientation-indicator"
             style={{
-              transform: `rotateX(${pitch}deg) rotateY(${roll}deg) rotateZ(${yaw}deg)`
+              // Apply transforms in the RIGHT coordinate system and order for CSS:
+              // 1. First rotate around Z (yaw)
+              // 2. Then around X (pitch) - negative to match 3D model
+              // 3. Finally around Y (roll) - negative to match the expected IMU behavior
+              transform: `rotateZ(${yaw}deg) rotateX(${-pitch}deg) rotateY(${-roll}deg)`
             }}
           >
             <div className="face front">F</div>
