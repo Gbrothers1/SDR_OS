@@ -8,11 +8,12 @@ import SettingsModal from './SettingsModal';
 import TelemetryPanel from './TelemetryPanel';
 import SplashScreen from './SplashScreen';
 import CameraViewer from './CameraViewer';
+import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
 import ROSLIB from 'roslib';
 import io from 'socket.io-client';
 import '../styles/App.css';
 
-const App = () => {
+const AppContent = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [ros, setRos] = useState(null);
   const [socket, setSocket] = useState(null);
@@ -37,6 +38,27 @@ const App = () => {
   const [appSettings, setAppSettings] = useState(null);
 
   const [isCameraVisible, setIsCameraVisible] = useState(false);
+
+  const { getSetting, updateSettings } = useSettings();
+  const [isControllerVisible, setIsControllerVisible] = useState(
+    getSetting('ui', 'showControllerOnStartup', true)
+  );
+  
+  // Monitor settings changes for controller visibility
+  useEffect(() => {
+    // Function to sync controller visibility with settings
+    const syncControllerVisibility = () => {
+      // For runtime control we use controllerVisible, not the startup value
+      const currentSetting = getSetting('ui', 'controllerVisible', true);
+      console.log('AppContent: Syncing controller visibility from settings:', currentSetting);
+      setIsControllerVisible(currentSetting);
+    };
+    
+    // Call immediately and whenever getSetting might change (dependency)
+    syncControllerVisibility();
+    
+    // This will execute whenever the settings context changes the getSetting function
+  }, [getSetting]);
 
   const initializeConnections = async () => {
     try {
@@ -162,12 +184,34 @@ const App = () => {
     
     // Update display settings state (including camera)
     const newDisplaySettings = {
-      showLogViewer: displaySettings.showLogViewer,
-      showTelemetryPanel: newSettings.telemetry?.showTelemetryPanel ?? true,
-      showCameraFeed: newSettings.visualization?.showCameraFeed ?? false,
+      showLogViewer: newSettings.ui?.showLogsOnStartup ?? false,
+      showTelemetryPanel: newSettings.ui?.showTelemetryPanel ?? true,
+      showCameraFeed: newSettings.ui?.showCameraOnStartup ?? false,
     };
     
     setDisplaySettings(newDisplaySettings);
+    
+    // Handle controller visibility settings
+    const uiSettings = newSettings.ui || {};
+    
+    // Handle showControllerOnStartup specifically
+    if (uiSettings.showControllerOnStartup !== undefined) {
+      console.log('Updating showControllerOnStartup setting:', uiSettings.showControllerOnStartup);
+      
+      // If only showControllerOnStartup was set (typically from the settings screen),
+      // we don't want to immediately change visibility - that should only happen on next startup
+      // However, we need to make sure controllerVisible is set properly for the next save
+      if (uiSettings.controllerVisible === undefined) {
+        // Keep the same value for controllerVisible that we already have
+        uiSettings.controllerVisible = getSetting('ui', 'controllerVisible', true);
+      }
+    }
+    
+    // If controllerVisible was changed, update the isControllerVisible state
+    if (uiSettings.controllerVisible !== undefined) {
+      console.log('Setting isControllerVisible from settings save:', uiSettings.controllerVisible);
+      setIsControllerVisible(uiSettings.controllerVisible);
+    }
     
     // Update full settings state
     setAppSettings(newSettings);
@@ -189,28 +233,118 @@ const App = () => {
     console.log("Settings closed");
   }, []);
 
+  const toggleController = useCallback(() => {
+    const newValue = !isControllerVisible;
+    console.log('App: Toggling controller visibility to:', newValue);
+    
+    // Update local state
+    setIsControllerVisible(newValue);
+    
+    // Update settings context
+    updateSettings({
+      ui: {
+        controllerVisible: newValue
+      }
+    });
+  }, [isControllerVisible, updateSettings]);
+
   useEffect(() => {
     // Load full settings on initial mount
     const savedFullSettings = localStorage.getItem('robotControllerSettings');
     if (savedFullSettings) {
       try {
-        setAppSettings(JSON.parse(savedFullSettings));
+        const parsedSettings = JSON.parse(savedFullSettings);
+        console.log('Loaded settings from localStorage:', parsedSettings);
+        
+        // Handle potential legacy settings format
+        if (!parsedSettings.ui) {
+          // Migrate legacy settings to new format
+          parsedSettings.ui = {
+            showControllerOnStartup: parsedSettings.control?.showControllerOnStartup ?? true,
+            controllerVisible: parsedSettings.control?.showControllerOnStartup ?? true,
+            controllerMinimized: false, // Default to not minimized
+            showTelemetryPanel: parsedSettings.telemetry?.showTelemetryPanel ?? true,
+            showLogsOnStartup: false,
+            showCameraOnStartup: parsedSettings.visualization?.showCameraFeed ?? false
+          };
+          
+          // Remove legacy properties
+          if (parsedSettings.control) {
+            delete parsedSettings.control.showControllerOnStartup;
+          }
+          if (parsedSettings.telemetry) {
+            delete parsedSettings.telemetry.showTelemetryPanel;
+          }
+          if (parsedSettings.visualization) {
+            delete parsedSettings.visualization.showCameraFeed;
+          }
+          
+          console.log('Migrated legacy settings to new format:', parsedSettings);
+          
+          // Save back the migrated settings
+          localStorage.setItem('robotControllerSettings', JSON.stringify(parsedSettings));
+        } else {
+          // Make sure all UI properties exist
+          if (!parsedSettings.ui.hasOwnProperty('controllerMinimized')) {
+            parsedSettings.ui.controllerMinimized = false;
+          }
+          
+          // Make sure controllerVisible has a value - this is separate from showControllerOnStartup
+          if (parsedSettings.ui.controllerVisible === undefined) {
+            // On fresh reload, controllerVisible should be initialized from showControllerOnStartup
+            parsedSettings.ui.controllerVisible = parsedSettings.ui.showControllerOnStartup;
+          }
+        }
+        
+        setAppSettings(parsedSettings);
+        
+        // Initialize UI state from the settings
+        // On a fresh load, controllerVisible is initialized from showControllerOnStartup
+        if (parsedSettings.ui) {
+          console.log('Setting UI state from loaded settings:', parsedSettings.ui);
+          
+          // On initial app load, we respect the showControllerOnStartup setting
+          // This ensures the controller appears (or not) based on startup preference
+          const shouldShowOnStartup = parsedSettings.ui.showControllerOnStartup;
+          console.log('Controller should show on startup:', shouldShowOnStartup);
+          
+          // Initialize the controllerVisible setting based on the startup setting
+          parsedSettings.ui.controllerVisible = shouldShowOnStartup;
+          
+          // Also set the local React state
+          setIsControllerVisible(shouldShowOnStartup);
+          setIsLogViewerVisible(parsedSettings.ui.showLogsOnStartup);
+          setIsCameraVisible(parsedSettings.ui.showCameraOnStartup);
+          
+          setDisplaySettings(prev => ({
+            ...prev,
+            showLogViewer: parsedSettings.ui.showLogsOnStartup,
+            showTelemetryPanel: parsedSettings.ui.showTelemetryPanel,
+            showCameraFeed: parsedSettings.ui.showCameraOnStartup
+          }));
+          
+          // Make sure updated settings with initialized controllerVisible are saved
+          localStorage.setItem('robotControllerSettings', JSON.stringify(parsedSettings));
+        }
       } catch (e) {
         console.error('Error loading full settings:', e);
       }
     }
-    // Load display settings 
+    
+    // Legacy display settings
     const savedDisplaySettings = localStorage.getItem('displaySettings');
     if (savedDisplaySettings) {
       try {
         const loadedDisplay = JSON.parse(savedDisplaySettings);
-        // Ensure all expected fields exist
-        setDisplaySettings(prev => ({ 
-          ...prev, // Start with defaults
-          ...loadedDisplay // Override with loaded values
-        }));
-        setIsLogViewerVisible(loadedDisplay.showLogViewer);
-        setIsCameraVisible(loadedDisplay.showCameraFeed || false);
+        // Only use these if we didn't already set from robotControllerSettings
+        if (!savedFullSettings || !JSON.parse(savedFullSettings).ui) {
+          setDisplaySettings(prev => ({ 
+            ...prev, // Start with defaults
+            ...loadedDisplay // Override with loaded values
+          }));
+          setIsLogViewerVisible(loadedDisplay.showLogViewer);
+          setIsCameraVisible(loadedDisplay.showCameraFeed || false);
+        }
       } catch (e) {
         console.error('Error loading display settings:', e);
       }
@@ -237,6 +371,22 @@ const App = () => {
     return () => clearTimeout(debounceTimer);
   }, [displaySettings]);
 
+  // Initialize display settings from the UI settings during component mount
+  useEffect(() => {
+    if (appSettings?.ui) {
+      setIsControllerVisible(appSettings.ui.controllerVisible);
+      setIsLogViewerVisible(appSettings.ui.showLogsOnStartup);
+      setIsCameraVisible(appSettings.ui.showCameraOnStartup);
+      
+      setDisplaySettings(prev => ({
+        ...prev,
+        showLogViewer: appSettings.ui.showLogsOnStartup,
+        showTelemetryPanel: appSettings.ui.showTelemetryPanel,
+        showCameraFeed: appSettings.ui.showCameraOnStartup
+      }));
+    }
+  }, [appSettings]);
+
   if (isLoading) {
     return <SplashScreen onComplete={handleSplashComplete} />;
   }
@@ -256,15 +406,17 @@ const App = () => {
         <div className="viewer-container">
           <RobotViewer 
             ros={ros} 
-            // Pass throttle rate from state (or default)
             tfThrottleRate={appSettings?.visualization?.tfThrottleRate ?? 10}
+            settings={appSettings}
           />
-          <ControlOverlay 
-            ros={ros} 
-            socket={socket} 
-            controlState={controlState}
-            onControlChange={handleControlChange}
-          />
+          {isControllerVisible && (
+            <ControlOverlay 
+              ros={ros} 
+              socket={socket} 
+              controlState={controlState}
+              onControlChange={handleControlChange}
+            />
+          )}
           <TelemetryPanel 
             ros={ros} 
             // Pass updateInterval from settings state
@@ -296,11 +448,10 @@ const App = () => {
         )}
       </div>
       
-      <CameraIcon 
-        onClick={toggleCamera}
-        className={isCameraVisible ? 'active' : ''}
-      />
-      <SettingsIcon onClick={toggleSettings} />
+      <div className="toolbar">
+        <SettingsIcon onClick={toggleSettings} />
+        <CameraIcon onClick={toggleCamera} isActive={isCameraVisible} />
+      </div>
       
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -309,6 +460,14 @@ const App = () => {
         initialSettings={appSettings}
       />
     </div>
+  );
+};
+
+const App = () => {
+  return (
+    <SettingsProvider>
+      <AppContent />
+    </SettingsProvider>
   );
 };
 

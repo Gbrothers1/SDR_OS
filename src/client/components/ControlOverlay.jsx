@@ -2,10 +2,34 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import '../styles/ControlOverlay.css';
 import ROSLIB from 'roslib';
 import soundEffects from '../audio/SoundEffects';
+import { useSettings } from '../contexts/SettingsContext';
 
 const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
   const gamepadRef = useRef(null);
   const animationFrameRef = useRef();
+  const { getSetting, updateSettings } = useSettings();
+  
+  // Get minimized state from settings
+  const initialMinimized = getSetting('ui', 'controllerMinimized', false);
+  console.log('ControlOverlay initializing with minimized state:', initialMinimized);
+  
+  // Use isHidden for UI state (instead of tracking a separate isVisible state)
+  const [isHidden, setIsHidden] = useState(initialMinimized);
+  
+  // Log when isHidden changes
+  useEffect(() => {
+    console.log('ControlOverlay isHidden state changed to:', isHidden);
+  }, [isHidden]);
+  
+  // Sync with settings when they change
+  useEffect(() => {
+    const minimizedInSettings = getSetting('ui', 'controllerMinimized', false);
+    if (isHidden !== minimizedInSettings) {
+      console.log('Syncing minimized state with settings:', minimizedInSettings);
+      setIsHidden(minimizedInSettings);
+    }
+  }, [getSetting, isHidden]);
+  
   const [buttonStates, setButtonStates] = useState({
     // Face buttons
     A: false, B: false, X: false, Y: false,
@@ -16,7 +40,6 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
     R1: false, R2: false, R3: false, R4: false,
   });
   const [showMappings, setShowMappings] = useState(false);
-  const [isHidden, setIsHidden] = useState(false);
   const [isGamepadConnected, setIsGamepadConnected] = useState(false);
   // Store local controlState for non-gamepad clients
   const [localControlState, setLocalControlState] = useState({
@@ -289,12 +312,23 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
     if (e.target === e.currentTarget || e.target.classList.contains('hide-toggle')) {
       e.stopPropagation();
       await soundEffects.playMenuButtonClick().catch(console.error);
-      setIsHidden(prev => !prev);
-      if (!isHidden) {
+      
+      const newHiddenState = !isHidden;
+      setIsHidden(newHiddenState);
+      
+      // Update the settings context with the new minimized state
+      // This won't cause the component to unmount, just change its appearance
+      updateSettings({
+        ui: {
+          controllerMinimized: newHiddenState
+        }
+      });
+      
+      if (newHiddenState) {
         setShowMappings(false);
       }
     }
-  }, [isHidden]);
+  }, [isHidden, updateSettings]);
 
   // Use the appropriate control state based on whether this client has a gamepad or not
   const displayControlState = isGamepadConnected ? controlState : localControlState;
@@ -309,7 +343,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
     <div className="controls-container">
     <div 
       className={`control-overlay ${isHidden ? 'hidden' : ''}`}
-        onClick={toggleHide}
+      onClick={toggleHide}
     >
       <div className="control-border"></div>
       {!isHidden && (

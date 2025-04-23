@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import ROSLIB from 'roslib';
 
-const RobotViewer = ({ ros, tfThrottleRate }) => {
+const RobotViewer = ({ ros, tfThrottleRate, settings }) => {
   const containerRef = useRef();
   const sceneRef = useRef();
   const cameraRef = useRef();
@@ -14,6 +14,44 @@ const RobotViewer = ({ ros, tfThrottleRate }) => {
   const [isResizing, setIsResizing] = useState(false);
   const resizeTimeoutRef = useRef(null);
   const [imuData, setImuData] = useState(null);
+
+  // Store references to visual elements that can be toggled
+  const visualElements = useRef({
+    robotLabels: [],
+    imuIndicators: null,
+    axisLabels: [],
+    gridHelper: null
+  });
+
+  // Function to update visibility based on settings
+  const updateVisibility = () => {
+    if (!settings?.visualization) return;
+
+    // Update robot labels visibility
+    visualElements.current.robotLabels.forEach(label => {
+      if (label) label.visible = settings.visualization.showRobotLabels;
+    });
+
+    // Update IMU indicators visibility
+    if (visualElements.current.imuIndicators) {
+      visualElements.current.imuIndicators.visible = settings.visualization.showImuIndicators;
+    }
+
+    // Update axis labels visibility
+    visualElements.current.axisLabels.forEach(label => {
+      if (label) label.visible = settings.visualization.showAxisLabels;
+    });
+
+    // Update grid visibility
+    if (visualElements.current.gridHelper) {
+      visualElements.current.gridHelper.visible = settings.visualization.showGrid;
+    }
+  };
+
+  // Effect to handle visibility changes when settings change
+  useEffect(() => {
+    updateVisibility();
+  }, [settings]);
 
   useEffect(() => {
     // Initialize Three.js scene
@@ -54,8 +92,9 @@ const RobotViewer = ({ ros, tfThrottleRate }) => {
       directionalLight.position.set(5, 5, 5);
       sceneRef.current.add(directionalLight);
 
-      // Add grid helper
+      // Add grid helper and store reference
       const gridHelper = new THREE.GridHelper(10, 10);
+      visualElements.current.gridHelper = gridHelper;
       sceneRef.current.add(gridHelper);
 
       // Create robot model
@@ -242,33 +281,42 @@ const RobotViewer = ({ ros, tfThrottleRate }) => {
       
       // Rotate axes group to match world orientation
       axesGroup.rotation.x = Math.PI/2; // This keeps Y pointing up in world space
-      
+
+      // Store references to axis labels
+      const axisLabels = [xLabel, yLabel, zLabel];
+      visualElements.current.axisLabels = axisLabels;
+
+      // Store reference to IMU indicators (axes group)
+      visualElements.current.imuIndicators = axesGroup;
+
       // Add labels for the robot body faces with the new approach - better positions
       const frontLabel = createTextLabel('FRONT', '#00ffff', new THREE.Vector3(0, 1.5, 0), 0.45);
       const backLabel = createTextLabel('BACK', '#00ffff', new THREE.Vector3(0, -0.6, -0.3), 0.45);
       const topLabel = createTextLabel('TOP', '#00ffff', new THREE.Vector3(0, 0.5, -1.0), 0.35);
       const bottomLabel = createTextLabel('BOTTOM', '#00ffff', new THREE.Vector3(0, 0.75, 1.0), 0.35);
 
-      // Store face normals and their corresponding labels
-      const faceLabels = [
-        { label: frontLabel, normal: new THREE.Vector3(0, 1, 0) },
-        { label: backLabel, normal: new THREE.Vector3(0, -1, 0) },
-        { label: topLabel, normal: new THREE.Vector3(0, 0, -1) },
-        { label: bottomLabel, normal: new THREE.Vector3(0, 0, 1) }
-      ];
-      
+      // Store references to robot labels
+      const robotLabels = [frontLabel, backLabel, topLabel, bottomLabel];
+      visualElements.current.robotLabels = robotLabels;
+
       // Add axes group and labels to robot group
       robotGroup.add(axesGroup);
       robotGroup.add(frontLabel, backLabel, topLabel, bottomLabel);
 
-      // Set initial visibility to false
-      faceLabels.forEach(({ label }) => {
-        label.visible = false;
-      });
+      // Set initial visibility based on settings
+      updateVisibility();
 
       // Store the face labels configuration in the robot model ref for access in animation loop
       robotModelRef.current = robotGroup;
-      robotModelRef.current.faceLabels = faceLabels;
+      robotModelRef.current.faceLabels = robotLabels.map((label, index) => ({
+        label,
+        normal: [
+          new THREE.Vector3(0, 1, 0),
+          new THREE.Vector3(0, -1, 0),
+          new THREE.Vector3(0, 0, -1),
+          new THREE.Vector3(0, 0, 1)
+        ][index]
+      }));
       sceneRef.current.add(robotGroup);
     };
 
@@ -296,8 +344,8 @@ const RobotViewer = ({ ros, tfThrottleRate }) => {
           }
         });
 
-        // Update face label visibility based on camera angle
-        if (robotModelRef.current.faceLabels) {
+        // Update face label visibility based on camera angle and settings
+        if (robotModelRef.current.faceLabels && settings?.visualization?.showRobotLabels) {
           robotModelRef.current.faceLabels.forEach(({ label, normal }) => {
             // Transform the normal to world space
             const worldNormal = normal.clone();
@@ -308,7 +356,7 @@ const RobotViewer = ({ ros, tfThrottleRate }) => {
             
             // Show label only when camera is facing the surface (dot product < -0.2)
             // Using -0.2 instead of 0 gives a bit more viewing angle flexibility
-            label.visible = dotProduct < -0.2;
+            label.visible = settings?.visualization?.showRobotLabels && dotProduct < -0.2;
           });
         }
       }
