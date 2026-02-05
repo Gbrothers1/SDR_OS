@@ -80,7 +80,7 @@ Three options were evaluated. See [ARCHITECTURE_REASONING.md](https://github.com
 | B: Python-only | FastAPI + rclpy + aiortc | Single language but heavier for media |
 | C: Node-dominant | ts-node/Nest + rclnodejs | JS GC jitter risk in ROS loop |
 
-## Multi-service backend (planned)
+## Multi-service backend
 
 The [Multi-Service Backend Design](plans/2026-02-05-multi-service-backend-design.md) defines the target architecture:
 
@@ -119,9 +119,21 @@ The [Multi-Service Backend Design](plans/2026-02-05-multi-service-backend-design
 | Caddy | Go | Reverse proxy, Tailscale TLS | edge + backplane |
 | transport-server | Rust | Frame fanout, WebSocket/WebRTC | backplane |
 | genesis-sim | Python | Genesis simulation, NVENC encoding | backplane |
-| ros-bridge | Python | ROS 2 ↔ NATS relay, topic allowlist | backplane |
+| ros-bridge | Python | ROS 2 ↔ NATS relay, topic allowlist | host network (DDS) |
 | training-runner | Python | genesis-forge RL, rsl_rl PPO | backplane |
 | NATS | NATS | Message bus + JetStream | backplane |
+
+### Docker Compose Profiles
+
+| Profile | Services | Use |
+|---------|----------|-----|
+| `dev` | webserver, ros-bridge | Development |
+| `sim` | webserver, genesis-sim, ros-bridge, nats, caddy, transport-server | Simulation + streaming |
+| `train` | training-runner, nats | RL training |
+| `obs` | prometheus, grafana | Observability |
+| `cuda` | app-cuda | CUDA CI target |
+| `rocm` | app-rocm | ROCm CI target |
+| `mlx` | app-mlx | MLX CI target |
 
 ### Data plane
 
@@ -131,6 +143,35 @@ The [Multi-Service Backend Design](plans/2026-02-05-multi-service-backend-design
 | Events / lifecycle | NATS (plain) | Simple pub/sub |
 | Training data | NATS JetStream | Durability, replay |
 | Control commands | WebRTC DataChannel | Lowest latency |
+
+### SHM Ringbuffer (Phase 1)
+
+Zero-copy frame transport between genesis-sim and transport-server:
+
+- **Layout**: 16-byte control region + frame data
+- **Frame header**: 32 bytes (frame_id, frame_seq, size, flags, codec, crc32)
+- **Atomic commit**: sequence number written last as commit marker
+- **Lap detection**: reader tracks frame_seq, resyncs to IDR on gaps
+- **Drop policy**: "latest wins" — writer always overwrites with freshest frame
+
+### NVENC Video Pipeline
+
+```
+Genesis Render (CUDA) → NVENC encoder → SHM ringbuffer → transport-server → clients
+```
+
+- H.264/HEVC encoding on RTX 2080 Ti
+- 2 concurrent NVENC sessions max
+- Target: 1080p60 @ 6-12 Mbps CBR
+
+### Containers
+
+| Container | Base Image | Purpose |
+|-----------|-----------|---------|
+| `sdr_os-cuda` | `nvidia/cuda:12.4.1-runtime-ubuntu22.04` | CUDA CI + sim |
+| `sdr_os-rocm` | `rocm/rocm-terminal:6.1.2` | ROCm CI |
+| `sdr_os-mlx` | `python:3.11-slim` | MLX Linux parity |
+| `sdr_os-ros-jazzy` | `ros:jazzy-ros-base` | ROS2 Jazzy + rosbridge |
 
 ## Implementation phases
 
@@ -162,3 +203,4 @@ See [Phase 1 Implementation Plan](plans/2026-02-05-phase1-cuda-docker-basic-pipe
 - [NEW_ARCHITECTURE_OVERVIEW.md](https://github.com/Gbrothers1/SDR_OS/blob/main/documents/NEW_ARCHITECTURE_OVERVIEW.md) — Multi-target dev and CI/CD plan.
 - [TECH_SPEC.md](https://github.com/Gbrothers1/SDR_OS/blob/main/documents/TECH_SPEC.md) — Hardware and software versions.
 - [Multi-Service Backend Design](plans/2026-02-05-multi-service-backend-design.md) — Full design doc.
+- [Phase 1 Solutions](solutions/phase1-architecture.md) — Architecture diagrams and memory layouts.

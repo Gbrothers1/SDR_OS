@@ -2,6 +2,22 @@
 
 SDR_OS is a multi-backend robotics simulation and control platform for low-latency teleoperation, Genesis physics simulation, and reinforcement learning. It targets **CUDA** (NVIDIA), **ROCm** (AMD), and **MLX** (Apple Silicon) from a single source tree.
 
+## Quick Start
+
+```bash
+# Development mode (ROS2 + web app)
+docker compose --profile dev up
+
+# Simulation mode (full pipeline)
+docker compose --profile sim up
+
+# Run unit tests
+PYTHONPATH=src pytest tests/unit/
+
+# Validate NVENC (inside CUDA container)
+docker compose --profile cuda run --rm app-cuda python3 scripts/validate_nvenc.py
+```
+
 ## What it does
 
 - **Browser-based control** — Gamepad and keyboard input via a React UI, with real-time 3D visualization (Three.js) and telemetry dashboards.
@@ -42,6 +58,9 @@ SDR_OS is a multi-backend robotics simulation and control platform for low-laten
 | [Backend](backend.md) | Express server, Socket.io events, Genesis bridge protocol. |
 | [Containers](containers.md) | Dockerfiles, Compose profiles, devcontainers. |
 | [CI/CD](ci.md) | Workflows, runners, test split, benchmarks, perf gates. |
+| [Testing](testing.md) | Local verification commands, CI troubleshooting. |
+| [Dev Workflow](dev-workflow.md) | Git worktrees, branching, commit and PR workflow. |
+| [Solutions](solutions/index.md) | Architecture diagrams and solved designs per phase. |
 | [Build log](build.md) | Local build commands and build history. |
 | [Plans](plans/2026-02-05-multi-service-backend-design.md) | Multi-service backend design and Phase 1 implementation plan. |
 
@@ -50,11 +69,14 @@ SDR_OS is a multi-backend robotics simulation and control platform for low-laten
 ```
 SDR_OS/
 ├── src/client/           # React frontend (40+ components, 5 contexts)
+├── src/sdr_os/           # Python backend (SHM ringbuffer, IPC)
 ├── server.js             # Express + Socket.io backend
-├── containers/           # CUDA / ROCm / MLX Dockerfiles
-├── configs/              # Robot YAMLs (planned: NATS, Caddy, Prometheus)
+├── containers/           # CUDA / ROCm / MLX / ROS2 Jazzy Dockerfiles
+├── configs/              # Caddyfile, nats.conf, prometheus.yml
 ├── docs/                 # This MkDocs site
 ├── documents/            # Internal architecture and planning docs
+├── scripts/              # verify.sh, validate_nvenc.py, ROS2 launcher
+├── tests/unit/           # CPU-only unit tests (SHM ringbuffer)
 ├── tests/benchmarks/     # GPU benchmark scripts (CUDA, ROCm, MLX)
 ├── requirements/         # Per-backend pip requirements
 ├── .github/workflows/    # CI, benchmarks, compat-matrix, docs, perf
@@ -63,7 +85,8 @@ SDR_OS/
 ├── _archive/             # Archived original codebase
 ├── pyproject.toml        # Python project (uv)
 ├── package.json          # Node project (pnpm)
-├── docker-compose.yml    # Multi-profile Compose
+├── justfile              # Task runner (just)
+├── docker-compose.yml    # Multi-profile Compose (12 services, 7 profiles)
 ├── webpack.config.js     # Webpack → dist/bundle.js
 └── mkdocs.yml            # This documentation site config
 ```

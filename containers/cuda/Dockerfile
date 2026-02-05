@@ -27,7 +27,7 @@ WORKDIR /workspace
 # Copy only lockfiles first to maximize layer cache.
 COPY pyproject.toml uv.lock ./
 COPY requirements/requirements-cuda.txt ./requirements/requirements-cuda.txt
-COPY package.json package-lock.json pnpm-lock.yaml ./
+COPY package.json package-lock.json* pnpm-lock.yaml* ./
 
 RUN if [ -f uv.lock ]; then uv sync --frozen --group cuda; fi \
     && if [ -f requirements/requirements-cuda.txt ]; then uv pip sync requirements/requirements-cuda.txt; fi \
