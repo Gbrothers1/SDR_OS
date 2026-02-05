@@ -7,6 +7,10 @@ module.exports = {
     path: path.resolve(__dirname, 'dist'),
     filename: 'bundle.js',
   },
+  optimization: {
+    splitChunks: false,
+    runtimeChunk: false,
+  },
   module: {
     rules: [
       {
@@ -32,6 +36,8 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({
       template: './src/client/index.html',
+      filename: 'index.html',
+      chunks: ['main'],
     }),
   ],
   resolve: {
