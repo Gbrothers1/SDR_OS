@@ -1,7 +1,0 @@
-PyQt6>=6.4.0
-PyOpenGL>=3.1.6
-numpy>=1.21.0
-rclpy>=0.1.0
-geometry_msgs>=0.1.0
-sensor_msgs>=0.1.0
-python3-opengl>=3.1.6 
