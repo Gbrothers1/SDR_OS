@@ -389,15 +389,9 @@ const SplashScreen = ({ onComplete }) => {
 
   return (
     <div className="splash-container">
-      <div className="splash-grid">
-        <div className="splash-header">
-          <img className="splash-logo" src={sdrLogo} alt="SDR" />
-          <div className="splash-title">
-            <div className="splash-title__eyebrow">SDR_OS</div>
-            <div className="splash-title__name">SYSTEM BRIDGE</div>
-            <div className="splash-title__meta">Genesis Control + Telemetry</div>
-          </div>
-        </div>
+      <div className="splash-logo-only">
+        <img className="splash-logo" src={sdrLogo} alt="SDR" />
+      </div>
         {/* Status Panel */}
         <div className="status-panel">
           <div className="panel-header">
