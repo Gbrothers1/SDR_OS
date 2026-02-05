@@ -6,3 +6,6 @@ https://pnpm.io/cli/install
 
 https://quantumzeitgeist.com/gpu-models-hetccl-shows-scaling-multi-vendor/
 
+https://choosealicense.com/licenses/mit/
+
+
