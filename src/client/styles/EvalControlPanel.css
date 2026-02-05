@@ -1,0 +1,209 @@
+/* ===== EvalControlPanel ===== */
+.eval-control-panel .panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.eval-control-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.eval-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.eval-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+  font-family: var(--font-primary);
+}
+
+.eval-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.eval-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.eval-status.connected .eval-status-dot {
+  background: var(--color-accent-green);
+  box-shadow: 0 0 8px rgba(62, 207, 142, 0.6);
+}
+
+.eval-status.disconnected .eval-status-dot {
+  background: var(--color-accent-red);
+  box-shadow: 0 0 8px rgba(239, 83, 80, 0.6);
+}
+
+.eval-status-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.eval-status-row strong.ok {
+  color: var(--color-accent-green);
+}
+
+.eval-status-row strong.warn {
+  color: var(--color-accent-red);
+}
+
+.eval-button-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.eval-button {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-glass-border);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: var(--touch-min);
+}
+
+.eval-button:hover {
+  background: rgba(91, 141, 239, 0.12);
+  border-color: var(--color-glass-border-hover);
+}
+
+.eval-button.active {
+  background: var(--color-accent-blue);
+  border-color: var(--color-accent-blue);
+  color: #fff;
+}
+
+.eval-toggle {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: rgba(35, 35, 35, 0.8);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.eval-toggle.active {
+  background: rgba(24, 127, 204, 0.35);
+  border-color: var(--color-accent-blue);
+  color: #fff;
+}
+
+.eval-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.eval-slider-row input[type="range"] {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+  outline: none;
+}
+
+.eval-slider-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-accent-blue);
+  cursor: pointer;
+}
+
+.eval-slider-row input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-accent-blue);
+  cursor: pointer;
+  border: none;
+}
+
+.eval-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.eval-warning {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: rgba(239, 83, 80, 0.15);
+  color: var(--color-accent-red);
+  font-size: var(--font-size-xs);
+}
+
+.eval-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.eval-metric {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.eval-metric-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.4px;
+}
+
+.eval-metric-value {
+  font-size: var(--font-size-md);
+  color: var(--color-text-primary);
+}
+
+.eval-subgrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.eval-subgrid strong {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}

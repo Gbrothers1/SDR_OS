@@ -1,0 +1,100 @@
+/* ===== SDR_OS Design System ===== */
+:root {
+  /* Colors — Background */
+  --color-bg-primary: #0b0e14;
+  --color-bg-secondary: #121827;
+  --color-bg-tertiary: #171f33;
+
+  /* Colors — Accent */
+  --color-accent-blue: #53a4ff;
+  --color-accent-green: #2ee6a6;
+  --color-accent-amber: #ffb454;
+  --color-accent-red: #ff5b6b;
+  --color-accent-cyan: #19d4ff;
+  --color-accent-violet: #6c5cff;
+
+  /* Colors — Text */
+  --color-text-primary: #e7ecff;
+  --color-text-secondary: #b4bdd8;
+  --color-text-muted: #6f7a98;
+
+  /* Colors — Glass */
+  --color-glass-bg: rgba(16, 22, 36, 0.82);
+  --color-glass-border: rgba(120, 144, 190, 0.16);
+  --color-glass-border-hover: rgba(120, 144, 190, 0.3);
+
+  /* Spacing — 8px base grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 48px;
+  --space-9: 64px;
+
+  /* Typography */
+  --font-primary: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-size-xs: 0.6875rem;   /* 11px */
+  --font-size-sm: 0.75rem;     /* 12px */
+  --font-size-base: 0.875rem;  /* 14px */
+  --font-size-md: 1rem;        /* 16px */
+  --font-size-lg: 1.125rem;    /* 18px */
+  --font-size-xl: 1.5rem;      /* 24px */
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 18px rgba(25, 212, 255, 0.2);
+
+  /* Z-index Scale */
+  --z-base: 1;
+  --z-panel: 100;
+  --z-overlay: 500;
+  --z-modal: 1000;
+
+  /* Touch Targets */
+  --touch-min: 44px;
+
+  /* Layout */
+  --layout-sidebar-width: 320px;
+  --layout-panel-width: 340px;
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 350ms ease;
+
+  /* Authority colors */
+  --color-authority-human: var(--color-accent-green);
+  --color-authority-policy: var(--color-accent-cyan);
+
+  /* Health states */
+  --color-health-ok: var(--color-accent-green);
+  --color-health-degraded: var(--color-accent-amber);
+  --color-health-dead: var(--color-accent-red);
+
+  /* Strip */
+  --strip-height: 40px;
+  --strip-cell-min: 40px;
+  --strip-cell-expanded: 200px;
+
+  /* Edge panels */
+  --panel-width: 320px;
+  --panel-slide-duration: var(--transition-base);
+
+  /* Missing tokens from audit */
+  --backdrop-blur: 12px;
+  --border-width: 1px;
+  --opacity-hover: 0.08;
+  --opacity-active: 0.12;
+  --focus-ring: 0 0 0 2px var(--color-accent-blue);
+}

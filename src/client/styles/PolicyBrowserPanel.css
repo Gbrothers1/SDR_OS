@@ -1,0 +1,458 @@
+/* PolicyBrowserPanel — glass morphism side panel */
+
+.policy-browser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  overflow: hidden;
+  padding: var(--space-3);
+}
+
+/* ── Filter tabs ────────────────────────────────── */
+
+.policy-browser__tabs {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.policy-browser__tab {
+  all: unset;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: var(--border-width) solid var(--color-glass-border);
+  min-height: var(--touch-min);
+  display: flex;
+  align-items: center;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.policy-browser__tab:hover {
+  border-color: var(--color-glass-border-hover);
+  color: var(--color-text-primary);
+}
+
+.policy-browser__tab--active {
+  background: rgba(91, 141, 239, 0.12);
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
+}
+
+/* ── Status bar ─────────────────────────────────── */
+
+.policy-browser__status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  min-height: 28px;
+}
+
+.policy-browser__status-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.policy-browser__status-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.policy-browser__loaded {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-accent-green);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policy-browser__loaded-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent-green);
+  flex-shrink: 0;
+}
+
+.policy-browser__refresh {
+  all: unset;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--color-glass-border);
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.policy-browser__apply {
+  all: unset;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--color-accent-blue);
+  background: rgba(91, 141, 239, 0.12);
+  transition: all var(--transition-fast);
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.policy-browser__apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.policy-browser__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.policy-browser__input {
+  width: 80px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--color-glass-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.policy-browser__input:focus {
+  border-color: var(--color-accent-blue);
+  box-shadow: 0 0 0 1px rgba(91, 141, 239, 0.3);
+}
+
+.policy-browser__refresh:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-glass-border-hover);
+}
+
+/* ── Error banner ───────────────────────────────── */
+
+.policy-browser__error {
+  background: rgba(239, 83, 80, 0.12);
+  border: var(--border-width) solid var(--color-accent-red);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-accent-red);
+  flex-shrink: 0;
+}
+
+/* ── Policy list ────────────────────────────────── */
+
+.policy-browser__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.policy-browser__list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.policy-browser__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.policy-browser__list::-webkit-scrollbar-thumb {
+  background: var(--color-glass-border);
+  border-radius: 2px;
+}
+
+.policy-browser__empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  padding: var(--space-6) var(--space-4);
+}
+
+/* ── Policy card wrapper ────────────────────────── */
+
+.policy-card-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Policy card ────────────────────────────────── */
+
+.policy-card {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--color-glass-bg);
+  border: var(--border-width) solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  min-height: var(--touch-min);
+}
+
+.policy-card:hover:not(:disabled) {
+  border-color: var(--color-glass-border-hover);
+  background: rgba(22, 25, 34, 0.95);
+}
+
+.policy-card:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.policy-card--active {
+  border-color: var(--color-accent-blue);
+  opacity: 1 !important;
+}
+
+.policy-card--active:disabled {
+  opacity: 1;
+}
+
+.policy-card--loading {
+  border-color: var(--color-accent-amber);
+}
+
+.policy-card--ckpt-open {
+  border-color: var(--color-accent-blue);
+  background: rgba(91, 141, 239, 0.06);
+}
+
+/* ── Card header ────────────────────────────────── */
+
+.policy-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow: hidden;
+}
+
+.policy-card__algo {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-accent-blue);
+  background: rgba(91, 141, 239, 0.12);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.policy-card__name {
+  font-family: var(--font-primary);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.policy-card__badge {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-accent-green);
+  background: rgba(62, 207, 142, 0.12);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.policy-card__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-glass-border);
+  border-top-color: var(--color-accent-amber);
+  border-radius: 50%;
+  animation: policy-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes policy-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Chevron toggle ─────────────────────────────── */
+
+.policy-card__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  transition: transform var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.policy-card__chevron:hover {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, var(--opacity-hover));
+}
+
+.policy-card__chevron--open {
+  transform: rotate(180deg);
+  color: var(--color-accent-blue);
+}
+
+/* ── Card metadata ──────────────────────────────── */
+
+.policy-card__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.policy-card__stat {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.policy-card__stat--highlight {
+  color: var(--color-accent-green);
+}
+
+.policy-card__stat--muted {
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ── Checkpoint overflow panel content ─────────── */
+
+.ckpt-overflow {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ckpt-overflow__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-width) solid var(--color-glass-border);
+}
+
+.ckpt-overflow__algo {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-accent-blue);
+  background: rgba(91, 141, 239, 0.12);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.ckpt-overflow__name {
+  font-family: var(--font-primary);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ckpt-overflow__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-y: auto;
+}
+
+.ckpt-overflow__list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ckpt-overflow__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ckpt-overflow__list::-webkit-scrollbar-thumb {
+  background: var(--color-glass-border);
+  border-radius: 2px;
+}
+
+.ckpt-overflow__item {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--touch-min);
+  border: var(--border-width) solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.ckpt-overflow__item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, var(--opacity-hover));
+  border-color: var(--color-glass-border-hover);
+}
+
+.ckpt-overflow__item:disabled {
+  cursor: default;
+}
+
+.ckpt-overflow__item--active {
+  background: rgba(91, 141, 239, 0.06);
+  border-color: var(--color-accent-blue);
+}
+
+.ckpt-overflow__item-name {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.ckpt-overflow__item--active .ckpt-overflow__item-name {
+  color: var(--color-accent-green);
+}
+
+.ckpt-overflow__badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-accent-green);
+  background: rgba(62, 207, 142, 0.12);
+  padding: 0 var(--space-1);
+  border-radius: 2px;
+}

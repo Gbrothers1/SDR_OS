@@ -1,0 +1,46 @@
+/* ===== App Layout (Cockpit) ===== */
+.app {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: radial-gradient(circle at 10% 10%, rgba(25, 212, 255, 0.12), transparent 40%),
+    radial-gradient(circle at 90% 15%, rgba(108, 92, 255, 0.12), transparent 45%),
+    linear-gradient(160deg, #0b0e14 0%, #101628 45%, #0b0e14 100%);
+  font-family: var(--font-primary);
+}
+
+/* Error banner floats above everything */
+.app__error-banner {
+  position: fixed;
+  top: calc(var(--strip-height) + var(--space-3));
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(239, 83, 80, 0.15);
+  border: var(--border-width) solid var(--color-accent-red);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  backdrop-filter: blur(var(--backdrop-blur));
+  font-size: var(--font-size-sm);
+}
+
+.app__error-banner button {
+  background: transparent;
+  border: var(--border-width) solid var(--color-glass-border-hover);
+  color: var(--color-text-primary);
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-sm);
+  transition: background var(--transition-fast);
+}
+
+.app__error-banner button:hover {
+  background: rgba(255, 255, 255, var(--opacity-hover));
+}

@@ -1,0 +1,14 @@
+/* HotRow.css - 6 essential knobs strip */
+
+.hotrow {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: rgba(255, 255, 255, 0.02);
+  border: var(--border-width) solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+}
+
+.hotrow--focused {
+  border-color: rgba(139, 92, 246, 0.3);
+}
