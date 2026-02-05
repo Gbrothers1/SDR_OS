@@ -1,0 +1,2 @@
+# Linux CUDA MLX (newer cards/toolkit)
+mlx[cuda13]

@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - dev
+
+jobs:
+  lint-and-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Sync deps (frozen)
+        run: |
+          if [ -f uv.lock ]; then uv sync --frozen; fi
+      - name: Unit tests
+        run: |
+          if [ -d tests/unit ]; then pytest -q tests/unit; else echo "No unit tests"; fi
+
+  docs-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Install docs deps
+        run: |
+          if [ -f uv.lock ]; then uv sync --frozen --group docs; fi
+          if [ -f requirements/requirements-docs.txt ]; then uv pip sync requirements/requirements-docs.txt; fi
+      - name: Build docs
+        run: mkdocs build
+
+  cuda-smoke:
+    runs-on: [self-hosted, linux, gpu, nvidia]
+    steps:
+      - uses: actions/checkout@v4
+      - name: CUDA smoke
+        run: docker compose --profile cuda run --rm app-cuda pytest -q tests/smoke
+
+  rocm-smoke:
+    runs-on: [self-hosted, linux, gpu, rocm]
+    steps:
+      - uses: actions/checkout@v4
+      - name: ROCm smoke
+        run: docker compose --profile rocm run --rm app-rocm pytest -q tests/smoke
+
+  mlx-smoke:
+    runs-on: [self-hosted, macos, arm64, mlx]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Sync deps (frozen)
+        run: |
+          if [ -f uv.lock ]; then uv sync --frozen --group mlx; fi
+      - name: MLX smoke
+        run: pytest -q tests/smoke

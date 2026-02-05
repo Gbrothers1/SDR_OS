@@ -1,0 +1,13 @@
+{
+  "name": "SDR_OS CUDA",
+  "dockerComposeFile": [
+    "../../docker-compose.yml"
+  ],
+  "service": "app-cuda",
+  "runServices": [
+    "app-cuda"
+  ],
+  "workspaceFolder": "/workspace",
+  "overrideCommand": false,
+  "shutdownAction": "stopCompose"
+}

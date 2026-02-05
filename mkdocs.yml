@@ -1,0 +1,40 @@
+site_name: SDR_OS Docs
+site_description: SDR_OS multi-backend development and CI documentation
+site_url: https://example.invalid
+repo_name: SDR_OS
+repo_url: .
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - CI Plan: ci.md
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.top
+    - content.code.copy
+    - content.tabs.link
+
+plugins:
+  - search
+  - git-revision-date-localized
+  - mike
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: .

@@ -1,0 +1,17 @@
+name: Perf Regression Gate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cuda-perf:
+    runs-on: [self-hosted, linux, gpu, nvidia]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run perf gate
+        run: |
+          if [ -f tests/benchmarks/perf_gate_cuda.sh ]; then
+            bash tests/benchmarks/perf_gate_cuda.sh
+          else
+            echo "No perf gate script found" && exit 1
+          fi

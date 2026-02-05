@@ -1,0 +1,4 @@
+# CUDA backend overlay
+# Install with: uv pip sync requirements/requirements-cuda.txt
+# Or: pip install -r requirements/requirements-cuda.txt
+mlx[cuda12]

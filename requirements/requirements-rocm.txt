@@ -1,0 +1,5 @@
+# ROCm backend overlay
+# Install with: uv pip sync requirements/requirements-rocm.txt
+# Or: pip install -r requirements/requirements-rocm.txt
+# MLX has no ROCm backend yet; use CPU MLX or alternate framework.
+mlx[cpu]

@@ -5,11 +5,23 @@
 | Tool | Version | Purpose |
 |------|---------|---------|
 | **Python** | >=3.10, <3.14 | Genesis/Genesis Forge compatibility |
-| **uv** | latest | Python package management |
-| **pnpm** | latest | Node.js package management |
-| **PyTorch** | latest | ML backend for Genesis |
+| **uv** | >=0.9.30 | Python package management |
+| **pnpm** | >=10.x | Node.js package management |
+| **PyTorch** | >=2.10 (CUDA) | ML backend for Genesis |
+| **CUDA** | 12.x | GPU acceleration |
 
 > **DO NOT USE:** pip (use uv), npm/yarn (use pnpm)
+
+## Current Environment
+
+| Component | Version |
+|-----------|---------|
+| Python | 3.12.12 |
+| uv | 0.9.30 |
+| pnpm | 10.28.2 |
+| PyTorch | 2.10.0+cu128 |
+| Genesis | 0.3.13 |
+| Genesis Forge | 0.3.0 |
 
 ## Prerequisites
 

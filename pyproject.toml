@@ -11,3 +11,28 @@ dependencies = [
 
 [dependency-groups]
 dev = []
+cuda = [
+    "mlx[cuda12]",
+]
+rocm = [
+    "mlx[cpu]",
+]
+mlx = [
+    "mlx",
+]
+mlx_cpu = [
+    "mlx[cpu]",
+]
+mlx_cuda12 = [
+    "mlx[cuda12]",
+]
+mlx_cuda13 = [
+    "mlx[cuda13]",
+]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocs-git-revision-date-localized-plugin",
+    "mike",
+    "pymdown-extensions",
+]

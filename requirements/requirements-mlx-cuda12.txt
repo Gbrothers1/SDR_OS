@@ -1,0 +1,2 @@
+# Linux CUDA MLX
+mlx[cuda12]

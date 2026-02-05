@@ -33,7 +33,14 @@
 
 ### Key Dependencies
 
-<!-- Add as installed -->
+| Package | Version | Purpose |
+|---------|---------|---------|
+| PyTorch | 2.10.0+cu128 | ML backend (CUDA enabled) |
+| Genesis | 0.3.13 | Physics simulation |
+| Genesis Forge | 0.3.0 | Training framework |
+| NumPy | 2.3.5 | Numerical computing |
+| OpenCV | 4.13.0 | Computer vision |
+| MuJoCo | 3.4.0 | Physics engine |
 
 ## Instrumentation Results
 

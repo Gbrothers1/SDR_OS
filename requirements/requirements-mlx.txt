@@ -1,0 +1,4 @@
+# Apple Silicon (macOS) MLX
+# Install with: uv pip sync requirements/requirements-mlx.txt
+# Or: pip install -r requirements/requirements-mlx.txt
+mlx

@@ -1,0 +1,32 @@
+name: Backend Compatibility Matrix
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/**"
+      - "containers/**"
+      - "requirements/**"
+      - "pyproject.toml"
+      - "uv.lock"
+
+jobs:
+  linux-cpu-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [cuda, rocm, mlx_cpu]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Sync deps (frozen)
+        run: |
+          if [ -f uv.lock ]; then uv sync --frozen --group ${{ matrix.backend }}; fi
+      - name: Interface tests
+        run: |
+          if [ -d tests/integration ]; then pytest -q tests/integration; else echo "No integration tests"; fi

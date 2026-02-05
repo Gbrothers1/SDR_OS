@@ -1,0 +1,2 @@
+# Base deps are defined in pyproject.toml
+# This file exists for tooling that expects a requirements file.

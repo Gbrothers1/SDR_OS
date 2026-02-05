@@ -1,0 +1,61 @@
+name: GPU Benchmarks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"  # weekly Monday 06:00 UTC
+
+jobs:
+  cuda-bench:
+    runs-on: [self-hosted, linux, gpu, nvidia]
+    steps:
+      - uses: actions/checkout@v4
+      - name: CUDA benchmark
+        run: |
+          if [ -f tests/benchmarks/run_cuda.sh ]; then
+            bash tests/benchmarks/run_cuda.sh
+          else
+            echo "No CUDA benchmark script found" && exit 1
+          fi
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cuda-bench-results
+          path: benchmarks/results/cuda
+
+  rocm-bench:
+    runs-on: [self-hosted, linux, gpu, rocm]
+    steps:
+      - uses: actions/checkout@v4
+      - name: ROCm benchmark
+        run: |
+          if [ -f tests/benchmarks/run_rocm.sh ]; then
+            bash tests/benchmarks/run_rocm.sh
+          else
+            echo "No ROCm benchmark script found" && exit 1
+          fi
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocm-bench-results
+          path: benchmarks/results/rocm
+
+  mlx-bench:
+    runs-on: [self-hosted, macos, arm64, mlx]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: MLX benchmark
+        run: |
+          if [ -f tests/benchmarks/run_mlx.sh ]; then
+            bash tests/benchmarks/run_mlx.sh
+          else
+            echo "No MLX benchmark script found" && exit 1
+          fi
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlx-bench-results
+          path: benchmarks/results/mlx
