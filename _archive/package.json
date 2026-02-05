@@ -1,0 +1,45 @@
+{
+  "name": "robot-controller",
+  "version": "1.0.0",
+  "description": "A simple robot controller interface",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:simple": "node src/server/simple-server.js",
+    "build": "webpack --mode production",
+    "dev": "webpack --mode development --watch",
+    "dev:server": "nodemon server.js"
+  },
+  "keywords": [
+    "ros2",
+    "robot",
+    "controller",
+    "web",
+    "three.js",
+    "react"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "lodash.throttle": "^4.1.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "roslib": "^1.0.0",
+    "socket.io": "^4.7.2",
+    "socket.io-client": "^4.7.2",
+    "three": "^0.159.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.3",
+    "@babel/preset-env": "^7.23.3",
+    "@babel/preset-react": "^7.23.3",
+    "babel-loader": "^9.1.3",
+    "css-loader": "^6.8.1",
+    "html-webpack-plugin": "^5.5.3",
+    "nodemon": "^3.0.1",
+    "style-loader": "^3.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  }
+}

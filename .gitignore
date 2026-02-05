@@ -1,8 +1,16 @@
-# Dependencies
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+.uv/
+*.egg-info/
+.eggs/
+
+# Node/pnpm
 node_modules/
-npm-debug.log
-yarn-debug.log
-yarn-error.log
+pnpm-debug.log
 
 # Build output
 dist/
@@ -20,4 +28,7 @@ build/
 .vscode/
 *.swp
 *.swo
-.DS_Store 
+.DS_Store
+
+# OS
+Thumbs.db 
