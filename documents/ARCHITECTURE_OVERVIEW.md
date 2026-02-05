@@ -11,6 +11,11 @@
 - **Telemetry**: ROS2 topics → Gateway → Browser dashboards.
 - **Video**: Sim/robot camera → NVENC encode → WebRTC/HLS → Browser.
 - **Training**: Genesis + rsl_rl via Python; share observation/action schema with web client for live viz.
+- **Bridge architecture (client/server)**:
+  - *Server*: RTX 2080 Ti host runs Genesis (CUDA) and exposes gRPC API for control/state; WebRTC media
+    (SFU or direct PeerConnection) with NVENC/NVDEC for video/lidar streams.
+  - *Client*: Steam Deck/Mac connects via gRPC for control/state and WebRTC for media; uses libwebrtc or bindings.
+  - *ROCm*: optional sim worker behind the same gRPC interface when AMD targets are added.
 
 ## Pipelines
 - **Control**: Browser gamepad → socket.io/ROSBridge JSON → `/controller/{button_states,joystick_state}` → `RobotControllerNode` → `/cmd_vel` → sim/robot.
@@ -18,6 +23,7 @@
 - **Video/Rendering** (dual mode):
   - *Client-side*: Genesis WASM/WebGPU build renders in browser; Gateway only syncs controls + occasional state checkpoints.
   - *Server-side*: Genesis on GPU renders offscreen → NVENC (H.264/H.265/AV1) → WebRTC SFU (mediasoup/ion-sfu) → Browser `CameraViewer`.
+  - *Failover*: if WebRTC fails, reduce bitrate or fall back to MJPEG over HTTP/2; keep commands on gRPC.
 - **Training loop**: rsl_rl policies → Genesis env wrapper → checkpoints → optional live policy rollout streamed to browser; uses same control schema for manual override.
 
 ## Components
@@ -47,3 +53,8 @@
 - NVENC session limits on 2080 Ti and bandwidth budgeting for 60fps streams.
 - ROSBridge latency under load vs direct socket bridge.
 - Security: auth/z for signaling and ROS topic exposure.
+
+## Performance Notes
+- Prefer shared memory or Unix domain sockets when sim and bridge are co-located to reduce memcpy overhead.
+- Use GPU encoders (NVENC on NVIDIA, VCE/AMF on AMD) to minimize CPU usage.
+- Batch high-rate sensor updates and interpolate client-side to reduce packet overhead.

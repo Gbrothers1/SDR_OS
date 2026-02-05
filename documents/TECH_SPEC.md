@@ -42,6 +42,12 @@
 | OpenCV | 4.13.0 | Computer vision |
 | MuJoCo | 3.4.0 | Physics engine |
 
+### Performance Guidance
+- Avoid giant global lists/dicts; use scoped data structures.
+- Prefer generators and iterators for streaming pipelines.
+- Slim object graphs to reduce GC pressure.
+- Profile to identify hot paths before optimizing.
+
 ## Instrumentation Results
 
 <!--

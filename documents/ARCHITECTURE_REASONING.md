@@ -39,6 +39,12 @@ Date: 2026-02-05
 - Proceed with **Hybrid (Option A)** for MVP while keeping architecture toggles for Option B.
 - Implement media stack with NVENC + WebRTC; keep browser-sim flag for future WASM/WebGPU builds.
 
+## 2026-02-05 Update: Bridge + Failover Rationale
+- **gRPC control plane**: favors robust reconnection/backoff semantics over raw WS for commands.
+- **WebRTC media**: lowest latency path for video/lidar; fallback to MJPEG over HTTP/2 only on media failure.
+- **ROCm parity**: abstract physics behind gRPC so AMD workers can be added without client changes.
+- **Performance**: shared memory/UDS for co-located sim/bridge reduces memcpy overhead; GPU encoders reduce CPU load.
+
 ## Next Steps (in order)
 1) Finalize schemas for control (`/controller/*`), telemetry, and media signaling; document in `documents/ARCHITECTURE_OVERVIEW.md`.
 2) Choose gateway implementation (Node baseline, evaluate FastAPI parity); add health + metrics.
