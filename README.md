@@ -21,3 +21,6 @@ mkdocs serve
 
 ## License
 MIT. See `LICENSE`.
+
+## Docs License Note
+The documentation and code in this repo are released under the MIT License.
