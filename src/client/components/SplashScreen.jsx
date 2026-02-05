@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import sdrLogo from '../assets/sdr-logo.png';
 import '../styles/SplashScreen.css';
 
 const SplashScreen = ({ onComplete }) => {
@@ -390,7 +389,7 @@ const SplashScreen = ({ onComplete }) => {
   return (
     <div className="splash-container">
       <div className="splash-logo-only">
-        <img className="splash-logo" src={sdrLogo} alt="SDR" />
+        <div className="splash-logo-text">SDR</div>
       </div>
         {/* Status Panel */}
         <div className="status-panel">

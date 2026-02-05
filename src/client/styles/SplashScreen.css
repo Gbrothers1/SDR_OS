@@ -38,9 +38,11 @@
   justify-content: center;
 }
 
-.splash-logo {
-  width: 100%;
-  height: auto;
+.splash-logo-text {
+  font-size: clamp(48px, 10vw, 120px);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: #dfe7ff;
   animation: logoPulse 3.2s ease-in-out infinite;
 }
 
