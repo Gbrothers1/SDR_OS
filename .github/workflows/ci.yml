@@ -24,11 +24,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install uv
-        run: pip install uv
-      - name: Sync deps (frozen)
-        run: |
-          if [ -f uv.lock ]; then uv sync --frozen; fi
       - name: Install test deps
         run: pip install pytest
       - name: Unit tests
@@ -56,15 +51,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install uv
-        run: pip install uv
       - name: Install docs deps
-        run: |
-          if [ -f uv.lock ]; then
-            uv sync --frozen --group docs
-          else
-            pip install mkdocs mkdocs-material mkdocs-git-revision-date-localized-plugin mike pymdown-extensions
-          fi
+        run: pip install mkdocs mkdocs-material mkdocs-git-revision-date-localized-plugin mike pymdown-extensions
       - name: Build docs
         run: mkdocs build
 
