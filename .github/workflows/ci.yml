@@ -60,8 +60,11 @@ jobs:
         run: pip install uv
       - name: Install docs deps
         run: |
-          if [ -f uv.lock ]; then uv sync --frozen --group docs; fi
-          if [ -f requirements/requirements-docs.txt ]; then uv pip sync requirements/requirements-docs.txt; fi
+          if [ -f uv.lock ]; then
+            uv sync --frozen --group docs
+          else
+            pip install mkdocs mkdocs-material mkdocs-git-revision-date-localized-plugin mike pymdown-extensions
+          fi
       - name: Build docs
         run: mkdocs build
 
