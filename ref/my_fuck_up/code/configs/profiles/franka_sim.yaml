@@ -1,0 +1,169 @@
+# Franka Panda Simulation Profile for SDR_OS
+# This profile configures the system for Genesis simulation mode
+
+profile:
+  name: franka_sim
+  label: "Franka Simulation"
+  description: "Franka Panda in Genesis simulation with full RL training support"
+  mode: simulation
+
+robot:
+  name: franka_panda
+  config_path: "configs/robots/franka_panda.yaml"
+
+backend:
+  type: genesis_ros  # genesis_ros, ros2_control, mock
+  bridge_enabled: true
+  ros2_enabled: true
+
+control:
+  mode: cartesian  # cartesian, joint, task
+  deadman_required: true
+  velocity_scale: 1.0
+  
+  # Control gains (for different modes)
+  cartesian_gains:
+    translation_scale: 0.1  # m/s
+    rotation_scale: 0.5  # rad/s
+    deadzone: 0.1
+  
+  joint_gains:
+    velocity_scale: 1.0  # rad/s
+    deadzone: 0.1
+
+rl:
+  enabled: true
+  mode: hil_blend  # teleop_record, hil_blend, online_finetune, eval
+  policy_checkpoint: null  # Set to load pre-trained policy
+  
+  # Action blending
+  alpha:
+    init: 0.0
+    max_ramp: 0.1
+    min: 0.0
+    max: 1.0
+  
+  # Deadman behavior
+  deadman:
+    enabled: true
+    force_alpha_zero: true  # Drop to pure teleop when released
+  
+  # Data logging
+  logging:
+    enabled: true
+    format: npz  # npz, parquet
+    dataset_dir: "rl/datasets"
+    auto_save_interval: 100  # Save every N episodes
+
+safety:
+  enabled: true
+  
+  # Velocity limits
+  max_velocity: 2.0  # m/s for end-effector
+  max_angular_velocity: 3.0  # rad/s
+  
+  # Acceleration limits
+  max_acceleration: 10.0  # m/s^2
+  max_angular_acceleration: 15.0  # rad/s^2
+  
+  # Jerk limits
+  max_jerk: 50.0  # m/s^3
+  
+  # Anomaly detection
+  anomaly_detection:
+    enabled: true
+    auto_stop: true
+    consecutive_anomalies_to_stop: 3
+    
+    thresholds:
+      action_magnitude: 2.0
+      action_jerk: 50.0
+      velocity: 5.0
+      angular_velocity: 10.0
+  
+  # Workspace boundaries
+  workspace:
+    enabled: true
+    x_min: -0.5
+    x_max: 1.0
+    y_min: -0.8
+    y_max: 0.8
+    z_min: 0.0
+    z_max: 1.5
+
+sensors:
+  cameras:
+    - main_camera
+    - wrist_camera
+    - training_camera
+  
+  imu:
+    - base_imu
+  
+  force_torque:
+    - ee_force_sensor
+  
+  contact:
+    - left_finger_contact
+    - right_finger_contact
+
+visualization:
+  # WebSocket streaming
+  ws_port: 9091
+  jpeg_quality: 85
+  target_fps: 30
+  
+  # Multi-camera layout
+  default_camera: main_camera
+  layout: main  # main, grid, pip
+
+training:
+  # Reward configuration
+  rewards:
+    goal_distance_weight: 10.0
+    orientation_alignment_weight: 5.0
+    action_smoothness_weight: -0.01
+    joint_velocity_weight: -0.001
+    collision_weight: -20.0
+  
+  # Episode configuration
+  max_steps: 500
+  success_threshold: 0.02  # meters
+  
+  # Curriculum learning
+  curriculum:
+    enabled: false
+    stages: []
+
+simulation:
+  # Genesis-specific settings
+  dt: 0.01  # 100 Hz simulation
+  substeps: 4
+  
+  # Domain randomization
+  domain_randomization:
+    enabled: false
+    randomize_masses: false
+    randomize_frictions: false
+    randomize_positions: false
+  
+  # Rendering
+  headless: true
+  show_viewer: false
+
+network:
+  # SDR_OS server
+  sdr_os_url: "http://localhost:3000"
+  
+  # ROS2 topics
+  joint_command_topic: "/joint_commands"
+  joint_state_topic: "/joint_states"
+  
+  # rosbridge
+  rosbridge_port: 9090
+
+metadata:
+  author: "SDR_OS"
+  version: "1.0.0"
+  created: "2026-02-02"
+  last_modified: "2026-02-02"

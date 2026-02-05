@@ -1,0 +1,45 @@
+# Shadow Hand Robot Configuration for genesis_ros
+
+robot:
+  name: shadow_hand
+  label: "Shadow Hand"
+  description: "20-DOF dexterous robotic hand"
+  category: manipulator
+  
+  # Genesis built-in URDF - local asset path
+  urdf_path: "assets/urdf/shadow_hand/shadow_hand.urdf"
+  
+  initial_position: [0.0, 0.0, 0.5]
+  initial_orientation: [1.0, 0.0, 0.0, 0.0]
+  
+  control:
+    type: position
+    command_topic: /joint_commands
+    state_topic: /joint_states
+    rate: 100
+  
+  specs:
+    dof: 20
+    mass: 4.0
+
+sensors:
+  - type: camera
+    name: main_camera
+    label: "Main View"
+    res: [1280, 720]
+    pos: [0.8, 0.8, 0.8]
+    lookat: [0.0, 0.0, 0.5]
+    fov: 50
+    publish_rgb: true
+    topic: /camera/main/image_raw
+    fps: 30
+
+scene:
+  ground_plane:
+    enabled: true
+  gravity: [0.0, 0.0, -9.81]
+  dt: 0.01
+
+metadata:
+  author: "SDR_OS"
+  version: "1.0.0"

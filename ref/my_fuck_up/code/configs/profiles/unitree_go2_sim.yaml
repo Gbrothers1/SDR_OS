@@ -1,0 +1,135 @@
+# Unitree Go2 Quadruped Simulation Profile
+
+profile:
+  name: unitree_go2_sim
+  label: "Unitree Go2 Simulation"
+  description: "Quadruped locomotion simulation with RL training"
+  mode: simulation
+
+robot:
+  name: unitree_go2
+  config_path: "configs/robots/unitree_go2.yaml"
+
+backend:
+  type: genesis_ros
+  bridge_enabled: true
+  ros2_enabled: true
+
+control:
+  mode: velocity  # Velocity command control for locomotion
+  deadman_required: true
+  velocity_scale: 1.0
+  
+  velocity_gains:
+    linear_scale: 2.0  # m/s
+    angular_scale: 1.5  # rad/s
+    deadzone: 0.1
+
+rl:
+  enabled: true
+  mode: hil_blend
+  policy_checkpoint: null
+  
+  alpha:
+    init: 0.0
+    max_ramp: 0.05
+    min: 0.0
+    max: 1.0
+  
+  logging:
+    enabled: true
+    format: npz
+    dataset_dir: "rl/datasets/go2"
+    auto_save_interval: 100
+
+safety:
+  enabled: true
+  
+  max_velocity: 3.5  # m/s (max speed for Go2)
+  max_angular_velocity: 5.0  # rad/s
+  
+  anomaly_detection:
+    enabled: true
+    auto_stop: true
+    consecutive_anomalies_to_stop: 5
+    
+    thresholds:
+      action_magnitude: 3.0
+      action_jerk: 100.0
+      base_height_min: 0.15  # m
+      base_height_max: 0.6  # m
+      base_tilt_max: 1.0  # rad
+
+sensors:
+  cameras:
+    - head_camera
+    - main_camera
+  
+  imu:
+    - body_imu
+  
+  lidar:
+    - lidar_3d
+  
+  contact:
+    - FL_foot_contact
+    - FR_foot_contact
+    - RL_foot_contact
+    - RR_foot_contact
+
+visualization:
+  ws_port: 9091
+  jpeg_quality: 85
+  target_fps: 30
+  default_camera: main_camera
+
+training:
+  rewards:
+    linear_velocity_tracking_weight: 1.0
+    angular_velocity_tracking_weight: 0.5
+    base_height_weight: -1.0
+    orientation_weight: -2.0
+    action_rate_weight: -0.01
+    energy_weight: -0.00001
+  
+  max_steps: 1000
+  
+  curriculum:
+    enabled: true
+    stages:
+      - name: "flat_ground"
+        duration: 5000
+        terrain: "flat"
+      - name: "gentle_slopes"
+        duration: 5000
+        terrain: "slope"
+        slope_angle: 5
+      - name: "rough_terrain"
+        duration: 10000
+        terrain: "rough"
+        roughness: 0.02
+
+simulation:
+  dt: 0.002  # 500 Hz for locomotion
+  substeps: 8
+  
+  domain_randomization:
+    enabled: true
+    randomize_masses: true
+    randomize_frictions: true
+    randomize_positions: true
+  
+  terrain:
+    type: "flat"  # flat, slope, rough, stairs
+    size: [20.0, 20.0]
+
+network:
+  sdr_os_url: "http://localhost:3000"
+  joint_command_topic: "/joint_commands"
+  joint_state_topic: "/joint_states"
+  cmd_vel_topic: "/cmd_vel"
+  rosbridge_port: 9090
+
+metadata:
+  author: "SDR_OS"
+  version: "1.0.0"

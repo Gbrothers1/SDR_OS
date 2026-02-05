@@ -1,0 +1,348 @@
+# Franka Panda Robot Configuration for genesis_ros
+# This config defines the robot, sensors, and scene for Genesis simulation
+
+robot:
+  name: franka_panda
+  label: "Franka Emika Panda"
+  description: "7-DOF collaborative robot arm with parallel gripper"
+  category: manipulator
+  
+  # URDF file path - local asset path
+  urdf_path: "assets/urdf/panda_bullet/panda.urdf"
+  
+  # Initial spawn pose
+  initial_position: [0.0, 0.0, 0.0]
+  initial_orientation: [1.0, 0.0, 0.0, 0.0]  # quaternion [w, x, y, z]
+  
+  # Joint configuration
+  joints:
+    - panda_joint1
+    - panda_joint2
+    - panda_joint3
+    - panda_joint4
+    - panda_joint5
+    - panda_joint6
+    - panda_joint7
+    - panda_finger_joint1
+    - panda_finger_joint2
+  
+  # Default joint positions (home configuration)
+  default_joint_positions:
+    panda_joint1: 0.0
+    panda_joint2: -0.785  # -45 degrees
+    panda_joint3: 0.0
+    panda_joint4: -2.356  # -135 degrees
+    panda_joint5: 0.0
+    panda_joint6: 1.571   # 90 degrees
+    panda_joint7: 0.785   # 45 degrees
+    panda_finger_joint1: 0.04
+    panda_finger_joint2: 0.04
+  
+  # Control interface configuration
+  control:
+    type: effort  # Options: position, velocity, effort
+    command_topic: /joint_commands
+    state_topic: /joint_states
+    rate: 100  # Control loop frequency in Hz
+    
+    # Joint limits (rad for revolute, m for prismatic)
+    position_limits:
+      panda_joint1: [-2.8973, 2.8973]
+      panda_joint2: [-1.7628, 1.7628]
+      panda_joint3: [-2.8973, 2.8973]
+      panda_joint4: [-3.0718, -0.0698]
+      panda_joint5: [-2.8973, 2.8973]
+      panda_joint6: [-0.0175, 3.7525]
+      panda_joint7: [-2.8973, 2.8973]
+      panda_finger_joint1: [0.0, 0.04]
+      panda_finger_joint2: [0.0, 0.04]
+    
+    velocity_limits:
+      panda_joint1: 2.1750
+      panda_joint2: 2.1750
+      panda_joint3: 2.1750
+      panda_joint4: 2.1750
+      panda_joint5: 2.6100
+      panda_joint6: 2.6100
+      panda_joint7: 2.6100
+      panda_finger_joint1: 0.2
+      panda_finger_joint2: 0.2
+    
+    effort_limits:
+      panda_joint1: 87.0
+      panda_joint2: 87.0
+      panda_joint3: 87.0
+      panda_joint4: 87.0
+      panda_joint5: 12.0
+      panda_joint6: 12.0
+      panda_joint7: 12.0
+      panda_finger_joint1: 20.0
+      panda_finger_joint2: 20.0
+  
+  # Robot specifications
+  specs:
+    dof: 7
+    payload: 3.0  # kg
+    reach: 0.855  # m
+    mass: 18.0  # kg (arm only)
+
+# Sensor configuration
+sensors:
+  # Main camera for operator view
+  - type: camera
+    name: main_camera
+    label: "Main View"
+    res: [1280, 720]
+    pos: [1.5, 1.5, 1.2]
+    lookat: [0.0, 0.0, 0.5]
+    fov: 50
+    publish_rgb: true
+    publish_depth: false
+    publish_segmentation: false
+    topic: /camera/main/image_raw
+    frame_id: main_camera_link
+    fps: 30
+  
+  # Wrist-mounted camera for manipulation tasks
+  - type: camera
+    name: wrist_camera
+    label: "Wrist Camera"
+    parent_link: panda_hand
+    res: [640, 480]
+    local_pos: [0.0, 0.0, 0.05]
+    local_lookat: [0.15, 0.0, 0.0]
+    fov: 60
+    publish_rgb: true
+    publish_depth: true
+    topic: /camera/wrist/image_raw
+    depth_topic: /camera/wrist/depth
+    frame_id: wrist_camera_link
+    fps: 30
+  
+  # Third-person camera for training
+  - type: camera
+    name: training_camera
+    label: "Training View"
+    res: [640, 480]
+    pos: [2.0, 0.0, 1.5]
+    lookat: [0.0, 0.0, 0.5]
+    fov: 45
+    publish_rgb: true
+    publish_depth: false
+    topic: /camera/training/image_raw
+    frame_id: training_camera_link
+    fps: 30
+  
+  # IMU at robot base
+  - type: imu
+    name: base_imu
+    label: "Base IMU"
+    parent_link: panda_link0
+    local_pos: [0.0, 0.0, 0.0]
+    local_orientation: [1.0, 0.0, 0.0, 0.0]
+    topic: /imu/data
+    frame_id: panda_link0
+    publish_rate: 100  # Hz
+    
+    # IMU noise parameters (optional)
+    noise:
+      angular_velocity: 0.001  # rad/s
+      linear_acceleration: 0.01  # m/s^2
+      orientation: 0.001  # rad
+  
+  # Force-torque sensor at end-effector
+  - type: contact_force
+    name: ee_force_sensor
+    label: "End-Effector Force"
+    parent_link: panda_hand
+    topic: /force_torque/data
+    frame_id: panda_hand
+    publish_rate: 100  # Hz
+  
+  # Contact sensors on gripper fingers
+  - type: contact_sensor
+    name: left_finger_contact
+    label: "Left Finger Contact"
+    parent_link: panda_leftfinger
+    topic: /contact/left_finger
+  
+  - type: contact_sensor
+    name: right_finger_contact
+    label: "Right Finger Contact"
+    parent_link: panda_rightfinger
+    topic: /contact/right_finger
+
+# Scene configuration
+scene:
+  name: franka_manipulation
+  
+  # Ground plane
+  ground_plane:
+    enabled: true
+    height: 0.0
+    material: "wood"
+    friction: 0.8
+    restitution: 0.1
+  
+  # Gravity
+  gravity: [0.0, 0.0, -9.81]
+  
+  # Simulation parameters
+  dt: 0.01  # 100 Hz simulation
+  substeps: 4
+  
+  # Table for manipulation tasks
+  objects:
+    - type: box
+      name: table
+      size: [1.2, 0.8, 0.05]
+      pos: [0.5, 0.0, 0.4]
+      orientation: [1.0, 0.0, 0.0, 0.0]
+      color: [0.6, 0.4, 0.2]
+      mass: 20.0
+      fixed: true
+      material:
+        friction: 0.6
+        restitution: 0.1
+    
+    # Workspace boundaries (invisible collision boxes)
+    - type: box
+      name: workspace_back_wall
+      size: [2.0, 0.01, 2.0]
+      pos: [-0.5, 0.0, 1.0]
+      visible: false
+      fixed: true
+    
+    - type: box
+      name: workspace_left_wall
+      size: [0.01, 2.0, 2.0]
+      pos: [0.5, -1.0, 1.0]
+      visible: false
+      fixed: true
+    
+    - type: box
+      name: workspace_right_wall
+      size: [0.01, 2.0, 2.0]
+      pos: [0.5, 1.0, 1.0]
+      visible: false
+      fixed: true
+
+# RL training configuration
+training:
+  observation_space:
+    # Joint positions (7)
+    joint_positions: true
+    # Joint velocities (7)
+    joint_velocities: true
+    # End-effector pose (7: position + quaternion)
+    ee_pose: true
+    # End-effector velocity (6: linear + angular)
+    ee_velocity: true
+    # Gripper state (2: finger positions)
+    gripper_state: true
+    # Force-torque at EE (6)
+    force_torque: true
+    # Contact sensors (2: binary)
+    contact_sensors: true
+    # Previous action (7 or task-specific)
+    previous_action: true
+    # Goal relative pose (7)
+    goal_relative_pose: true
+    
+    # Total: 7 + 7 + 7 + 6 + 2 + 6 + 2 + action_dim + 7 = 44 + action_dim
+  
+  action_space:
+    # For joint control: 7 joint velocities
+    type: joint_velocity
+    dim: 7
+    scale: 0.5
+    
+    # For Cartesian control: 6 EE velocity + 1 gripper
+    # type: cartesian_velocity
+    # dim: 7
+    # scale: [0.1, 0.1, 0.1, 0.5, 0.5, 0.5, 0.2]  # xyz, rpy, gripper
+  
+  rewards:
+    # Distance to goal
+    goal_distance:
+      weight: 10.0
+      threshold: 0.02  # m
+    
+    # End-effector orientation alignment
+    orientation_alignment:
+      weight: 5.0
+      threshold: 0.1  # rad
+    
+    # Action smoothness
+    action_smoothness:
+      weight: -0.01
+    
+    # Joint velocity penalty
+    joint_velocity:
+      weight: -0.001
+    
+    # Joint acceleration penalty
+    joint_acceleration:
+      weight: -0.0001
+    
+    # Workspace boundary penalty
+    workspace_boundary:
+      weight: -10.0
+      margin: 0.05  # m
+    
+    # Collision penalty
+    collision:
+      weight: -20.0
+    
+    # Success reward
+    success:
+      weight: 100.0
+  
+  termination:
+    # Episode length
+    max_steps: 500
+    
+    # Success condition
+    success_threshold: 0.02  # m from goal
+    success_steps: 10  # Must maintain for N steps
+    
+    # Failure conditions
+    workspace_violation: true
+    collision: false  # Allow contact but not hard collision
+    joint_limit_violation: true
+
+# ROS2 service configuration
+services:
+  # Simulator control
+  reset:
+    service: /simulator/reset
+    type: std_srvs/srv/Empty
+  
+  pause:
+    service: /simulator/pause
+    type: std_srvs/srv/SetBool
+  
+  # Robot control
+  compute_ik:
+    service: /compute_ik
+    type: gs_ros_interfaces/srv/ComputeIK
+  
+  compute_fk:
+    service: /compute_fk
+    type: gs_ros_interfaces/srv/ComputeFK
+  
+  get_jacobian:
+    service: /get_jacobian
+    type: gs_ros_interfaces/srv/GetJacobian
+  
+  # Domain randomization
+  randomize_params:
+    service: /simulator/randomize
+    type: std_srvs/srv/Trigger
+
+# Metadata
+metadata:
+  author: "SDR_OS Genesis Integration"
+  version: "1.0.0"
+  created: "2026-02-02"
+  description: "Franka Panda configuration for genesis_ros with HIL training support"

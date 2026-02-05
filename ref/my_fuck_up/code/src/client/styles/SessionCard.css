@@ -1,0 +1,130 @@
+/* SessionCard.css - Individual session card in carousel */
+
+.session-card {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  height: 320px;
+  background: rgba(255, 255, 255, 0.03);
+  border: var(--border-width) solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  flex-shrink: 0;
+}
+
+.session-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.session-card--focused {
+  border-color: rgba(139, 92, 246, 0.6);
+  background: rgba(139, 92, 246, 0.08);
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+}
+
+.session-card--new {
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-card__preview {
+  height: 160px;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+}
+
+.session-card__preview-placeholder {
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.2);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.session-card__info {
+  padding: var(--space-3);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.session-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.session-card__name {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.session-card__robot {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.session-card__badges {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.session-card__badge {
+  font-size: 9px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.session-card__badge--type {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.session-card__badge--preset {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.session-card__badge--status {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.session-card__status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+}
+
+.session-card__time {
+  font-size: var(--font-size-xs);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.session-card__new-icon {
+  font-size: 48px;
+  color: rgba(255, 255, 255, 0.2);
+  margin-bottom: var(--space-3);
+}
+
+.session-card__new-text {
+  font-size: var(--font-size-md);
+  color: rgba(255, 255, 255, 0.4);
+}

@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "SDR OS - Robotics simulation and control platform"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
-dependencies = []
+dependencies = [
+    "genesis-forge>=0.3.0",
+    "genesis-world>=0.3.13",
+]
 
 [dependency-groups]
 dev = []

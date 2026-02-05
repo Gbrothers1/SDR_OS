@@ -1,0 +1,96 @@
+# Two-Link Arm Configuration for genesis_ros
+# Simple robot for testing and educational purposes
+
+robot:
+  name: two_link_arm
+  label: "Two-Link Arm"
+  description: "Simple 2-DOF planar robot arm for testing"
+  category: manipulator
+  
+  # Local URDF path
+  urdf_path: "assets/urdf/simple/two_link_arm.urdf"
+  
+  initial_position: [0.0, 0.0, 0.5]
+  initial_orientation: [1.0, 0.0, 0.0, 0.0]
+  
+  joints:
+    - baseHinge
+    - interArm
+  
+  default_joint_positions:
+    baseHinge: 0.0
+    interArm: 0.0
+  
+  control:
+    type: position
+    command_topic: /joint_commands
+    state_topic: /joint_states
+    rate: 100  # Hz
+    
+    # Continuous joints - no position limits
+    velocity_limits:
+      baseHinge: 3.14  # rad/s
+      interArm: 3.14
+    
+    effort_limits:
+      baseHinge: 10.0  # Nm
+      interArm: 10.0
+  
+  specs:
+    dof: 2
+    mass: 2.0  # kg (both links)
+    link_length: 1.0  # m per link
+    reach: 2.0  # m (total reach)
+
+sensors:
+  # Main view camera
+  - type: camera
+    name: main_camera
+    label: "Main View"
+    res: [1280, 720]
+    pos: [0.0, 3.0, 2.0]
+    lookat: [1.0, 0.0, 0.5]
+    fov: 50
+    publish_rgb: true
+    topic: /camera/main/image_raw
+    fps: 30
+
+scene:
+  ground_plane:
+    enabled: true
+  
+  gravity: [0.0, 0.0, -9.81]
+  dt: 0.01  # 100 Hz
+  substeps: 4
+
+training:
+  observation_space:
+    joint_positions: true  # 2
+    joint_velocities: true  # 2
+    ee_position: true  # 3
+    goal_position: true  # 3
+    previous_action: true  # 2
+    # Total: 12
+  
+  action_space:
+    type: joint_velocity
+    dim: 2
+    scale: 1.0
+  
+  rewards:
+    goal_distance:
+      weight: 1.0
+      threshold: 0.05
+    action_smoothness:
+      weight: -0.01
+    success:
+      weight: 10.0
+  
+  termination:
+    max_steps: 200
+    success_threshold: 0.05
+
+metadata:
+  author: "SDR_OS Genesis Integration"
+  version: "1.0.0"
+  description: "Minimal test robot for algorithm development"

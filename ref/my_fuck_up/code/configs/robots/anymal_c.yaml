@@ -1,0 +1,228 @@
+# Unitree Go2 Quadruped Robot Configuration for genesis_ros
+
+robot:
+  name: anymal_c
+  label: "ANYmal C"
+  description: "12-DOF quadruped robot for locomotion and navigation"
+  category: quadruped
+  
+  # Using ANYmal C - local asset path
+  urdf_path: "assets/urdf/anymal_c/urdf/anymal_c.urdf"
+  
+  initial_position: [0.0, 0.0, 0.3]
+  initial_orientation: [1.0, 0.0, 0.0, 0.0]
+  
+  joints:
+    # Front Left
+    - FL_hip_joint
+    - FL_thigh_joint
+    - FL_calf_joint
+    # Front Right
+    - FR_hip_joint
+    - FR_thigh_joint
+    - FR_calf_joint
+    # Rear Left
+    - RL_hip_joint
+    - RL_thigh_joint
+    - RL_calf_joint
+    # Rear Right
+    - RR_hip_joint
+    - RR_thigh_joint
+    - RR_calf_joint
+  
+  default_joint_positions:
+    # Standing pose
+    FL_hip_joint: 0.0
+    FL_thigh_joint: 0.8
+    FL_calf_joint: -1.6
+    FR_hip_joint: 0.0
+    FR_thigh_joint: 0.8
+    FR_calf_joint: -1.6
+    RL_hip_joint: 0.0
+    RL_thigh_joint: 0.8
+    RL_calf_joint: -1.6
+    RR_hip_joint: 0.0
+    RR_thigh_joint: 0.8
+    RR_calf_joint: -1.6
+  
+  control:
+    type: position
+    command_topic: /joint_commands
+    state_topic: /joint_states
+    rate: 500  # High frequency for locomotion
+    
+    position_limits:
+      hip_joint: [-0.863, 0.863]  # ±50 degrees
+      thigh_joint: [-1.047, 4.188]  # -60 to 240 degrees
+      calf_joint: [-2.775, -0.645]  # -159 to -37 degrees
+    
+    velocity_limits:
+      hip_joint: 21.0  # rad/s
+      thigh_joint: 21.0
+      calf_joint: 21.0
+  
+  specs:
+    dof: 12
+    mass: 15.0  # kg
+    height: 0.4  # m (standing)
+    speed: 3.5  # m/s (max)
+
+sensors:
+  # Head-mounted camera
+  - type: camera
+    name: head_camera
+    label: "Head Camera"
+    parent_link: base
+    res: [640, 480]
+    local_pos: [0.25, 0.0, 0.05]
+    local_lookat: [1.0, 0.0, 0.0]
+    fov: 90
+    publish_rgb: true
+    publish_depth: true
+    topic: /camera/head/image_raw
+    depth_topic: /camera/head/depth
+    fps: 30
+  
+  # Third-person camera
+  - type: camera
+    name: main_camera
+    label: "Main View"
+    res: [1280, 720]
+    pos: [2.0, 2.0, 1.5]
+    lookat: [0.0, 0.0, 0.3]
+    fov: 60
+    publish_rgb: true
+    topic: /camera/main/image_raw
+    fps: 30
+  
+  # IMU at body center
+  - type: imu
+    name: body_imu
+    label: "Body IMU"
+    parent_link: base
+    topic: /imu/data
+    publish_rate: 200  # Hz
+  
+  # 3D Lidar for navigation
+  - type: lidar_3d
+    name: lidar_3d
+    label: "3D Lidar"
+    parent_link: base
+    local_pos: [0.0, 0.0, 0.1]
+    range_min: 0.1
+    range_max: 15.0
+    horizontal_fov: 360  # degrees
+    vertical_fov: 30  # degrees
+    horizontal_resolution: 1.0  # degrees
+    vertical_resolution: 2.0  # degrees
+    topic: /scan/3d
+    publish_rate: 10  # Hz
+  
+  # Foot contact sensors
+  - type: contact_sensor
+    name: FL_foot_contact
+    label: "FL Foot Contact"
+    parent_link: FL_calf
+    topic: /contact/FL_foot
+  
+  - type: contact_sensor
+    name: FR_foot_contact
+    label: "FR Foot Contact"
+    parent_link: FR_calf
+    topic: /contact/FR_foot
+  
+  - type: contact_sensor
+    name: RL_foot_contact
+    label: "RL Foot Contact"
+    parent_link: RL_calf
+    topic: /contact/RL_foot
+  
+  - type: contact_sensor
+    name: RR_foot_contact
+    label: "RR Foot Contact"
+    parent_link: RR_calf
+    topic: /contact/RR_foot
+
+scene:
+  ground_plane:
+    enabled: true
+    material: "concrete"
+    friction: 1.0
+    restitution: 0.0
+  
+  gravity: [0.0, 0.0, -9.81]
+  dt: 0.002  # 500 Hz for locomotion
+  substeps: 8
+  
+  # Terrain variations
+  terrain:
+    type: plane  # Options: plane, stairs, rough, slope
+    size: [20.0, 20.0]
+    
+    # For rough terrain
+    roughness: 0.0
+    
+    # For slopes
+    slope: 0.0  # degrees
+
+training:
+  observation_space:
+    # Base state
+    base_linear_velocity: true  # 3
+    base_angular_velocity: true  # 3
+    base_orientation: true  # 4 (quaternion)
+    # Joint state
+    joint_positions: true  # 12
+    joint_velocities: true  # 12
+    # Contact
+    foot_contacts: true  # 4 (binary)
+    # Commands
+    desired_velocity: true  # 3 (vx, vy, vyaw)
+    # History
+    previous_action: true  # 12
+    # Total: 3 + 3 + 4 + 12 + 12 + 4 + 3 + 12 = 53
+  
+  action_space:
+    type: joint_position
+    dim: 12
+    scale: 0.5
+  
+  rewards:
+    # Tracking command
+    linear_velocity_tracking:
+      weight: 1.0
+    angular_velocity_tracking:
+      weight: 0.5
+    # Base height
+    base_height:
+      weight: -1.0
+      target: 0.3
+    # Base orientation
+    orientation:
+      weight: -2.0
+    # Joint smoothness
+    joint_acceleration:
+      weight: -0.0001
+    # Action smoothness
+    action_rate:
+      weight: -0.01
+    # Energy
+    torque:
+      weight: -0.00001
+    # Foot clearance
+    foot_clearance:
+      weight: -0.1
+    # Contact schedule
+    contact_schedule:
+      weight: 0.5
+  
+  termination:
+    max_steps: 1000
+    base_height_min: 0.15  # m
+    base_height_max: 0.6  # m
+    base_roll_max: 1.0  # rad
+    base_pitch_max: 1.0  # rad
+
+metadata:
+  author: "SDR_OS Genesis Integration"
+  version: "1.0.0"

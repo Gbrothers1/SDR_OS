@@ -1,0 +1,167 @@
+# Franka Panda Real Robot Profile for SDR_OS
+# This profile configures the system for real robot operation with safety constraints
+
+profile:
+  name: franka_real
+  label: "Franka Real Robot"
+  description: "Franka Panda real hardware with conservative safety settings"
+  mode: real_robot
+
+robot:
+  name: franka_panda
+  config_path: "configs/robots/franka_panda.yaml"
+  
+  # Real robot connection
+  robot_ip: "192.168.1.1"  # Update with actual robot IP
+  namespace: "/franka"
+
+backend:
+  type: ros2_control  # Use real ros2_control, not genesis_ros
+  bridge_enabled: false  # No Genesis bridge for real robot
+  ros2_enabled: true
+
+control:
+  mode: cartesian  # cartesian, joint
+  deadman_required: true  # MANDATORY for safety
+  velocity_scale: 0.5  # More conservative for real robot
+  
+  cartesian_gains:
+    translation_scale: 0.05  # Half speed for safety
+    rotation_scale: 0.25
+    deadzone: 0.15  # Larger deadzone to avoid accidental motion
+  
+  joint_gains:
+    velocity_scale: 0.5
+    deadzone: 0.15
+
+rl:
+  enabled: false  # Disable RL on real robot initially for safety
+  mode: teleop_record  # Only record, don't execute policy
+  policy_checkpoint: null
+  
+  # Very conservative alpha limits if RL is enabled
+  alpha:
+    init: 0.0
+    max_ramp: 0.02  # Very slow ramp
+    min: 0.0
+    max: 0.5  # Limit policy influence to 50%
+  
+  deadman:
+    enabled: true
+    force_alpha_zero: true
+  
+  logging:
+    enabled: true
+    format: npz
+    dataset_dir: "rl/datasets/real_robot"
+    auto_save_interval: 50
+
+safety:
+  enabled: true  # CRITICAL: Always enabled for real robot
+  
+  # Conservative velocity limits
+  max_velocity: 0.5  # m/s (much lower than sim)
+  max_angular_velocity: 1.0  # rad/s
+  
+  # Conservative acceleration limits
+  max_acceleration: 2.0  # m/s^2
+  max_angular_acceleration: 5.0  # rad/s^2
+  
+  # Jerk limits
+  max_jerk: 20.0  # m/s^3
+  
+  # Aggressive anomaly detection
+  anomaly_detection:
+    enabled: true
+    auto_stop: true
+    consecutive_anomalies_to_stop: 2  # Stop faster
+    
+    thresholds:
+      action_magnitude: 0.8  # Lower threshold
+      action_jerk: 20.0
+      velocity: 2.0
+      angular_velocity: 5.0
+  
+  # Strict workspace boundaries (aligned with robot's physical limits)
+  workspace:
+    enabled: true
+    x_min: 0.0
+    x_max: 0.8
+    y_min: -0.6
+    y_max: 0.6
+    z_min: 0.1
+    z_max: 1.2
+  
+  # Emergency stop
+  emergency_stop:
+    enabled: true
+    trigger_on_collision: true
+    trigger_on_workspace_violation: true
+
+sensors:
+  # Real robot sensors (different from simulation)
+  cameras:
+    - realsense_wrist  # Intel RealSense on wrist
+  
+  force_torque:
+    - robotiq_ft_sensor  # Real force-torque sensor
+  
+  # No IMU typically on Franka arm
+
+visualization:
+  # No WebSocket streaming for real robot (use RViz instead)
+  ws_port: 9091
+  jpeg_quality: 90
+  target_fps: 15  # Lower FPS to reduce load
+  
+  default_camera: realsense_wrist
+  layout: main
+
+training:
+  # Not applicable for real robot (data collection only)
+  max_steps: 100  # Shorter episodes for safety
+
+network:
+  sdr_os_url: "http://localhost:3000"
+  
+  # ROS2 topics (real robot specific)
+  joint_command_topic: "/franka/joint_commands"
+  joint_state_topic: "/franka/joint_states"
+  controller_state_topic: "/franka/controller_state"
+  
+  rosbridge_port: 9090
+
+# Real robot specific settings
+hardware:
+  # Franka-specific settings
+  franka:
+    collision_behavior: "high"  # Sensitivity: low, medium, high
+    load_mass: 0.0  # Additional load in kg
+    load_center: [0.0, 0.0, 0.0]
+    
+    # Joint impedance
+    joint_impedance: [3000, 3000, 3000, 2500, 2500, 2000, 2000]
+    
+    # Cartesian impedance
+    cartesian_impedance:
+      translation: [3000, 3000, 3000]
+      rotation: [300, 300, 300]
+
+monitoring:
+  # Real-time monitoring
+  log_joint_states: true
+  log_forces: true
+  log_errors: true
+  
+  # Alert thresholds
+  alert_on_high_forces: true
+  force_threshold: 50.0  # N
+  
+  alert_on_errors: true
+
+metadata:
+  author: "SDR_OS"
+  version: "1.0.0"
+  created: "2026-02-02"
+  last_modified: "2026-02-02"
+  notes: "ALWAYS verify safety settings before use on real hardware!"
