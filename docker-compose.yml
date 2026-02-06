@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   app-cuda:
     profiles: ["cuda"]
@@ -46,3 +44,50 @@ services:
     volumes:
       - .:/workspace
     shm_size: "2gb"
+
+  # ─── NATS Message Broker ────────────────────────────────
+  nats:
+    profiles: ["sim"]
+    image: nats:2-alpine
+    networks:
+      - backplane
+    expose:
+      - "4222"
+    healthcheck:
+      test: ["CMD", "nats-server", "--signal", "ldm"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ─── Transport Server (Rust) ──────────────────────────────
+  transport-server:
+    profiles: ["sim"]
+    build:
+      context: services/transport-server
+      dockerfile: Dockerfile
+    image: sdr_os-transport
+    networks:
+      - backplane
+    expose:
+      - "8080"
+    volumes:
+      - sdr_ipc:/dev/shm/sdr_os_ipc:ro
+    environment:
+      - SDR_SHM_PATH=/dev/shm/sdr_os_ipc/frames
+      - SDR_NATS_URL=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+networks:
+  backplane:
+    driver: bridge
+
+volumes:
+  sdr_ipc:
