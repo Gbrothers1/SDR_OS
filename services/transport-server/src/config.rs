@@ -56,8 +56,11 @@ impl Config {
 mod tests {
     use super::*;
 
+    // NOTE: env::set_var/remove_var are process-global, so these tests must
+    // not run in parallel.  We combine them into a single test function.
     #[test]
-    fn test_defaults() {
+    fn test_config_from_env() {
+        // --- defaults ---
         for key in &[
             "SDR_SHM_PATH", "SDR_SHM_SIZE", "SDR_NATS_URL", "SDR_LISTEN_ADDR",
             "SDR_BROADCAST_CAPACITY", "SDR_CRC_ENABLED", "SDR_IDR_COALESCE_MS",
@@ -77,10 +80,8 @@ mod tests {
         assert_eq!(cfg.idr_timeout_ms, 5000);
         assert_eq!(cfg.telemetry_subjects, "telemetry.>");
         assert_eq!(cfg.telemetry_max_size, 65536);
-    }
 
-    #[test]
-    fn test_crc_disabled() {
+        // --- CRC disabled ---
         env::set_var("SDR_CRC_ENABLED", "false");
         let cfg = Config::from_env();
         assert!(!cfg.crc_enabled);

@@ -1,6 +1,7 @@
 mod config;
 mod fanout;
 mod health;
+mod nats;
 mod shm;
 mod transport;
 
