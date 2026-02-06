@@ -70,26 +70,29 @@
   opacity: 0.6;
 }
 
-/* Mock PiP placeholder (test mode) */
-.viewer-layer__pip-mock {
+/* SIM placeholder (when Genesis bridge not connected) */
+.viewer-layer__sim-placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(10, 14, 22, 0.85);
-  gap: 4px;
-  pointer-events: none;
-}
-
-.viewer-layer__pip-mock-label {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.15em;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 50% 40%, rgba(20, 28, 42, 0.9), rgba(8, 10, 16, 0.98));
   color: var(--color-text-muted);
+  font-family: var(--font-primary);
+  gap: 8px;
 }
 
-.viewer-layer__pip-mock-hint {
-  font-size: 10px;
+.viewer-layer__sim-placeholder-label {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--color-text-secondary);
+}
+
+.viewer-layer__sim-placeholder-hint {
+  font-size: 11px;
   color: var(--color-text-muted);
   opacity: 0.5;
 }

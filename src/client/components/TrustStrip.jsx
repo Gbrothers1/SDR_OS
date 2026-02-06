@@ -309,7 +309,7 @@ const SimDetailPopup = ({ streamBackend, bridgeConnected, genesisConnected, visu
   );
 };
 
-const TrustStrip = ({ onStageClick, testMode = false }) => {
+const TrustStrip = ({ onStageClick, testMode = false, onModeChange }) => {
   const { activePhase, authority, stages, primaryViewer } = usePhase();
   const {
     genesisConnected,
@@ -352,8 +352,9 @@ const TrustStrip = ({ onStageClick, testMode = false }) => {
 
   const handleModeClick = useCallback((mode) => {
     setMode(mode);
+    if (onModeChange) onModeChange(mode);
     setDetailOpen(false); // leave detail popup only when a mode button is pressed
-  }, [setMode]);
+  }, [setMode, onModeChange]);
 
   const handleAlphaChange = useCallback((e) => {
     setAlpha(parseFloat(e.target.value));
@@ -383,9 +384,9 @@ const TrustStrip = ({ onStageClick, testMode = false }) => {
     <div className={stripClass}>
       {/* Connection + Robot */}
       <div className="trust-strip__connection">
-        <span className={`trust-strip__conn-dot trust-strip__conn-dot--${(primaryViewer === 'ros' || genesisConnected) ? 'on' : testMode ? 'test' : 'off'}`} />
+        <span className={`trust-strip__conn-dot trust-strip__conn-dot--${(primaryViewer === 'ros' || genesisConnected || testMode) ? 'on' : 'off'}`} />
         <span className="trust-strip__conn-label">
-          {primaryViewer === 'ros' ? 'REAL' : genesisConnected ? 'SIM' : testMode ? 'TEST' : 'OFFLINE'}
+          {genesisConnected ? 'SIM' : (primaryViewer === 'ros' || testMode) ? 'REAL' : 'OFFLINE'}
         </span>
         {currentRobot && (
           <span className="trust-strip__robot-name">{currentRobot.label || currentRobot.name}</span>

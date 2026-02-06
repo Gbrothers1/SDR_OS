@@ -52,9 +52,13 @@ const CockpitContent = ({ socket }) => {
     connectRos();
   }, []);
 
+  // Local mode tracking for test mode (no Genesis to store mode server-side)
+  const [testModeView, setTestModeView] = useState('teleop');
+
   // Derive whether policy browser should replace telemetry in right panel
-  const showPolicyPanel = genesisConnected &&
-    (currentGenesisMode === 'eval' || currentGenesisMode === 'policy');
+  const activeMode = testMode ? testModeView : currentGenesisMode;
+  const showPolicyPanel = (genesisConnected || testMode) &&
+    (activeMode === 'eval' || activeMode === 'policy');
 
   // Edge panel state
   const [leftOpen, setLeftOpen] = useState(false);
@@ -65,6 +69,15 @@ const CockpitContent = ({ socket }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [leftExpanded, setLeftExpanded] = useState(false);
   const [rightExpanded, setRightExpanded] = useState(false);
+
+  // Auto-open right panel when switching to policy mode
+  const prevShowPolicyRef = useRef(showPolicyPanel);
+  useEffect(() => {
+    if (showPolicyPanel && !prevShowPolicyRef.current) {
+      setRightOpen(true);
+    }
+    prevShowPolicyRef.current = showPolicyPanel;
+  }, [showPolicyPanel]);
 
   // Control state for ControlOverlay
   const [controlState, setControlState] = useState({
@@ -260,7 +273,11 @@ const CockpitContent = ({ socket }) => {
         <ViewerLayer ros={ros} appSettings={appSettings} testMode={testMode} />
 
         {/* Layer 2: Trust strip */}
-        <TrustStrip onStageClick={handleStageClick} testMode={testMode} />
+        <TrustStrip
+          onStageClick={handleStageClick}
+          testMode={testMode}
+          onModeChange={testMode ? setTestModeView : undefined}
+        />
 
         {/* Layer 3: Edge panels */}
 
