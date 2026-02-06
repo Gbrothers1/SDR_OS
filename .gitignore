@@ -15,5 +15,8 @@ node_modules/
 build/
 dist/
 
+# Rust build artifacts
+services/*/target/
+
 # Git worktrees
 .worktrees/
