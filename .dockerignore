@@ -1,0 +1,31 @@
+# Python virtual environments (rebuilt in container)
+.venv/
+__pycache__/
+*.pyc
+
+# Node (rebuilt in container via npm ci)
+node_modules/
+
+# Git worktrees and history
+.git/
+.worktrees/
+
+# Build artifacts
+dist/
+*.egg-info/
+
+# Large reference/docs dirs
+ref/
+docs/
+
+# IDE and OS files
+.vscode/
+*.swp
+.DS_Store
+
+# Docker-in-docker
+.docker/
+
+# Temp files
+/tmp/
+*.log

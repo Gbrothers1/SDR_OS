@@ -1,0 +1,208 @@
+/* ===== EdgePanel ===== */
+.edge-panel {
+  position: fixed;
+  z-index: var(--z-overlay);
+  background: var(--color-glass-bg);
+  border: var(--border-width) solid var(--color-glass-border);
+  backdrop-filter: blur(var(--backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--backdrop-blur));
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--panel-slide-duration);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Scrollbar styling */
+.edge-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.edge-panel::-webkit-scrollbar-thumb {
+  background: var(--color-glass-border-hover);
+  border-radius: 2px;
+}
+
+/* Left panel */
+.edge-panel--left {
+  top: var(--strip-height);
+  left: 0;
+  bottom: 0;
+  width: var(--panel-width);
+  border-left: none;
+  border-top: none;
+  border-bottom: none;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  transform: translateX(-100%);
+}
+
+.edge-panel--left.edge-panel--open {
+  transform: translateX(0);
+}
+
+/* Right panel */
+.edge-panel--right {
+  top: var(--strip-height);
+  right: 0;
+  bottom: 0;
+  width: var(--panel-width);
+  border-right: none;
+  border-top: none;
+  border-bottom: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  transform: translateX(100%);
+}
+
+.edge-panel--right.edge-panel--open {
+  transform: translateX(0);
+}
+
+/* Bottom panel */
+.edge-panel--bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 50vh;
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  transform: translateY(100%);
+}
+
+.edge-panel--bottom.edge-panel--open {
+  transform: translateY(0);
+}
+
+/* Panel content */
+.edge-panel__content {
+  padding: var(--space-4);
+}
+
+/* Pin indicator */
+.edge-panel__pin {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: var(--border-width) solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  transition: all var(--transition-fast);
+}
+
+.edge-panel__pin:hover {
+  border-color: var(--color-glass-border-hover);
+  color: var(--color-text-primary);
+}
+
+.edge-panel__pin--active {
+  background: rgba(91, 141, 239, 0.15);
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
+}
+
+/* Left panel pin goes top-right */
+.edge-panel--left .edge-panel__pin {
+  right: var(--space-3);
+}
+
+/* Right panel pin goes top-left */
+.edge-panel--right .edge-panel__pin {
+  right: auto;
+  left: var(--space-3);
+}
+
+/* ===== Collapsed tab handle (visible when panel is closed) ===== */
+.edge-panel__tab {
+  position: fixed;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-glass-bg);
+  border: var(--border-width) solid var(--color-glass-border);
+  backdrop-filter: blur(var(--backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--backdrop-blur));
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  padding: 0;
+}
+
+.edge-panel__tab:hover {
+  background: var(--color-glass-bg-hover, rgba(255, 255, 255, 0.06));
+  border-color: var(--color-glass-border-hover);
+}
+
+.edge-panel__tab-label {
+  writing-mode: vertical-lr;
+  text-orientation: upright;
+  font-family: var(--font-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.edge-panel__tab:hover .edge-panel__tab-label {
+  color: var(--color-text-primary);
+}
+
+/* Left tab — vertically centered on left edge */
+.edge-panel__tab--left {
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: 24px;
+  height: auto;
+  min-height: 80px;
+  padding: 12px 2px;
+  border-left: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* Right tab — vertically centered on right edge */
+.edge-panel__tab--right {
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 24px;
+  height: auto;
+  min-height: 80px;
+  padding: 12px 2px;
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.edge-panel__tab--right .edge-panel__tab-label {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+}
+
+/* Scrim behind panel when open (click to dismiss) */
+.edge-panel__scrim {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: calc(var(--z-overlay) - 1);
+  /* Transparent — just catches clicks */
+}
+
+/* Responsive: full width on mobile */
+@media (max-width: 768px) {
+  .edge-panel--left,
+  .edge-panel--right {
+    width: 100%;
+    border-radius: 0;
+  }
+}

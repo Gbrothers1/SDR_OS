@@ -1,0 +1,334 @@
+/* ===== MultiCameraViewer ===== */
+.multi-camera-viewer {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-secondary);
+  position: relative;
+}
+
+/* No cameras state */
+.multi-camera-viewer.no-cameras {
+  align-items: center;
+  justify-content: center;
+}
+
+.no-cameras-message {
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.no-cameras-message .icon {
+  font-size: 4rem;
+  display: block;
+  margin-bottom: var(--space-5);
+  opacity: 0.5;
+}
+
+.no-cameras-message p {
+  margin: 5px 0;
+  font-size: var(--font-size-base);
+}
+
+.no-cameras-message .hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: var(--space-3);
+}
+
+/* Camera controls */
+.multi-camera-viewer .camera-controls {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: var(--z-panel);
+  display: flex;
+  gap: var(--space-3);
+}
+
+.layout-buttons {
+  display: flex;
+  gap: 5px;
+  background: var(--color-glass-bg);
+  padding: 5px;
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-glass-border);
+}
+
+.layout-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-glass-border);
+  color: var(--color-text-primary);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  transition: all var(--transition-fast);
+}
+
+.layout-btn:hover {
+  background: rgba(91, 141, 239, 0.1);
+  border-color: var(--color-glass-border-hover);
+}
+
+.layout-btn.active {
+  background: rgba(91, 141, 239, 0.2);
+  border-color: var(--color-accent-blue);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Main layout */
+.layout-main {
+  flex-direction: column;
+}
+
+.main-camera-view {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-primary);
+  position: relative;
+  overflow: hidden;
+}
+
+.camera-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.camera-label {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  background: var(--color-glass-bg);
+  color: var(--color-accent-blue);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-glass-border);
+  font-family: var(--font-mono);
+}
+
+.camera-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+}
+
+/* Camera thumbnails */
+.camera-thumbnails {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-bg-tertiary);
+  border-top: 1px solid var(--color-glass-border);
+  overflow-x: auto;
+  min-height: 120px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-bg-tertiary) transparent;
+}
+
+.camera-thumbnail {
+  min-width: 160px;
+  height: 90px;
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.camera-thumbnail:hover {
+  border-color: var(--color-accent-blue);
+  transform: translateY(-2px);
+}
+
+.camera-thumbnail.active {
+  border-color: var(--color-accent-blue);
+  box-shadow: var(--shadow-glow);
+}
+
+.camera-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 1.5rem;
+}
+
+.thumbnail-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(15, 17, 23, 0.8);
+  color: var(--color-text-primary);
+  padding: 4px var(--space-2);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+/* Grid layout */
+.layout-grid {
+  padding: var(--space-3);
+}
+
+.camera-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 15px;
+  width: 100%;
+  height: 100%;
+}
+
+.grid-camera-view {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  position: relative;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.grid-camera-view .camera-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.grid-camera-view .camera-label {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+}
+
+/* Picture-in-picture layout */
+.layout-pip .main-camera-view {
+  flex: 1;
+}
+
+.pip-cameras {
+  position: absolute;
+  bottom: var(--space-5);
+  right: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  z-index: 50;
+}
+
+.pip-camera {
+  width: 180px;
+  height: 102px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.pip-camera:hover {
+  border-color: var(--color-accent-blue);
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
+}
+
+.pip-camera .camera-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.camera-placeholder-small {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.pip-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(15, 17, 23, 0.8);
+  color: var(--color-text-primary);
+  padding: 4px;
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .camera-thumbnails {
+    min-height: 80px;
+  }
+
+  .camera-thumbnail {
+    min-width: 120px;
+    height: 68px;
+  }
+
+  .camera-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pip-cameras {
+    right: var(--space-3);
+    bottom: var(--space-3);
+  }
+
+  .pip-camera {
+    width: 120px;
+    height: 68px;
+  }
+}
+
+/* Scrollbar styling */
+.camera-thumbnails::-webkit-scrollbar {
+  height: 6px;
+}
+
+.camera-thumbnails::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.camera-thumbnails::-webkit-scrollbar-thumb {
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+}
+
+.camera-thumbnails::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

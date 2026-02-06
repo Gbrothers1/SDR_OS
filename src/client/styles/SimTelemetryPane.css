@@ -1,0 +1,181 @@
+/* ===== SimTelemetryPane ===== */
+.sim-tel {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sim-tel--compact {
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-3);
+  background: rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid var(--color-glass-border);
+}
+
+.sim-tel__strip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.sim-tel__strip-label {
+  font-weight: 700;
+  color: var(--color-accent-blue);
+  text-transform: uppercase;
+}
+
+.sim-tel__strip-val {
+  color: var(--color-text-secondary);
+}
+
+/* Header */
+.sim-tel__header {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-glass-border);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+/* Sections */
+.sim-tel__section {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sim-tel__section-title {
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sim-tel__dim-badge {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.sim-tel__reward-total {
+  font-weight: 400;
+  color: var(--color-accent-blue);
+}
+
+/* Velocity rows */
+.sim-tel__vel-row {
+  display: grid;
+  grid-template-columns: 24px 1fr 72px;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 2px;
+}
+
+.sim-tel__vel-label {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.sim-tel__vel-val {
+  text-align: right;
+  color: var(--color-text-primary);
+}
+
+/* Mini bar */
+.sim-tel__minibar {
+  height: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.sim-tel__minibar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.1s ease;
+}
+
+/* Observation rows */
+.sim-tel__vec3-row {
+  display: grid;
+  grid-template-columns: 56px repeat(3, 1fr);
+  gap: var(--space-1);
+  margin-bottom: 2px;
+}
+
+.sim-tel__obs-label {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sim-tel__obs-val {
+  text-align: right;
+  color: var(--color-text-primary);
+}
+
+.sim-tel__obs-count {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.sim-tel__highdim-row {
+  display: grid;
+  grid-template-columns: 56px 28px 1fr;
+  gap: var(--space-1);
+  margin-bottom: 2px;
+  align-items: center;
+}
+
+.sim-tel__sparkline {
+  color: var(--color-accent-blue);
+  letter-spacing: -1px;
+  overflow: hidden;
+}
+
+/* Reward rows */
+.sim-tel__reward-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 56px;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 2px;
+}
+
+.sim-tel__reward-name {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sim-tel__reward-val {
+  text-align: right;
+  color: var(--color-text-primary);
+}
+
+/* State grid */
+.sim-tel__state-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: var(--space-1);
+}
+
+.sim-tel__state-label {
+  color: var(--color-text-muted);
+}
+
+.sim-tel__state-val {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}

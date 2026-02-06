@@ -1,0 +1,108 @@
+/* ===== ViewerLayer ===== */
+.viewer-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--color-bg-primary);
+  overflow: hidden;
+  z-index: var(--z-base);
+}
+
+.viewer-layer__primary {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* PiP thumbnail */
+.viewer-layer__pip {
+  position: absolute;
+  bottom: 5%;
+  left: 5%;
+  width: 240px;
+  height: 180px;
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid var(--color-glass-border);
+  overflow: hidden;
+  cursor: pointer;
+  z-index: var(--z-panel);
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--transition-base), opacity var(--transition-base);
+}
+
+.viewer-layer__pip:hover {
+  transform: scale(1.05);
+  border-color: var(--color-glass-border-hover);
+}
+
+.viewer-layer__pip > * {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Idle state — dark with subtle message */
+.viewer-layer__idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--color-text-muted);
+  font-family: var(--font-primary);
+  gap: var(--space-3);
+}
+
+.viewer-layer__idle-label {
+  font-size: var(--font-size-base);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.viewer-layer__idle-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  opacity: 0.6;
+}
+
+/* SIM placeholder (when Genesis bridge not connected) */
+.viewer-layer__sim-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 50% 40%, rgba(20, 28, 42, 0.9), rgba(8, 10, 16, 0.98));
+  color: var(--color-text-muted);
+  font-family: var(--font-primary);
+  gap: 8px;
+}
+
+.viewer-layer__sim-placeholder-label {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--color-text-secondary);
+}
+
+.viewer-layer__sim-placeholder-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+/* Responsive: smaller PiP on small screens */
+@media (max-width: 768px) {
+  .viewer-layer__pip {
+    width: 160px;
+    height: 120px;
+    bottom: 3%;
+    left: 3%;
+  }
+}
