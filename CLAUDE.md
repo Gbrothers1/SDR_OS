@@ -47,6 +47,14 @@ ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 - `webcam_publisher.py` - Camera feed to ROS topic
 - `gps.py`, `gps_sensor.py` - GPS data publishing
 
+### Transport Server (`services/transport-server/`)
+- Rust: SHM frame reader → WebSocket fanout + NATS telemetry relay
+- Build: `cargo build --manifest-path services/transport-server/Cargo.toml`
+- Test: `cargo test --manifest-path services/transport-server/Cargo.toml`
+- Config: All via `SDR_*` env vars (see `src/config.rs`)
+- Binary WS protocol: `0x01` = video frame, `0x02` = telemetry
+- Docker: `docker compose --profile sim up transport-server`
+
 ### Desktop App (`src/robot_controller/`)
 - PyQt6 alternative to web interface
 - `ros/ros_node.py` - ROS2 integration

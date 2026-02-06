@@ -80,6 +80,21 @@ uv add genesis-world
 uv add genesis-forge
 ```
 
+## Rust Environment
+
+### Prerequisites
+- Rust 1.75+ (install via rustup: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+
+### Build Transport Server
+```bash
+cargo build --release --manifest-path services/transport-server/Cargo.toml
+```
+
+### Run Tests
+```bash
+cargo test --manifest-path services/transport-server/Cargo.toml
+```
+
 ## Node.js Environment
 
 ### Initialize Project
