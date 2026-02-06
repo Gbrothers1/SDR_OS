@@ -1,0 +1,30 @@
+# SDR_OS reverse proxy
+# For Tailscale TLS, replace :80 with your tailscale hostname
+
+:80 {
+    # Health endpoint
+    handle /health {
+        respond "OK" 200
+    }
+
+    # Static web app
+    handle / {
+        root * /srv/www
+        file_server
+    }
+
+    # ROS bridge WebSocket (proxied to ros-bridge on host network)
+    handle /ros/* {
+        reverse_proxy localhost:9090
+    }
+
+    # Transport server (Phase 2 - WebSocket frame fanout)
+    # handle /stream/* {
+    #     reverse_proxy transport-server:8080
+    # }
+
+    # NATS monitoring
+    handle /nats/* {
+        reverse_proxy nats:8222
+    }
+}

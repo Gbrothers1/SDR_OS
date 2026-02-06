@@ -8,21 +8,41 @@ on:
       - dev
 
 jobs:
+  # ──────────────── CPU CHECKS (every PR) ────────────────
+
+  validate-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+
   lint-and-unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Install uv
-        run: pip install uv
-      - name: Sync deps (frozen)
-        run: |
-          if [ -f uv.lock ]; then uv sync --frozen; fi
+          python-version: "3.12"
+      - name: Install test deps
+        run: pip install pytest
       - name: Unit tests
+        run: PYTHONPATH=src pytest -v tests/unit/
+        env:
+          PYTHONPATH: src
+
+  ros-jazzy-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ROS2 Jazzy container
+        run: docker compose --profile dev build ros-bridge
+      - name: Verify ROS2 Jazzy
         run: |
-          if [ -d tests/unit ]; then pytest -q tests/unit; else echo "No unit tests"; fi
+          docker compose --profile dev run --rm ros-bridge bash -c \
+            "source /opt/ros/jazzy/setup.bash \
+             && echo ROS_DISTRO=\$ROS_DISTRO \
+             && ros2 pkg list 2>/dev/null | grep rosbridge_server"
 
   docs-build:
     runs-on: ubuntu-latest
@@ -30,29 +50,41 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Install uv
-        run: pip install uv
+          python-version: "3.12"
       - name: Install docs deps
-        run: |
-          if [ -f uv.lock ]; then uv sync --frozen --group docs; fi
-          if [ -f requirements/requirements-docs.txt ]; then uv pip sync requirements/requirements-docs.txt; fi
+        run: pip install mkdocs mkdocs-material mkdocs-git-revision-date-localized-plugin mike pymdown-extensions
       - name: Build docs
         run: mkdocs build
+
+  # ──────────────── GPU SMOKE (self-hosted) ────────────────
 
   cuda-smoke:
     runs-on: [self-hosted, linux, gpu, nvidia]
     steps:
       - uses: actions/checkout@v4
-      - name: CUDA smoke
-        run: docker compose --profile cuda run --rm app-cuda pytest -q tests/smoke
+      - name: Build CUDA container
+        run: docker compose --profile cuda build app-cuda
+      - name: NVENC validation
+        run: docker compose --profile cuda run --rm app-cuda python3 scripts/validate_nvenc.py
+      - name: CUDA smoke tests
+        run: |
+          if [ -d tests/smoke ]; then
+            docker compose --profile cuda run --rm app-cuda pytest -q tests/smoke
+          else
+            echo "No smoke tests yet"
+          fi
 
   rocm-smoke:
     runs-on: [self-hosted, linux, gpu, rocm]
     steps:
       - uses: actions/checkout@v4
       - name: ROCm smoke
-        run: docker compose --profile rocm run --rm app-rocm pytest -q tests/smoke
+        run: |
+          if [ -d tests/smoke ]; then
+            docker compose --profile rocm run --rm app-rocm pytest -q tests/smoke
+          else
+            echo "No smoke tests yet"
+          fi
 
   mlx-smoke:
     runs-on: [self-hosted, macos, arm64, mlx]
@@ -60,11 +92,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Install uv
         run: pip install uv
       - name: Sync deps (frozen)
         run: |
           if [ -f uv.lock ]; then uv sync --frozen --group mlx; fi
       - name: MLX smoke
-        run: pytest -q tests/smoke
+        run: |
+          if [ -d tests/smoke ]; then
+            pytest -q tests/smoke
+          else
+            echo "No smoke tests yet"
+          fi

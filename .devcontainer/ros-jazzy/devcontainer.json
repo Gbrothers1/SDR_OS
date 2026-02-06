@@ -1,0 +1,13 @@
+{
+  "name": "SDR_OS ROS2 Jazzy",
+  "dockerComposeFile": [
+    "../../docker-compose.yml"
+  ],
+  "service": "ros-bridge",
+  "runServices": [
+    "ros-bridge"
+  ],
+  "workspaceFolder": "/workspace",
+  "overrideCommand": false,
+  "shutdownAction": "stopCompose"
+}

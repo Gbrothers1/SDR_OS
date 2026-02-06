@@ -10,7 +10,9 @@ Runs on every push/PR to `main` or `dev`.
 
 | Job | Runner | What it does |
 |-----|--------|-------------|
-| `lint-and-unit` | `ubuntu-latest` | `uv sync --frozen` → `pytest -q tests/unit` |
+| `validate-compose` | `ubuntu-latest` | `docker compose config --quiet` |
+| `lint-and-unit` | `ubuntu-latest` | `pip install pytest` → `pytest -v tests/unit/` |
+| `ros-jazzy-build` | `ubuntu-latest` | Build ROS2 Jazzy container, verify rosbridge |
 | `docs-build` | `ubuntu-latest` | Install docs deps → `mkdocs build` |
 | `cuda-smoke` | Self-hosted NVIDIA GPU | `docker compose --profile cuda run --rm app-cuda pytest -q tests/smoke` |
 | `rocm-smoke` | Self-hosted ROCm GPU | `docker compose --profile rocm run --rm app-rocm pytest -q tests/smoke` |
@@ -56,6 +58,15 @@ Manual dispatch only. Runs `tests/benchmarks/perf_gate_cuda.sh` on a self-hosted
 
 Full runner setup guide: [.github/RUNNERS.md](https://github.com/Gbrothers1/SDR_OS/blob/main/.github/RUNNERS.md).
 
+## Containers
+
+| Container | Base Image | Purpose |
+|-----------|-----------|---------|
+| `sdr_os-cuda` | `nvidia/cuda:12.4.1-runtime-ubuntu22.04` | CUDA CI + sim |
+| `sdr_os-rocm` | `rocm/rocm-terminal:6.1.2` | ROCm CI |
+| `sdr_os-mlx` | `python:3.11-slim` | MLX Linux parity |
+| `sdr_os-ros-jazzy` | `ros:jazzy-ros-base` | ROS2 Jazzy + rosbridge |
+
 ## Test split
 
 | Directory | Scope | GPU needed? | When |
@@ -81,3 +92,5 @@ Full runner setup guide: [.github/RUNNERS.md](https://github.com/Gbrothers1/SDR_
 - **Python**: `uv.lock` is authoritative. All CI jobs use `uv sync --frozen`.
 - **Node**: `package-lock.json` or `pnpm-lock.yaml` enforced in containers (`npm ci` or `pnpm install --frozen-lockfile`).
 - **Containers**: Lockfiles copied first to maximize Docker layer cache stability.
+
+See also: [Testing & Verification](testing.md) for local test commands and [GitHub Actions Guide](github-actions.md) for CI setup instructions.

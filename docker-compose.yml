@@ -1,6 +1,205 @@
-version: "3.9"
+# SDR_OS Multi-Service Docker Compose
+# Profiles: dev, sim, train, obs, tools, cuda, rocm, mlx
+#
+# Quick start:
+#   docker compose --profile sim up          # Sim + transport + ROS
+#   docker compose --profile cuda up         # CUDA CI target
+#   docker compose --profile obs up          # Observability stack
+
+networks:
+  edge:
+    driver: bridge
+  backplane:
+    driver: bridge
+    internal: true
+
+volumes:
+  sdr_ipc:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=512m
+  nats_data:
+  prometheus_data:
+  grafana_data:
 
 services:
+  # ──────────────── EDGE ────────────────
+
+  webserver:
+    image: caddy:2-alpine
+    profiles: ["sim", "dev"]
+    networks: [edge, backplane]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./configs/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      ros-bridge:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ──────────────── SIMULATION ────────────────
+
+  genesis-sim:
+    profiles: ["sim"]
+    build:
+      context: .
+      dockerfile: containers/cuda/Dockerfile
+    image: sdr_os-cuda
+    networks: [backplane]
+    volumes:
+      - .:/workspace
+      - sdr_ipc:/dev/shm/sdr_os_ipc
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,video
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    cpuset: "2,3,4"
+    shm_size: "2gb"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import torch; assert torch.cuda.is_available()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ──────────────── TRANSPORT ────────────────
+
+  # Placeholder for Rust transport-server (Phase 2).
+  # For Phase 1, genesis-sim writes to SHM and a Python reader validates.
+  # transport-server:
+  #   profiles: ["sim"]
+  #   build:
+  #     context: ./services/transport-server
+  #   image: sdr_os-transport
+  #   networks: [edge, backplane]
+  #   volumes:
+  #     - sdr_ipc:/dev/shm/sdr_os_ipc:ro
+  #   cpuset: "5"
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9100/health"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 3
+
+  # ──────────────── ROS2 ────────────────
+
+  ros-bridge:
+    profiles: ["sim", "dev"]
+    build:
+      context: .
+      dockerfile: containers/ros-jazzy/Dockerfile
+    image: sdr_os-ros-jazzy
+    network_mode: host
+    volumes:
+      - .:/workspace
+    environment:
+      - ROS_ENABLE_ROSBRIDGE=1
+      - ROS_NODE_COMMANDS=
+      - ROS_DOMAIN_ID=0
+    command: ["/workspace/scripts/ros/run_nodes.sh"]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "source /opt/ros/jazzy/setup.bash && ros2 topic list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ──────────────── MESSAGING ────────────────
+
+  nats:
+    image: nats:2-alpine
+    profiles: ["sim", "train"]
+    networks: [backplane]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+      - ./configs/nats.conf:/etc/nats/nats.conf:ro
+    command: ["-c", "/etc/nats/nats.conf"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ──────────────── TRAINING ────────────────
+
+  training-runner:
+    profiles: ["train"]
+    build:
+      context: .
+      dockerfile: containers/cuda/Dockerfile
+    image: sdr_os-cuda
+    networks: [backplane]
+    volumes:
+      - .:/workspace
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - NATS_URL=nats://nats:4222
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    shm_size: "2gb"
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # ──────────────── OBSERVABILITY ────────────────
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["obs"]
+    networks: [backplane]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["obs"]
+    networks: [backplane]
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  # ──────────────── CI TARGETS ────────────────
+  # These are the original CI-focused containers for lint/test/build.
+
   app-cuda:
     profiles: ["cuda"]
     build:
@@ -12,10 +211,13 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
-    device_requests:
-      - driver: nvidia
-        count: -1
-        capabilities: ["gpu"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     shm_size: "2gb"
 
   app-rocm:

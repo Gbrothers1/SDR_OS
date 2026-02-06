@@ -26,7 +26,7 @@ jobs:
         run: pip install uv
       - name: Sync deps (frozen)
         run: |
-          if [ -f uv.lock ]; then uv sync --frozen --group ${{ matrix.backend }}; fi
+          if [ -f uv.lock ]; then uv sync --frozen --group ${{ matrix.backend }} -p 3.11; fi
       - name: Interface tests
         run: |
           if [ -d tests/integration ]; then pytest -q tests/integration; else echo "No integration tests"; fi
