@@ -77,22 +77,26 @@ services:
 
   # ──────────────── TRANSPORT ────────────────
 
-  # Placeholder for Rust transport-server (Phase 2).
-  # For Phase 1, genesis-sim writes to SHM and a Python reader validates.
-  # transport-server:
-  #   profiles: ["sim"]
-  #   build:
-  #     context: ./services/transport-server
-  #   image: sdr_os-transport
-  #   networks: [edge, backplane]
-  #   volumes:
-  #     - sdr_ipc:/dev/shm/sdr_os_ipc:ro
-  #   cpuset: "5"
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:9100/health"]
-  #     interval: 10s
-  #     timeout: 3s
-  #     retries: 3
+  transport-server:
+    profiles: ["sim"]
+    build:
+      context: services/transport-server
+      dockerfile: Dockerfile
+    image: sdr_os-transport
+    networks: [edge, backplane]
+    volumes:
+      - sdr_ipc:/dev/shm/sdr_os_ipc:ro
+    environment:
+      - SDR_SHM_PATH=/dev/shm/sdr_os_ipc/frames
+      - SDR_NATS_URL=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   # ──────────────── ROS2 ────────────────
 

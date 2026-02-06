@@ -1,0 +1,313 @@
+mod config;
+mod fanout;
+mod health;
+mod nats;
+mod shm;
+mod transport;
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+
+use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{State, WebSocketUpgrade};
+use axum::response::IntoResponse;
+use axum::routing::get;
+use axum::Json;
+use axum::Router;
+use futures_util::{SinkExt, StreamExt};
+use tokio::sync::broadcast;
+use tracing_subscriber::EnvFilter;
+
+use crate::config::Config;
+use crate::fanout::backpressure::ClientState;
+use crate::fanout::broadcast::FrameBroadcast;
+use crate::health::{HealthResponse, HealthState};
+use crate::nats::subscriber::{telemetry_relay, TelemetryMsg};
+use crate::shm::reader::{ReadResult, ShmReader};
+use crate::transport::websocket::encode_video_frame;
+
+/// Shared application state passed to axum handlers.
+#[derive(Clone)]
+struct AppState {
+    frame_broadcast: Arc<FrameBroadcast>,
+    telemetry_tx: broadcast::Sender<Arc<TelemetryMsg>>,
+    health: HealthState,
+    idr_timeout_ms: u64,
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
+    let cfg = Config::from_env();
+
+    // Frame broadcast
+    let frame_broadcast = Arc::new(FrameBroadcast::new(cfg.broadcast_capacity));
+
+    // Telemetry broadcast
+    let (telemetry_tx, _) = broadcast::channel::<Arc<TelemetryMsg>>(32);
+
+    // Health state
+    let health_state = HealthState {
+        client_count: Arc::clone(&frame_broadcast.client_count),
+        shm_seq: Arc::new(AtomicU64::new(0)),
+        last_frame_time: Arc::new(std::sync::Mutex::new(None)),
+        start_time: Instant::now(),
+    };
+
+    let app_state = AppState {
+        frame_broadcast: Arc::clone(&frame_broadcast),
+        telemetry_tx: telemetry_tx.clone(),
+        health: health_state.clone(),
+        idr_timeout_ms: cfg.idr_timeout_ms,
+    };
+
+    // Spawn SHM reader loop
+    let shm_health = health_state.clone();
+    let shm_broadcast = Arc::clone(&frame_broadcast);
+    let shm_path = cfg.shm_path.clone();
+    let shm_size = cfg.shm_size;
+    let crc_enabled = cfg.crc_enabled;
+    tokio::spawn(async move {
+        shm_read_loop(shm_path, shm_size, crc_enabled, shm_broadcast, shm_health).await;
+    });
+
+    // Spawn NATS relay (non-fatal if NATS unavailable)
+    let nats_url = cfg.nats_url.clone();
+    let nats_subject = cfg.telemetry_subjects.clone();
+    let nats_max_size = cfg.telemetry_max_size;
+    let nats_tx = telemetry_tx.clone();
+    tokio::spawn(async move {
+        loop {
+            match telemetry_relay(&nats_url, &nats_subject, nats_max_size, nats_tx.clone()).await {
+                Ok(()) => {
+                    tracing::info!("NATS relay ended, reconnecting in 5s");
+                }
+                Err(e) => {
+                    tracing::warn!("NATS relay error: {e}, reconnecting in 5s");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
+
+    // Build router
+    let app = Router::new()
+        .route("/stream/ws", get(ws_upgrade_handler))
+        .route("/health", get(app_health_handler))
+        .with_state(app_state);
+
+    let addr: std::net::SocketAddr = cfg.listen_addr.parse().expect("invalid SDR_LISTEN_ADDR");
+    tracing::info!("transport-server listening on {addr}");
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+
+/// Health endpoint that extracts HealthState from AppState.
+async fn app_health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
+    let last_frame_age_ms = state
+        .health
+        .last_frame_time
+        .lock()
+        .ok()
+        .and_then(|guard| guard.map(|t| t.elapsed().as_millis() as u64));
+
+    Json(HealthResponse {
+        status: "ok",
+        clients: state.health.client_count.load(Ordering::Relaxed),
+        shm_seq: state.health.shm_seq.load(Ordering::Relaxed),
+        last_frame_age_ms,
+        uptime_s: state.health.start_time.elapsed().as_secs(),
+    })
+}
+
+async fn ws_upgrade_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_ws_client(socket, state))
+}
+
+async fn handle_ws_client(socket: WebSocket, state: AppState) {
+    let (ws_sender, _ws_receiver) = socket.split();
+    let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
+
+    let (video_rx, guard) = state.frame_broadcast.subscribe();
+    let telemetry_rx = state.telemetry_tx.subscribe();
+
+    tracing::info!(
+        clients = state.frame_broadcast.client_count(),
+        "client connected"
+    );
+
+    unified_send_loop(ws_sender, video_rx, telemetry_rx, guard, state.idr_timeout_ms).await;
+
+    tracing::info!(
+        clients = state.frame_broadcast.client_count(),
+        "client disconnected"
+    );
+}
+
+/// Merged video + telemetry send loop per client.
+///
+/// Uses `tokio::select!` to multiplex video frames and telemetry messages
+/// onto a single WebSocket connection. Handles per-client backpressure:
+/// if the client lags behind the broadcast, it drops non-keyframes until
+/// a keyframe arrives (or the IDR timeout fires).
+async fn unified_send_loop(
+    ws_sender: Arc<
+        tokio::sync::Mutex<futures_util::stream::SplitSink<WebSocket, Message>>,
+    >,
+    mut video_rx: broadcast::Receiver<Arc<crate::shm::reader::Frame>>,
+    mut telemetry_rx: broadcast::Receiver<Arc<TelemetryMsg>>,
+    _guard: crate::fanout::broadcast::ClientGuard,
+    idr_timeout_ms: u64,
+) {
+    let mut client_state = ClientState::AwaitingKeyframe {
+        since: Instant::now(),
+    };
+    let idr_timeout = std::time::Duration::from_millis(idr_timeout_ms);
+
+    loop {
+        tokio::select! {
+            result = video_rx.recv() => {
+                match result {
+                    Ok(frame) => {
+                        match &client_state {
+                            ClientState::AwaitingKeyframe { since } => {
+                                if since.elapsed() > idr_timeout {
+                                    tracing::warn!("IDR timeout, disconnecting client");
+                                    break;
+                                }
+                                if frame.header.is_keyframe() {
+                                    client_state = ClientState::Streaming;
+                                } else {
+                                    continue;
+                                }
+                            }
+                            ClientState::Streaming => {}
+                        }
+
+                        let data = encode_video_frame(&frame);
+                        let mut sender = ws_sender.lock().await;
+                        if sender.send(Message::Binary(data.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(lagged = n, "client lagged, awaiting keyframe");
+                        client_state = ClientState::AwaitingKeyframe {
+                            since: Instant::now(),
+                        };
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            result = telemetry_rx.recv() => {
+                match result {
+                    Ok(msg) => {
+                        let mut sender = ws_sender.lock().await;
+                        if sender.send(Message::Binary(msg.encoded.clone().into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        // Silently drop old telemetry
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    }
+}
+
+async fn shm_read_loop(
+    shm_path: String,
+    shm_size: usize,
+    crc_enabled: bool,
+    broadcast: Arc<FrameBroadcast>,
+    health: HealthState,
+) {
+    // Wait for the SHM file to appear
+    loop {
+        if std::path::Path::new(&shm_path).exists() {
+            break;
+        }
+        tracing::debug!(path = %shm_path, "waiting for SHM file");
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+
+    // Open mmap
+    let file = match std::fs::File::open(&shm_path) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!(path = %shm_path, error = %e, "failed to open SHM file");
+            return;
+        }
+    };
+
+    let mmap = match unsafe { memmap2::Mmap::map(&file) } {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to mmap SHM file");
+            return;
+        }
+    };
+
+    if mmap.len() < shm_size {
+        tracing::warn!(
+            actual = mmap.len(),
+            expected = shm_size,
+            "SHM file smaller than expected"
+        );
+    }
+
+    let mut reader = ShmReader::new(mmap, crc_enabled);
+    tracing::info!(path = %shm_path, "SHM reader started");
+
+    loop {
+        // No-client optimization: sleep longer and skip broadcast
+        if broadcast.client_count() == 0 {
+            reader.enter_sleep();
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            // Still update seq for health endpoint
+            if let ReadResult::Frame(_) = reader.try_read_frame() {
+                health.shm_seq.store(reader.last_seq(), Ordering::Relaxed);
+                *health.last_frame_time.lock().unwrap() = Some(Instant::now());
+            }
+            continue;
+        }
+
+        match reader.try_read_frame() {
+            ReadResult::Frame(frame) => {
+                health.shm_seq.store(reader.last_seq(), Ordering::Relaxed);
+                *health.last_frame_time.lock().unwrap() = Some(Instant::now());
+                reader.on_frame_received();
+                broadcast.send_frame(frame);
+            }
+            ReadResult::NoNewFrame => {
+                match reader.poll_delay() {
+                    Some(d) => tokio::time::sleep(d).await,
+                    None => {
+                        tokio::task::yield_now().await;
+                    }
+                }
+            }
+            ReadResult::TornRead => {
+                std::hint::spin_loop();
+            }
+            ReadResult::CrcMismatch | ReadResult::BadHeader | ReadResult::InvalidLength => {
+                tracing::warn!("SHM read error, retrying");
+                tokio::task::yield_now().await;
+            }
+            ReadResult::SkippedNonKeyframe => {
+                // Normal during lap recovery
+            }
+        }
+    }
+}

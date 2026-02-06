@@ -1,0 +1,23 @@
+[package]
+name = "transport-server"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["ws"] }
+async-nats = "0.39"
+memmap2 = "0.9"
+crc32fast = "1.4"
+prometheus = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tower-http = { version = "0.5", features = ["cors"] }
+futures-util = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+tokio-tungstenite = "0.24"
