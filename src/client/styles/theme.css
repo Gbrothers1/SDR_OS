@@ -59,6 +59,7 @@
   --z-base: 1;
   --z-panel: 100;
   --z-overlay: 500;
+  --z-strip: 600;
   --z-modal: 1000;
 
   /* Touch Targets */

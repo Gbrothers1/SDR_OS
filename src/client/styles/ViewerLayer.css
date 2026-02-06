@@ -70,6 +70,30 @@
   opacity: 0.6;
 }
 
+/* Mock PiP placeholder (test mode) */
+.viewer-layer__pip-mock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 22, 0.85);
+  gap: 4px;
+  pointer-events: none;
+}
+
+.viewer-layer__pip-mock-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--color-text-muted);
+}
+
+.viewer-layer__pip-mock-hint {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
 /* Responsive: smaller PiP on small screens */
 @media (max-width: 768px) {
   .viewer-layer__pip {

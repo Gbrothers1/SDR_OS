@@ -119,6 +119,74 @@
   left: var(--space-3);
 }
 
+/* ===== Collapsed tab handle (visible when panel is closed) ===== */
+.edge-panel__tab {
+  position: fixed;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-glass-bg);
+  border: var(--border-width) solid var(--color-glass-border);
+  backdrop-filter: blur(var(--backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--backdrop-blur));
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  padding: 0;
+}
+
+.edge-panel__tab:hover {
+  background: var(--color-glass-bg-hover, rgba(255, 255, 255, 0.06));
+  border-color: var(--color-glass-border-hover);
+}
+
+.edge-panel__tab-label {
+  writing-mode: vertical-lr;
+  text-orientation: mixed;
+  font-family: var(--font-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.edge-panel__tab:hover .edge-panel__tab-label {
+  color: var(--color-text-primary);
+}
+
+/* Left tab — vertically centered on left edge */
+.edge-panel__tab--left {
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: 24px;
+  height: auto;
+  min-height: 80px;
+  padding: 12px 2px;
+  border-left: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* Right tab — vertically centered on right edge */
+.edge-panel__tab--right {
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 24px;
+  height: auto;
+  min-height: 80px;
+  padding: 12px 2px;
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.edge-panel__tab--right .edge-panel__tab-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
 /* Scrim behind panel when open (click to dismiss) */
 .edge-panel__scrim {
   position: fixed;

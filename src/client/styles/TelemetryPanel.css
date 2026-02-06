@@ -1,14 +1,10 @@
 .telemetry-panel {
-  position: fixed;
-  top: 70px;
-  right: 20px;
-  width: 350px;
-  max-height: 80vh;
+  position: relative;
+  width: 100%;
   background-color: rgba(12, 18, 30, 0.55);
   color: var(--color-text-primary);
   font-family: var(--font-primary);
   transition: all 0.3s ease;
-  z-index: 800;
   overflow: hidden;
   border: 1px solid rgba(25, 212, 255, 0.25);
   clip-path: polygon(
@@ -141,8 +137,7 @@
 }
 
 .panel-content {
-  padding: 15px;
-  max-height: calc(80vh - 60px);
+  padding: 12px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
@@ -464,20 +459,12 @@
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
-  .telemetry-panel {
-    top: auto;
-    bottom: 70px;
-    right: 10px;
-    width: 320px;
-    max-height: 60vh;
-  }
-  
   .telemetry-grid {
     grid-template-columns: 1fr;
   }
   
   .panel-content {
-    padding: 10px;
+    padding: 8px;
   }
   
   .telemetry-section {

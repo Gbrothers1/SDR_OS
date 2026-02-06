@@ -44,3 +44,36 @@
 .app__error-banner button:hover {
   background: rgba(255, 255, 255, var(--opacity-hover));
 }
+
+/* Test Mode button in the error banner */
+.app__test-mode-btn {
+  border-color: rgba(62, 207, 142, 0.5) !important;
+  color: #3ecf8e !important;
+}
+.app__test-mode-btn:hover {
+  background: rgba(62, 207, 142, 0.15) !important;
+}
+
+/* Test mode badge — top-right, below trust strip */
+.app__test-badge {
+  position: fixed;
+  top: calc(var(--strip-height, 36px) + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-modal, 9000);
+  background: rgba(62, 207, 142, 0.12);
+  border: 1px solid rgba(62, 207, 142, 0.4);
+  color: #3ecf8e;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  padding: 3px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.15s;
+  user-select: none;
+}
+.app__test-badge:hover {
+  background: rgba(62, 207, 142, 0.25);
+}

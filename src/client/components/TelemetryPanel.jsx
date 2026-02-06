@@ -40,8 +40,8 @@ const TelemetryPanel = ({ ros, updateInterval, initialShowPanel = true }) => {
   
   // Chart configuration
   const chartConfig = {
-    width: 300,
-    height: 200,
+    width: 280,
+    height: 180,
     padding: 20,
     dataPoints: 50, // Number of data points to show
     colors: {

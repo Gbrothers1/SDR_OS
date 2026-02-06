@@ -5,7 +5,7 @@ import RobotViewer from './RobotViewer';
 import SimViewer from './SimViewer';
 import '../styles/ViewerLayer.css';
 
-const ViewerLayer = ({ ros, appSettings }) => {
+const ViewerLayer = ({ ros, appSettings, testMode = false }) => {
   const { rosConnected, genesisConnected } = usePhase();
   const { currentFrame, mediaStream, streamBackend } = useGenesis();
 
@@ -22,6 +22,9 @@ const ViewerLayer = ({ ros, appSettings }) => {
   } else if (hasGenesis) {
     primarySource = 'genesis';
   } else if (hasRos) {
+    primarySource = 'ros';
+  } else if (testMode) {
+    // In test mode, show the RobotViewer demo scene (grid + axes + orbit controls)
     primarySource = 'ros';
   }
 
@@ -69,10 +72,16 @@ const ViewerLayer = ({ ros, appSettings }) => {
         )}
       </div>
 
-      {/* PiP thumbnail */}
+      {/* PiP thumbnail — real when both sources, mock in test mode */}
       {showPip && (
         <div className="viewer-layer__pip" onClick={handlePipClick} title="Click to swap">
           {renderSource(pipSource, true)}
+        </div>
+      )}
+      {testMode && !showPip && (
+        <div className="viewer-layer__pip viewer-layer__pip-mock" title="SIM preview (test mode)">
+          <div className="viewer-layer__pip-mock-label">SIM</div>
+          <div className="viewer-layer__pip-mock-hint">No bridge</div>
         </div>
       )}
     </div>

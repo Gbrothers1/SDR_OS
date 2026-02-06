@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import '../styles/EdgePanel.css';
 
-const EdgePanel = ({ side = 'left', isOpen, onClose, pinned, onTogglePin, children }) => {
+const EdgePanel = ({ side = 'left', isOpen, onOpen, onClose, pinned, onTogglePin, title, children }) => {
   const handleScrimClick = useCallback(() => {
     if (!pinned && onClose) {
       onClose();
@@ -28,6 +28,19 @@ const EdgePanel = ({ side = 'left', isOpen, onClose, pinned, onTogglePin, childr
         <div className="edge-panel__scrim" onClick={handleScrimClick} />
       )}
 
+      {/* Collapsed tab handle — visible when panel is closed */}
+      {!isOpen && onOpen && side !== 'bottom' && (
+        <button
+          className={`edge-panel__tab edge-panel__tab--${side}`}
+          onClick={onOpen}
+          title={title ? `Open ${title}` : `Open ${side} panel`}
+        >
+          <span className="edge-panel__tab-label">
+            {title || side.toUpperCase()}
+          </span>
+        </button>
+      )}
+
       <div
         className={`edge-panel edge-panel--${side}${isOpen ? ' edge-panel--open' : ''}`}
         role="complementary"
@@ -40,7 +53,7 @@ const EdgePanel = ({ side = 'left', isOpen, onClose, pinned, onTogglePin, childr
             onClick={onTogglePin}
             title={pinned ? 'Unpin panel' : 'Pin panel open'}
           >
-            {pinned ? '▪' : '▫'}
+            {pinned ? '\u25AA' : '\u25AB'}
           </button>
         )}
 

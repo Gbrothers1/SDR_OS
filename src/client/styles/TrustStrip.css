@@ -5,7 +5,7 @@
   left: 0;
   right: 0;
   height: var(--strip-height);
-  z-index: var(--z-overlay);
+  z-index: var(--z-strip);
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -254,6 +254,11 @@
   opacity: 0.5;
 }
 
+.trust-strip__conn-dot--test {
+  background: #3ecf8e;
+  box-shadow: 0 0 6px rgba(62, 207, 142, 0.5);
+}
+
 .trust-strip__conn-label {
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -359,7 +364,7 @@
   top: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  z-index: calc(var(--z-overlay) + 1);
+  z-index: calc(var(--z-strip) + 1);
   background: rgba(10, 12, 18, 0.7);
   border: var(--border-width) solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-sm);
@@ -422,7 +427,7 @@
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: calc(var(--z-overlay) + 2);
+  z-index: calc(var(--z-strip) + 2);
   background: rgba(10, 12, 18, 0.88);
   border: var(--border-width) solid var(--color-glass-border);
   border-radius: var(--radius-md);

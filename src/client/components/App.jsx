@@ -29,6 +29,29 @@ const CockpitContent = ({ socket }) => {
   const rosReconnectTimerRef = useRef(null);
   const { genesisConnected, genesisMode: currentGenesisMode } = useGenesis();
 
+  // ── Test mode: bypass ROS/Genesis connections for UI development ──
+  const [testMode, setTestMode] = useState(() => {
+    return localStorage.getItem('sdr_test_mode') === 'true';
+  });
+
+  const enableTestMode = useCallback(() => {
+    setTestMode(true);
+    localStorage.setItem('sdr_test_mode', 'true');
+    setError(null);
+    // Stop ROS reconnect loop
+    if (rosReconnectTimerRef.current) {
+      clearTimeout(rosReconnectTimerRef.current);
+      rosReconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const disableTestMode = useCallback(() => {
+    setTestMode(false);
+    localStorage.removeItem('sdr_test_mode');
+    // Restart ROS connection
+    connectRos();
+  }, []);
+
   // Derive whether policy browser should replace telemetry in right panel
   const showPolicyPanel = genesisConnected &&
     (currentGenesisMode === 'eval' || currentGenesisMode === 'policy');
@@ -56,6 +79,11 @@ const CockpitContent = ({ socket }) => {
 
   // Initialize connections with auto-reconnect for ROS
   const connectRos = useCallback((attempt = 0) => {
+    // Skip ROS connection in test mode
+    if (localStorage.getItem('sdr_test_mode') === 'true') {
+      setRosConnecting(false);
+      return;
+    }
     const rosBridgeUrl = getSetting('connection', 'rosBridgeUrl', `ws://${window.location.hostname}:9090`);
     setRosConnecting(true);
     const newRos = new ROSLIB.Ros({ url: rosBridgeUrl });
@@ -204,21 +232,35 @@ const CockpitContent = ({ socket }) => {
     return <SplashScreen onComplete={handleSplashComplete} />;
   }
 
+  // In test mode, suppress the error banner
+  const showError = error && !genesisConnected && !testMode;
+
   return (
     <PhaseProvider ros={ros} rosConnected={rosConnected}>
       <div className="app">
-        {error && !genesisConnected && (
+        {/* Error banner with test mode option */}
+        {showError && (
           <div className="app__error-banner">
             {error}
             <button onClick={() => window.location.reload()}>Retry</button>
+            <button className="app__test-mode-btn" onClick={enableTestMode}>
+              Test Mode
+            </button>
+          </div>
+        )}
+
+        {/* Test mode indicator */}
+        {testMode && (
+          <div className="app__test-badge" onClick={disableTestMode} title="Click to exit test mode and reconnect">
+            TEST MODE
           </div>
         )}
 
         {/* Layer 1: Fullscreen viewer */}
-        <ViewerLayer ros={ros} appSettings={appSettings} />
+        <ViewerLayer ros={ros} appSettings={appSettings} testMode={testMode} />
 
         {/* Layer 2: Trust strip */}
-        <TrustStrip onStageClick={handleStageClick} />
+        <TrustStrip onStageClick={handleStageClick} testMode={testMode} />
 
         {/* Layer 3: Edge panels */}
 

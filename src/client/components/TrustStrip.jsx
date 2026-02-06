@@ -309,7 +309,7 @@ const SimDetailPopup = ({ streamBackend, bridgeConnected, genesisConnected, visu
   );
 };
 
-const TrustStrip = ({ onStageClick }) => {
+const TrustStrip = ({ onStageClick, testMode = false }) => {
   const { activePhase, authority, stages, primaryViewer } = usePhase();
   const {
     genesisConnected,
@@ -329,7 +329,7 @@ const TrustStrip = ({ onStageClick }) => {
   const { isOpen: trainingPanelOpen, togglePanel: toggleTrainingPanel } = useTrainingPanel();
 
   const stripClass = `trust-strip trust-strip--${authority}`;
-  const isSim = genesisConnected && primaryViewer !== 'ros';
+  const isSim = (genesisConnected && primaryViewer !== 'ros') || testMode;
 
   const [teleopHover, setTeleopHover] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -383,9 +383,9 @@ const TrustStrip = ({ onStageClick }) => {
     <div className={stripClass}>
       {/* Connection + Robot */}
       <div className="trust-strip__connection">
-        <span className={`trust-strip__conn-dot trust-strip__conn-dot--${(primaryViewer === 'ros' || genesisConnected) ? 'on' : 'off'}`} />
+        <span className={`trust-strip__conn-dot trust-strip__conn-dot--${(primaryViewer === 'ros' || genesisConnected) ? 'on' : testMode ? 'test' : 'off'}`} />
         <span className="trust-strip__conn-label">
-          {primaryViewer === 'ros' ? 'REAL' : genesisConnected ? 'SIM' : 'OFFLINE'}
+          {primaryViewer === 'ros' ? 'REAL' : genesisConnected ? 'SIM' : testMode ? 'TEST' : 'OFFLINE'}
         </span>
         {currentRobot && (
           <span className="trust-strip__robot-name">{currentRobot.label || currentRobot.name}</span>
@@ -432,8 +432,8 @@ const TrustStrip = ({ onStageClick }) => {
 
       <div className="trust-strip__spacer" />
 
-      {/* Mode buttons */}
-      {genesisConnected && (
+      {/* Mode buttons — show when Genesis connected OR in test mode */}
+      {(genesisConnected || testMode) && (
         <div className="trust-strip__mode-group">
           {MODES.map(({ key, label }) => (
             <button
@@ -465,7 +465,7 @@ const TrustStrip = ({ onStageClick }) => {
       )}
 
       {/* Train Button */}
-      {genesisConnected && (
+      {(genesisConnected || testMode) && (
         <button
           className={`trust-strip__train-btn ${trainingPanelOpen ? 'trust-strip__train-btn--active' : ''}`}
           onClick={toggleTrainingPanel}
