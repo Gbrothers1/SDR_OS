@@ -13,6 +13,10 @@ RUN apt-get update \
         python3-pip \
         nodejs \
         npm \
+        libegl1 \
+        libgl1 \
+        libglib2.0-0 \
+        libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV VIRTUAL_ENV=/opt/venv
@@ -26,14 +30,19 @@ WORKDIR /workspace
 # Use lockfiles for reproducible installs.
 # Copy only lockfiles first to maximize layer cache.
 COPY pyproject.toml uv.lock ./
-COPY requirements/requirements-cuda.txt ./requirements/requirements-cuda.txt
 COPY package.json package-lock.json* pnpm-lock.yaml* ./
 
-RUN if [ -f uv.lock ]; then uv sync --frozen --group cuda; fi \
-    && if [ -f requirements/requirements-cuda.txt ]; then uv pip sync requirements/requirements-cuda.txt; fi \
+# Install Python packages into /opt/venv so host volume mount doesn't shadow them.
+# uv sync creates .venv which gets overwritten by the host mount, so we sync then
+# copy the result into /opt/venv and clean up.
+RUN uv sync --frozen --group cuda \
+    && cp -a /workspace/.venv/lib/python3.10/site-packages/* /opt/venv/lib/python3.10/site-packages/ \
+    && rm -rf /workspace/.venv \
     && if [ -f package-lock.json ]; then npm ci; fi \
     && if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile; fi
 
 COPY . /workspace
 
-CMD ["bash"]
+ENV PYOPENGL_PLATFORM=egl
+
+CMD ["sleep", "infinity"]
