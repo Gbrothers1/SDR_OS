@@ -161,6 +161,71 @@ Exit codes: `0` = NVENC OK, `1` = CUDA available but NVENC not functional, `2` =
 | `test_writer_context_manager` | Context manager cleanup |
 | `test_reader_context_manager` | Context manager cleanup |
 
+## CI Troubleshooting Log
+
+Issues encountered and fixed during Phase 1 CI setup:
+
+### 1. `torch==2.0.1` has no Python 3.12 wheels
+
+**Symptom:** `uv sync --frozen` fails with:
+```
+error: Distribution `torch==2.0.1` can't be installed because it doesn't have
+a source distribution or wheel for the current platform
+
+hint: You're using CPython 3.12 (cp312), but torch (v2.0.1) only has wheels
+with the following Python ABI tags: cp310, cp311
+```
+
+**Cause:** `genesis-world` pins `torch==2.0.1`, which only published wheels for Python 3.10 and 3.11. CI jobs using Python 3.12 fail when `uv sync` tries to install the full project.
+
+**Fix:** Jobs that don't need torch (`lint-and-unit`, `docs-build`) skip `uv sync` entirely and install only what they need via `pip`. The `compat-matrix` job pins `uv sync -p 3.11`.
+
+### 2. `mkdocs build` fails on `repo_url: .`
+
+**Symptom:** `Config value 'repo_url': The URL isn't valid, it should include the http:// (scheme)`
+
+**Cause:** `mkdocs.yml` had placeholder `repo_url: .` instead of a full URL.
+
+**Fix:** Set `repo_url: https://github.com/Gbrothers1/SDR_OS`.
+
+### 3. `uv.lock` stale after `pyproject.toml` changes
+
+**Symptom:** `uv sync --frozen --group <name>` fails with `Group 'X' is not defined`.
+
+**Cause:** `uv.lock` was generated before dependency groups were added to `pyproject.toml`. The lock file didn't know about the new groups.
+
+**Fix:** Regenerated `uv.lock` with `uv lock`. Keep the lock file in sync whenever you change `pyproject.toml`.
+
+### 4. Docker Compose v5 rejects `device_requests`
+
+**Symptom:** `docker compose config` fails with `additional properties 'device_requests' not allowed`.
+
+**Cause:** Docker Compose v5 uses a different syntax for GPU access than the v3.x `device_requests` field.
+
+**Fix:** Replace `device_requests` with `deploy.resources.reservations.devices`:
+```yaml
+# Wrong (v3.x style)
+device_requests:
+  - capabilities: [gpu]
+
+# Correct (v5.x)
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: 1
+          capabilities: [gpu]
+```
+
+### 5. Bash `((var++))` fails with `set -e` when var=0
+
+**Symptom:** Script exits immediately on first counter increment.
+
+**Cause:** `((0))` evaluates to false in bash, returning exit code 1, which triggers `set -e`.
+
+**Fix:** Use `var=$((var + 1))` instead of `((var++))`.
+
 ## Using the justfile
 
 Install just: `curl -sSf https://just.systems/install.sh | bash`
