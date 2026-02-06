@@ -2,6 +2,7 @@ mod config;
 mod fanout;
 mod health;
 mod shm;
+mod transport;
 
 use std::net::SocketAddr;
 
