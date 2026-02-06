@@ -33,8 +33,10 @@ ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 
 ### Frontend (`src/client/`)
 - **Entry:** `index.js` → `App.jsx`
-- **State:** `contexts/SettingsContext.jsx` - React Context with localStorage persistence
+- **State:** `contexts/SettingsContext.jsx` - React Context with localStorage persistence; `contexts/GenesisContext.jsx` for sim bridge; `contexts/PhaseContext.jsx` for derived stage health/authority
 - **Components:** Each has paired `.jsx` and `.css` in `components/` and `styles/`
+- **Viewers:** `RobotViewer.jsx` (Three.js 3D scene for ROS), `SimViewer.jsx` (Genesis sim video feed)
+- **Trust Strip:** Top bar with stage cells (TELEOP/TRAIN/EVAL) on left, mode buttons (TELEM/POLICY/BLEND/LAB/E-STOP) on right; connection indicator toggles SIM/REAL viewer
 - **ROS:** ROSLIB connects to rosbridge_websocket (default `ws://localhost:9090`)
 - **Real-time:** Socket.io for controller state broadcasting between clients
 
@@ -81,4 +83,8 @@ updateSettings({ control: { maxLinearSpeed: 2.0 } });
 - rosbridge_server must be running for ROS communication
 - Default rosbridge URL configurable via localStorage key `rosBridgeUrl`
 - Controller state synced across multiple browser clients via Socket.io
-- Three.js used for 3D robot model rendering in `RobotViewer.jsx`
+- Three.js used for 3D robot model rendering in `RobotViewer.jsx`; sim feed rendered in `SimViewer.jsx`
+- Test mode (`localStorage sdr_test_mode`) enables UI development without ROS/Genesis connections
+- User-facing text uses "Sim" (not "Genesis"); internal code keeps `genesis*` naming
+- CSS design system in `styles/theme.css` — use `var(--color-*)`, `var(--transition-*)`, `var(--z-*)` tokens
+- Viewer source (SIM/REAL) state is lifted to `App.jsx` and shared between `ViewerLayer` and `TrustStrip`

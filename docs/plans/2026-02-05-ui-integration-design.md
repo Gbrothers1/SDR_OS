@@ -267,21 +267,29 @@ Add `docs/ui.md` covering:
 
 ## 10. Implementation Priority
 
-### Phase 1 — Functional Fixes (blocks release)
-1. Trust strip renames (TELEM, LAB, ROS tab, actor labels)
-2. Mode buttons equally open right panel
-3. Fix broken `setDt` in GenesisContext
-4. Re-add ErrorBoundary
-5. TRAIN stage cell pop-down panel
+### Phase 1 — Functional Fixes (blocks release) — COMPLETE (67a83b5, 2026-02-06)
+1. ~~Trust strip renames (TELEM, LAB, ROS tab, actor labels)~~
+2. ~~Mode buttons equally open right panel~~
+3. ~~Fix broken `setDt` in GenesisContext~~
+4. ~~Re-add ErrorBoundary~~
+5. ~~TRAIN stage cell pop-down panel~~
 
-### Phase 2 — Polish (should ship with release)
-6. Terminology standardization (Genesis → Sim in UI text)
-7. Stage label capitalization (ALL CAPS)
-8. Stream abbreviation cleanup (wRTC → WebRTC, ScK → WS)
-9. Alpha slider tooltip
-10. E-STOP tooltip
-11. CSS hardcoded color → variable migration
-12. Z-index and transition token fixes
+### Phase 2 — Polish (should ship with release) — COMPLETE (67a83b5, 2026-02-06)
+6. ~~Terminology standardization (Genesis → Sim in UI text)~~
+7. ~~Stage label capitalization (ALL CAPS)~~
+8. ~~Stream abbreviation cleanup (wRTC → WebRTC, ScK → WS)~~
+9. ~~Alpha slider tooltip~~
+10. ~~E-STOP tooltip~~
+11. ~~CSS hardcoded color → variable migration~~
+12. ~~Z-index and transition token fixes~~
+
+**Additional work completed beyond original plan:**
+- EVAL pop-down panel (standardizes all left-side stage cells)
+- BlendPanel — dedicated HIL blend edge panel with alpha control, safety, sparkline
+- TRAIN/EVAL hover popups (compact metrics on mouse-over)
+- Connection indicator toggles between SIM/REAL views (swaps ViewerLayer)
+- Viewer override state lifted to App.jsx, shared by ViewerLayer and TrustStrip
+- Teleop hover popup CSS position fix (animation preserves translateX centering)
 
 ### Phase 3 — Release Prep
 13. Version alignment (both files → 0.2.0)
@@ -295,21 +303,21 @@ Add `docs/ui.md` covering:
 
 ## Files Touched
 
-### Phase 1
-- `src/client/components/TrustStrip.jsx` — renames, pop-down, actor label
-- `src/client/components/App.jsx` — mode button panel opening, ErrorBoundary
+### Phase 1-2 (all completed in commit 67a83b5)
+- `src/client/components/TrustStrip.jsx` — renames, pop-downs (SIM/TRAIN/EVAL), hover popups, viewer toggle
+- `src/client/components/App.jsx` — mode button panel opening, ErrorBoundary, viewer override state, BlendPanel routing
 - `src/client/components/TelemetryConsole.jsx` — OPERATE → ROS rename
-- `src/client/contexts/GenesisContext.jsx` — export setDt
-- `src/client/styles/TrustStrip.css` — pop-down styles
-
-### Phase 2
-- `src/client/components/ViewerLayer.jsx` — "Genesis" → "Sim"
-- `src/client/components/SplashScreen.jsx` — "Genesis" → "Sim", version
+- `src/client/components/ViewerLayer.jsx` — "Genesis" → "Sim", external viewer override
+- `src/client/components/SplashScreen.jsx` — "Genesis" → "Sim"
 - `src/client/components/GenesisControlPanel.jsx` — title rename
 - `src/client/components/GenesisInfoPanel.jsx` — title rename
-- `src/client/styles/SplashScreen.css` — hardcoded colors
-- `src/client/styles/ControlOverlay.css` — hardcoded colors
-- `src/client/styles/App.css` — hardcoded colors
+- `src/client/components/BlendPanel.jsx` — **new** HIL blend edge panel
+- `src/client/contexts/GenesisContext.jsx` — export setDt
+- `src/client/styles/TrustStrip.css` — pop-down styles, hover popup animation fix, viewer toggle
+- `src/client/styles/BlendPanel.css` — **new** blend panel styles
+- `src/client/styles/SplashScreen.css` — hardcoded colors → CSS variables, z-index
+- `src/client/styles/ControlOverlay.css` — hardcoded colors, transition tokens
+- `src/client/styles/App.css` — hardcoded colors, transition tokens
 
 ### Phase 3
 - `package.json` — version, remove script

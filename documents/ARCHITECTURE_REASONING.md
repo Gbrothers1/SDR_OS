@@ -46,8 +46,8 @@ Date: 2026-02-05
 - **Performance**: shared memory/UDS for co-located sim/bridge reduces memcpy overhead; GPU encoders reduce CPU load.
 
 ## Next Steps (in order)
-1) Finalize schemas for control (`/controller/*`), telemetry, and media signaling; document in `documents/ARCHITECTURE_OVERVIEW.md`.
-2) Choose gateway implementation (Node baseline, evaluate FastAPI parity); add health + metrics.
-3) Add media-encoder service and WebRTC signaling; integrate `CameraViewer` to consume WebRTC.
+1) ~~Finalize schemas for control (`/controller/*`), telemetry, and media signaling.~~ DONE — control via socket.io events, telemetry via Genesis bridge, documented in ARCHITECTURE_OVERVIEW.md.
+2) ~~Choose gateway implementation; add health + metrics.~~ DONE — Node/Express gateway (`server.js`) with `/api/status` health endpoint, graceful shutdown, 104 Genesis events.
+3) Add media-encoder service and WebRTC signaling; integrate `SimViewer` to consume WebRTC. (In progress — H.264 decoder and WebSocket transport implemented; WebRTC SFU pending.)
 4) Prototype Genesis headless render → NVENC pipeline; measure latency/bandwidth.
 5) Investigate Genesis WASM/WebGPU feasibility; gate behind `SIM_MODE=browser`.

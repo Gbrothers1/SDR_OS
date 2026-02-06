@@ -22,15 +22,15 @@
 - **Telemetry**: Sensors/IIO/IMU/GPS → ROS2 topics (`/robot/telemetry/all`, `/robot/imu`, etc.) → Gateway → `TelemetryPanel` charts.
 - **Video/Rendering** (dual mode):
   - *Client-side*: Genesis WASM/WebGPU build renders in browser; Gateway only syncs controls + occasional state checkpoints.
-  - *Server-side*: Genesis on GPU renders offscreen → NVENC (H.264/H.265/AV1) → WebRTC SFU (mediasoup/ion-sfu) → Browser `CameraViewer`.
+  - *Server-side*: Genesis on GPU renders offscreen → NVENC (H.264/H.265/AV1) → WebRTC SFU (mediasoup/ion-sfu) → Browser `SimViewer`.
   - *Failover*: if WebRTC fails, reduce bitrate or fall back to MJPEG over HTTP/2; keep commands on gRPC.
 - **Training loop**: rsl_rl policies → Genesis env wrapper → checkpoints → optional live policy rollout streamed to browser; uses same control schema for manual override.
 
 ## Components
-- **Browser UI**: `_archive/src/client` (React/Three, socket.io, ROSLIB); add WebGPU switch + WebRTC player.
-- **Gateway**: Node/Express + socket.io (existing) or FastAPI+uvicorn (Python alt) for WS/HTTP; forwards ROSBridge + media signaling; health metrics.
-- **ROS2 Control**: `_archive/src/robot_controller/ros/ros_node.py` publishes `/cmd_vel`, consumes controller topics.
-- **Sensors/Telemetry**: `_archive/iio_telemetry_publisher.py`, `gps.py`, `webcam_publisher.py` emit ROS2 topics; TF broadcaster for pose.
+- **Browser UI**: `src/client/` (React 18/Three.js, socket.io, ROSLIB). Key components: `ViewerLayer` (dual SIM/REAL viewer with PiP swap), `TrustStrip` (stage cells + mode buttons), `BlendPanel` (HIL alpha control), `SimViewer` (Genesis video), `RobotViewer` (Three.js 3D scene).
+- **Gateway**: Node/Express + socket.io (`server.js`) for WS/HTTP; forwards ROSBridge + Genesis events; health endpoint (`/api/status`); graceful shutdown.
+- **ROS2 Control**: `src/robot_controller/ros/ros_node.py` publishes `/cmd_vel`, consumes controller topics.
+- **Sensors/Telemetry**: `iio_telemetry_publisher.py`, `gps.py`, `webcam_publisher.py` emit ROS2 topics; TF broadcaster for pose.
 - **Simulation Runtime**: Genesis (GPU) with render graph; optional WASM/WebGPU build for in-browser mode; action/obs parity with rsl_rl.
 - **Media Stack**: NVENC on RTX 2080 Ti; encoder service outputs WebRTC/HLS/DASH; integrates with Gateway for signaling/token auth.
 - **Storage/Logs**: Structured logs (JSON) from Gateway and ROS; optional TimescaleDB/Influx for metrics.
