@@ -25,7 +25,7 @@ WORKDIR /workspace
 
 COPY pyproject.toml uv.lock ./
 COPY requirements/requirements-rocm.txt ./requirements/requirements-rocm.txt
-COPY package.json package-lock.json pnpm-lock.yaml ./
+COPY package.json package-lock.json* pnpm-lock.yaml* ./
 
 RUN if [ -f uv.lock ]; then uv sync --frozen --group rocm; fi \
     && if [ -f requirements/requirements-rocm.txt ]; then uv pip sync requirements/requirements-rocm.txt; fi \

@@ -27,7 +27,7 @@ COPY requirements/requirements-mlx.txt ./requirements/requirements-mlx.txt
 COPY requirements/requirements-mlx-cpu.txt ./requirements/requirements-mlx-cpu.txt
 COPY requirements/requirements-mlx-cuda12.txt ./requirements/requirements-mlx-cuda12.txt
 COPY requirements/requirements-mlx-cuda13.txt ./requirements/requirements-mlx-cuda13.txt
-COPY package.json package-lock.json pnpm-lock.yaml ./
+COPY package.json package-lock.json* pnpm-lock.yaml* ./
 
 RUN if [ -f uv.lock ]; then uv sync --frozen --group ${MLX_VARIANT}; fi \
     && if [ -f requirements/requirements-${MLX_VARIANT}.txt ]; then uv pip sync requirements/requirements-${MLX_VARIANT}.txt; fi \

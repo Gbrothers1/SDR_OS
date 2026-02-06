@@ -1,14 +1,96 @@
 # SDR_OS Documentation
 
-Welcome to SDR_OS. This site is generated from the repo and tracks `main` plus release tags.
+SDR_OS is a multi-backend robotics simulation and control platform for low-latency teleoperation, Genesis physics simulation, and reinforcement learning. It targets **CUDA** (NVIDIA), **ROCm** (AMD), and **MLX** (Apple Silicon) from a single source tree.
 
-## Backends
-- CUDA (NVIDIA)
-- ROCm (AMD)
-- MLX (Apple Silicon, plus Linux CPU/CUDA parity)
+## Quick Start
 
-## Getting Started
-See the Architecture Overview and CI plan for the multi-backend layout.
+```bash
+# Development mode (ROS2 + web app)
+docker compose --profile dev up
+
+# Simulation mode (full pipeline)
+docker compose --profile sim up
+
+# Run unit tests
+PYTHONPATH=src pytest tests/unit/
+
+# Validate NVENC (inside CUDA container)
+docker compose --profile cuda run --rm app-cuda python3 scripts/validate_nvenc.py
+```
+
+## What it does
+
+- **Browser-based control** — Gamepad and keyboard input via a React UI, with real-time 3D visualization (Three.js) and telemetry dashboards.
+- **Genesis simulation** — GPU-hosted physics simulation with NVENC video encoding and frame streaming to the browser.
+- **ROS 2 integration** — Full ROS 2 Jazzy support for real robots: sensor pipelines, `/cmd_vel`, joint states, TF.
+- **Multi-service backend** — Caddy reverse proxy, NATS message bus (JetStream), SHM ringbuffer for zero-copy video, Rust transport server (planned).
+- **RL training pipeline** — Genesis-Forge + rsl_rl PPO, teleop recording, behavior cloning, policy evaluation.
+
+## Tech stack
+
+| Layer | Technology |
+|-------|------------|
+| Frontend | React 18, Three.js, Socket.io client, ROSLIB (CDN), WebCodecs H.264 decoder |
+| Backend | Node.js / Express, Socket.io server |
+| Simulation | Genesis 0.3.13, Genesis Forge 0.3.0, MuJoCo 3.4.0 |
+| ML | PyTorch 2.10 (CUDA), rsl_rl, NumPy, OpenCV |
+| Infrastructure | Docker Compose (profiles), NATS + JetStream, Caddy 2 |
+| CI/CD | GitHub Actions (5 workflows), MkDocs + Material + mike |
+| Package management | uv (Python), pnpm (Node.js) |
+
+## Hardware reference
+
+| Component | Spec |
+|-----------|------|
+| CPU | AMD Ryzen 5 2600 (6c/12t) |
+| RAM | 8 GB |
+| GPU | NVIDIA GeForce RTX 2080 Ti (11 GB VRAM) |
+| NVENC | 2 concurrent sessions, H.264 + HEVC |
+| OS | Ubuntu 22.04.5 LTS, kernel 6.8.0 |
+
+## Quick navigation
+
+| Page | What you'll find |
+|------|-----------------|
+| [Setup](setup.md) | Environment setup (uv, pnpm, Python, PyTorch, Genesis). |
+| [Architecture](architecture.md) | System topology, pipelines, multi-service design, implementation phases. |
+| [Frontend](frontend.md) | React components, contexts, styles, audio, entry points. |
+| [Backend](backend.md) | Express server, Socket.io events, Genesis bridge protocol. |
+| [Containers](containers.md) | Dockerfiles, Compose profiles, devcontainers. |
+| [CI/CD](ci.md) | Workflows, runners, test split, benchmarks, perf gates. |
+| [Testing](testing.md) | Local verification commands, CI troubleshooting. |
+| [Dev Workflow](dev-workflow.md) | Git worktrees, branching, commit and PR workflow. |
+| [Solutions](solutions/index.md) | Architecture diagrams and solved designs per phase. |
+| [Build log](build.md) | Local build commands and build history. |
+| [Plans](plans/2026-02-05-multi-service-backend-design.md) | Multi-service backend design and Phase 1 implementation plan. |
+
+## Repository layout
+
+```
+SDR_OS/
+├── src/client/           # React frontend (40+ components, 5 contexts)
+├── src/sdr_os/           # Python backend (SHM ringbuffer, IPC)
+├── server.js             # Express + Socket.io backend
+├── containers/           # CUDA / ROCm / MLX / ROS2 Jazzy Dockerfiles
+├── configs/              # Caddyfile, nats.conf, prometheus.yml
+├── docs/                 # This MkDocs site
+├── documents/            # Internal architecture and planning docs
+├── scripts/              # verify.sh, validate_nvenc.py, ROS2 launcher
+├── tests/unit/           # CPU-only unit tests (SHM ringbuffer)
+├── tests/benchmarks/     # GPU benchmark scripts (CUDA, ROCm, MLX)
+├── requirements/         # Per-backend pip requirements
+├── .github/workflows/    # CI, benchmarks, compat-matrix, docs, perf
+├── .devcontainer/        # VS Code devcontainer configs
+├── ref/                  # Reference material and legacy code backup
+├── _archive/             # Archived original codebase
+├── pyproject.toml        # Python project (uv)
+├── package.json          # Node project (pnpm)
+├── justfile              # Task runner (just)
+├── docker-compose.yml    # Multi-profile Compose (12 services, 7 profiles)
+├── webpack.config.js     # Webpack → dist/bundle.js
+└── mkdocs.yml            # This documentation site config
+```
 
 ## License
-MIT. See `LICENSE`.
+
+GPL-3.0. See [LICENSE](https://github.com/Gbrothers1/SDR_OS/blob/main/LICENSE).
