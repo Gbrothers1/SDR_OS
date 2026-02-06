@@ -1,0 +1,231 @@
+/* ===== StreamStats — bottom‑anchored telemetry strip ===== */
+
+/* Container: sits at the very bottom of the SimViewer viewport */
+.stream-stats {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: calc(var(--z-overlay) + 2);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 var(--space-2);
+  background: linear-gradient(
+    180deg,
+    rgba(6, 8, 14, 0.55) 0%,
+    rgba(6, 8, 14, 0.82) 100%
+  );
+  border-top: 1px solid rgba(120, 144, 190, 0.10);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+  pointer-events: auto;
+  user-select: none;
+
+  /* Slide‑up entrance */
+  animation: stats-slide-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes stats-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===== Cell — each metric segment ===== */
+.stream-stats__cell {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 var(--space-3);
+  height: 100%;
+  white-space: nowrap;
+  position: relative;
+}
+
+/* Vertical divider between cells */
+.stream-stats__cell + .stream-stats__cell::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: rgba(120, 144, 190, 0.12);
+}
+
+/* Label: muted uppercase micro‑text */
+.stream-stats__label {
+  font-weight: 600;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+/* Value: bright mono figure */
+.stream-stats__val {
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  min-width: 24px;
+}
+
+/* Unit suffix (smaller, dimmer) */
+.stream-stats__unit {
+  font-size: 8px;
+  color: var(--color-text-muted);
+  opacity: 0.5;
+  margin-left: 1px;
+}
+
+/* ===== Mode badge ===== */
+.stream-stats__mode {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid transparent;
+}
+
+.stream-stats__mode--ws {
+  color: var(--color-accent-cyan);
+  border-color: rgba(25, 212, 255, 0.2);
+  background: rgba(25, 212, 255, 0.06);
+}
+
+.stream-stats__mode--rtc {
+  color: var(--color-accent-green);
+  border-color: rgba(46, 230, 166, 0.2);
+  background: rgba(46, 230, 166, 0.06);
+}
+
+.stream-stats__mode--h264 {
+  color: var(--color-accent-violet);
+  border-color: rgba(108, 92, 255, 0.2);
+  background: rgba(108, 92, 255, 0.06);
+}
+
+/* ===== Keyframe indicator ===== */
+.stream-stats__kf-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stream-stats__kf-dot--ok {
+  background: var(--color-accent-green);
+  box-shadow: 0 0 5px rgba(46, 230, 166, 0.45);
+}
+
+.stream-stats__kf-dot--waiting {
+  background: var(--color-accent-amber);
+  box-shadow: 0 0 5px rgba(255, 180, 84, 0.35);
+  animation: kf-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes kf-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ===== FPS coloring ===== */
+.stream-stats__val--fps-good {
+  color: var(--color-accent-green);
+}
+
+.stream-stats__val--fps-warn {
+  color: var(--color-accent-amber);
+}
+
+.stream-stats__val--fps-bad {
+  color: var(--color-accent-red);
+}
+
+/* ===== Spacer pushes trailing cells right ===== */
+.stream-stats__spacer {
+  flex: 1 1 auto;
+}
+
+/* ===== Codec sub‑badge ===== */
+.stream-stats__codec {
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  letter-spacing: 0.04em;
+}
+
+/* ===== Queue bar (tiny inline visualizer) ===== */
+.stream-stats__queue-bar {
+  display: flex;
+  gap: 1px;
+  align-items: center;
+  height: 8px;
+}
+
+.stream-stats__queue-seg {
+  width: 3px;
+  height: 8px;
+  border-radius: 1px;
+  background: rgba(120, 144, 190, 0.15);
+  transition: background 0.1s ease;
+}
+
+.stream-stats__queue-seg--filled {
+  background: var(--color-accent-cyan);
+  opacity: 0.7;
+}
+
+.stream-stats__queue-seg--overflow {
+  background: var(--color-accent-red);
+  opacity: 0.8;
+}
+
+/* ===== Toggle hotkey hint ===== */
+.stream-stats__toggle-hint {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: var(--space-2);
+  font-size: 9px;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.stream-stats:hover .stream-stats__toggle-hint {
+  opacity: 0.5;
+}
+
+/* ===== Responsive: hide labels on narrow viewports ===== */
+@media (max-width: 640px) {
+  .stream-stats__label {
+    display: none;
+  }
+
+  .stream-stats__cell {
+    padding: 0 var(--space-2);
+  }
+
+  .stream-stats {
+    font-size: 9px;
+  }
+}
