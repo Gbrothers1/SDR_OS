@@ -1,5 +1,6 @@
 mod config;
 mod fanout;
+mod health;
 mod shm;
 
 use std::net::SocketAddr;
