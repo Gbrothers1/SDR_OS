@@ -17,3 +17,6 @@ dist/
 
 # Git worktrees
 .worktrees/
+
+# MkDocs build output
+site/
