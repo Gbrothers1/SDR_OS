@@ -1,0 +1,14 @@
+/home/ethan/SDR_OS/.worktrees/phase2/services/transport-server/target/debug/deps/serde-944377b3f78b7914.d: /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/ethan/SDR_OS/.worktrees/phase2/services/transport-server/target/debug/build/serde-e76c9b73f1dfa5f3/out/private.rs
+
+/home/ethan/SDR_OS/.worktrees/phase2/services/transport-server/target/debug/deps/libserde-944377b3f78b7914.rlib: /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/ethan/SDR_OS/.worktrees/phase2/services/transport-server/target/debug/build/serde-e76c9b73f1dfa5f3/out/private.rs
+
+/home/ethan/SDR_OS/.worktrees/phase2/services/transport-server/target/debug/deps/libserde-944377b3f78b7914.rmeta: /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/ethan/SDR_OS/.worktrees/phase2/services/transport-server/target/debug/build/serde-e76c9b73f1dfa5f3/out/private.rs
+
+/home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/ethan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/ethan/SDR_OS/.worktrees/phase2/services/transport-server/target/debug/build/serde-e76c9b73f1dfa5f3/out/private.rs:
+
+# env-dep:OUT_DIR=/home/ethan/SDR_OS/.worktrees/phase2/services/transport-server/target/debug/build/serde-e76c9b73f1dfa5f3/out
