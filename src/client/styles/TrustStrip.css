@@ -17,26 +17,10 @@
   transition: background var(--transition-slow);
 }
 
-/* Authority tint (background color wash) */
-.trust-strip--human {
-  background: linear-gradient(180deg,
-    rgba(62, 207, 142, 0.08) 0%,
-    var(--color-glass-bg) 100%);
-}
-
-.trust-strip--policy {
-  background: linear-gradient(180deg,
-    rgba(91, 141, 239, 0.08) 0%,
-    var(--color-glass-bg) 100%);
-}
-
-.trust-strip--blend {
-  background: linear-gradient(180deg,
-    rgba(62, 207, 142, 0.06) 0%,
-    rgba(91, 141, 239, 0.06) 50%,
-    var(--color-glass-bg) 100%);
-}
-
+/* Authority tint — neutral for all states */
+.trust-strip--human,
+.trust-strip--policy,
+.trust-strip--blend,
 .trust-strip--idle {
   background: var(--color-glass-bg);
 }
@@ -85,16 +69,15 @@
   border-radius: 50%;
   flex-shrink: 0;
   transition: background var(--transition-fast);
+  position: relative;
 }
 
 .stage-cell__dot--ok {
   background: var(--color-health-ok);
-  box-shadow: 0 0 6px rgba(62, 207, 142, 0.4);
 }
 
 .stage-cell__dot--degraded {
   background: var(--color-health-degraded);
-  box-shadow: 0 0 6px rgba(240, 180, 41, 0.4);
 }
 
 .stage-cell__dot--dead {
@@ -114,6 +97,60 @@
 
 .stage-cell__dot--degraded {
   animation: pulse-ok 4s ease-in-out infinite;
+}
+
+/* Heartbeat animation — intensity pulse (opacity + gradient) */
+@keyframes heartbeat {
+  0%, 100% { opacity: 0.45; }
+  10% { opacity: 1; }
+  20% { opacity: 0.5; }
+  30% { opacity: 0.9; }
+  40% { opacity: 0.45; }
+}
+
+.stage-cell__dot--heartbeat {
+  background: radial-gradient(circle, currentColor 30%, transparent 70%);
+  animation: heartbeat 1.8s ease-in-out infinite;
+  box-shadow: none;
+}
+
+.stage-cell__dot--heartbeat.stage-cell__dot--ok {
+  color: var(--color-health-ok);
+}
+
+.stage-cell__dot--heartbeat.stage-cell__dot--degraded {
+  color: var(--color-health-degraded);
+}
+
+.stage-cell__dot--heartbeat.stage-cell__dot--dead {
+  color: var(--color-health-dead);
+  animation: heartbeat 3s ease-in-out infinite;
+}
+
+/* Status badge (LIVE / WARN / IDLE) */
+.stage-cell__status {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 0 4px;
+  border-radius: 2px;
+  line-height: 1.4;
+}
+
+.stage-cell__status--ok {
+  color: var(--color-accent-green);
+  background: rgba(62, 207, 142, 0.12);
+}
+
+.stage-cell__status--degraded {
+  color: var(--color-accent-amber);
+  background: rgba(240, 180, 41, 0.12);
+}
+
+.stage-cell__status--dead {
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 /* Stage label */
@@ -237,6 +274,16 @@
   white-space: nowrap;
 }
 
+.trust-strip__connection--clickable {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.trust-strip__connection--clickable:hover {
+  background: rgba(255, 255, 255, var(--opacity-hover));
+}
+
 .trust-strip__conn-dot {
   width: 6px;
   height: 6px;
@@ -255,7 +302,7 @@
 }
 
 .trust-strip__conn-dot--test {
-  background: #3ecf8e;
+  background: var(--color-accent-green);
   box-shadow: 0 0 6px rgba(62, 207, 142, 0.5);
 }
 
@@ -376,7 +423,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  animation: popup-fade-in 0.15s ease;
+  animation: popup-hover-fade-in 0.15s ease;
 }
 
 .sim-hover-popup__row {
@@ -504,6 +551,12 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Centered variant — preserves translateX(-50%) during animation */
+@keyframes popup-hover-fade-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* ===== Connection sparkline ===== */
 .conn-sparkline {
   display: block;
@@ -538,7 +591,7 @@
   color: var(--color-accent-amber);
 }
 
-/* Detail popup inherits translateX from hover popup when centered */
+/* Arrow pointing up from centered hover popups */
 .sim-hover-popup::before {
   content: '';
   position: absolute;
@@ -581,4 +634,63 @@
 .trust-strip__train-btn:focus-visible {
   outline: 2px solid rgba(139, 92, 246, 0.5);
   outline-offset: 2px;
+}
+
+/* ===== Train detail popup (reuses sim-detail-popup styles) ===== */
+.train-detail-popup {
+  min-width: 200px;
+  max-width: 280px;
+}
+
+/* ===== Eval detail popup ===== */
+.eval-detail-popup {
+  min-width: 200px;
+  max-width: 280px;
+}
+
+.eval-detail-popup__flags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.eval-detail-popup__flag-pill {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: rgba(255, 180, 84, 0.15);
+  color: var(--color-accent-amber);
+  letter-spacing: 0.04em;
+}
+
+.eval-detail-popup__bar-wrap {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.eval-detail-popup__bar {
+  height: 100%;
+  background: var(--color-accent-green);
+  border-radius: 2px;
+  transition: width var(--transition-fast);
+}
+
+.eval-detail-popup__bar--warn {
+  background: var(--color-accent-amber);
+}
+
+.eval-detail-popup__gating-warn {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-accent-amber);
+  letter-spacing: 0.06em;
+  margin-top: 2px;
 }

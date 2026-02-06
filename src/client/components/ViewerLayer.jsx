@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { usePhase } from '../contexts/PhaseContext';
 import { useGenesis } from '../contexts/GenesisContext';
 import RobotViewer from './RobotViewer';
@@ -8,30 +8,26 @@ import '../styles/ViewerLayer.css';
 const SimPlaceholder = () => (
   <div className="viewer-layer__sim-placeholder">
     <div className="viewer-layer__sim-placeholder-label">SIM</div>
-    <div className="viewer-layer__sim-placeholder-hint">Genesis bridge not connected</div>
+    <div className="viewer-layer__sim-placeholder-hint">Sim bridge not connected</div>
   </div>
 );
 
-const ViewerLayer = ({ ros, appSettings, testMode = false }) => {
+const ViewerLayer = ({ ros, appSettings, testMode = false, viewerOverride = null, onViewerChange }) => {
   const { rosConnected, genesisConnected } = usePhase();
   const { currentFrame, mediaStream, streamBackend } = useGenesis();
-
-  // Track which source is primary
-  // Default: genesis takes priority when connected (richer feed)
-  const [primaryOverride, setPrimaryOverride] = useState(null);
 
   const hasGenesis = genesisConnected && (currentFrame || mediaStream);
   const hasRos = rosConnected;
 
+  // Primary source: external override > genesis > ros > test fallback
   let primarySource = 'idle';
-  if (primaryOverride) {
-    primarySource = primaryOverride;
+  if (viewerOverride) {
+    primarySource = viewerOverride;
   } else if (hasGenesis) {
     primarySource = 'genesis';
   } else if (hasRos) {
     primarySource = 'ros';
   } else if (testMode) {
-    // In test mode, show the RobotViewer demo scene (grid + axes + orbit controls)
     primarySource = 'ros';
   }
 
@@ -42,21 +38,17 @@ const ViewerLayer = ({ ros, appSettings, testMode = false }) => {
 
   // Swap primary/pip on PiP click
   const handlePipClick = useCallback(() => {
-    setPrimaryOverride(prev => {
-      if (prev === 'genesis') return 'ros';
-      if (prev === 'ros') return 'genesis';
-      // If no override, swap from auto-selected
-      return primarySource === 'genesis' ? 'ros' : 'genesis';
-    });
-  }, [primarySource]);
+    if (onViewerChange) {
+      onViewerChange(primarySource === 'genesis' ? 'ros' : 'genesis');
+    }
+  }, [primarySource, onViewerChange]);
 
-  // Test mode PiP swap: toggle between ros (3D) and genesis (placeholder)
+  // Test mode PiP swap
   const handleTestPipClick = useCallback(() => {
-    setPrimaryOverride(prev => {
-      if (prev === 'genesis') return 'ros';
-      return 'genesis';
-    });
-  }, []);
+    if (onViewerChange) {
+      onViewerChange(primarySource === 'genesis' ? 'ros' : 'genesis');
+    }
+  }, [primarySource, onViewerChange]);
 
   const renderSource = (source, isPip = false) => {
     if (source === 'genesis') {

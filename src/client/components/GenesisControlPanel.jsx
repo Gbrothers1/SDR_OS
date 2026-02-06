@@ -33,7 +33,7 @@ const GenesisControlPanel = () => {
 
   return (
     <FloatingPanel
-      title="Genesis Control"
+      title="Sim Control"
       defaultPosition={{ x: 20, y: 20 }}
       defaultSize={{ width: 280, height: 400 }}
       className="genesis-control-panel"

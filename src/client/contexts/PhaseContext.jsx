@@ -51,6 +51,7 @@ export const PhaseProvider = ({ children, ros, rosConnected }) => {
     scriptError,
     currentFrame,
     frameStats,
+    commandSource,
   } = useGenesis();
 
   // Reward history for trend computation
@@ -186,6 +187,7 @@ export const PhaseProvider = ({ children, ros, rosConnected }) => {
       teleop: {
         health: rosConnected ? rosHealth : (genesisConnected ? genesisHealth : 'dead'),
         actor: actorTag,
+        commandSource: commandSource || 'gamepad',
         deadmanActive,
         recording: isRecording,
         recordingStep,

@@ -34,7 +34,7 @@ const GenesisInfoPanel = () => {
   return (
     <div className={`genesis-info-panel ${!showPanel ? 'collapsed' : ''}`}>
       <div className="panel-header">
-        <h3>Genesis Simulation</h3>
+        <h3>Simulation Info</h3>
         <button className="toggle-button" onClick={() => setShowPanel(!showPanel)}>
           <span>{showPanel ? "▲" : "▼"}</span>
         </button>
@@ -175,7 +175,7 @@ const GenesisInfoPanel = () => {
           {!currentRobot && genesisConnected && (
             <div className="info-section">
               <div className="no-data-message">
-                No robot loaded. Use the Genesis Control panel to select and load a robot.
+                No robot loaded. Use the Sim Control panel to select and load a robot.
               </div>
             </div>
           )}
@@ -184,7 +184,7 @@ const GenesisInfoPanel = () => {
           {!genesisConnected && (
             <div className="info-section">
               <div className="no-data-message">
-                Genesis bridge not connected. Start the bridge server:
+                Sim bridge not connected. Start the bridge server:
                 <code>python genesis_bridge/bridge_server.py</code>
               </div>
             </div>

@@ -22,7 +22,7 @@ const SplashScreen = ({ onComplete }) => {
       { text: 'Gamepad API available', delay: 300 },
       { text: 'WebGL renderer initialised', delay: 350 },
       { text: 'ROS bridge: will connect on demand', delay: 300, dim: true },
-      { text: 'Genesis bridge: will connect on demand', delay: 300, dim: true },
+      { text: 'Sim bridge: will connect on demand', delay: 300, dim: true },
       { text: 'All modules loaded — launching cockpit', delay: 500, success: true },
     ];
 

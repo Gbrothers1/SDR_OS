@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSettings } from './SettingsContext';
-import { detectH264Support, H264Decoder, parseFrameHeader, FrameType } from '../utils/H264Decoder';
+import { detectH264Support, H264Decoder, MsgType, parseVideoHeader } from '../utils/H264Decoder';
 
 const GenesisContext = createContext();
 
@@ -15,9 +15,11 @@ export const useGenesis = () => {
 export const GenesisProvider = ({ children, socket }) => {
   const { getSetting, settings } = useSettings();
   const streamBackend = getSetting('genesis', 'streamBackend', 'websocket');
-  const bridgeWsUrl = getSetting('genesis', 'bridgeWsUrl', `ws://${window.location.hostname}:9091`);
-  const webrtcSignalingUrl = getSetting('genesis', 'webrtcSignalingUrl', `http://${window.location.hostname}:9092`);
+  const wsProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const autoWsUrl = typeof window !== 'undefined' ? `${wsProto}//${window.location.host}/stream/ws` : '';
+  const bridgeWsUrl = getSetting('genesis', 'bridgeWsUrl', '') || autoWsUrl;
   const webrtcStunUrls = getSetting('genesis', 'webrtcStunUrls', ['stun:stun.l.google.com:19302']) || [];
+  const webrtcAutoUpgrade = getSetting('genesis', 'webrtcAutoUpgrade', false);
 
   // WebSocket connection to Genesis bridge
   const [bridgeWs, setBridgeWs] = useState(null);
@@ -58,6 +60,23 @@ export const GenesisProvider = ({ children, socket }) => {
   const [h264Support, setH264Support] = useState(null);
   const h264DecoderRef = useRef(null);
 
+  // Stream stats tracking
+  const [streamStats, setStreamStats] = useState({
+    frameId: 0, frameSeq: 0, lastKeyframeTime: null,
+    wsBytesPerSec: 0, mode: 'ws',
+  });
+  const wsBytesAccRef = useRef(0);
+  const wsStatsIntervalRef = useRef(null);
+  const lastFrameSeqRef = useRef(-1);
+
+  // Signaling session state
+  const signalingSessionRef = useRef(null);
+  const bridgeWsRef = useRef(null);
+
+  // DataChannel refs
+  const controlDcRef = useRef(null);
+  const commandsDcRef = useRef(null);
+
   // Track Blob URLs for cleanup
   const blobUrlsRef = useRef(new Set());
   const webrtcPcRef = useRef(null);
@@ -80,239 +99,313 @@ export const GenesisProvider = ({ children, socket }) => {
   // Track if we've sent negotiate message for current connection
   const negotiateSentRef = useRef(false);
 
-  // Connect to Genesis bridge WebSocket (only when streamBackend === 'websocket')
+  // Connect to transport server WebSocket (always — WS carries video, telemetry, and signaling)
   useEffect(() => {
-    if (streamBackend !== 'websocket') {
-      if (bridgeWs) {
-        bridgeWs.close();
-        setBridgeWs(null);
-      }
-      setGenesisConnected(false);
-      setCurrentFrame(null);
-      currentFrameRef.current = null;
-      blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
-      blobUrlsRef.current.clear();
-      return;
-    }
+    if (!bridgeWsUrl) return;
+
     let ws = null;
     let reconnectTimer = null;
-    
+    let awaitingKeyframe = true;
+
+    // WS bandwidth tracking interval
+    const statsInterval = setInterval(() => {
+      setStreamStats(prev => ({
+        ...prev,
+        wsBytesPerSec: wsBytesAccRef.current,
+      }));
+      wsBytesAccRef.current = 0;
+    }, 1000);
+    wsStatsIntervalRef.current = statsInterval;
+
+    const handleVideoFrame = (buffer) => {
+      const view = new DataView(buffer);
+      const { frameId, frameSeq, isKeyframe, payload } = parseVideoHeader(view);
+
+      // Detect sequence discontinuity → reset decoder
+      if (lastFrameSeqRef.current >= 0 && frameSeq > lastFrameSeqRef.current + 1) {
+        console.warn(`Frame seq gap: ${lastFrameSeqRef.current} → ${frameSeq}`);
+        if (h264DecoderRef.current) h264DecoderRef.current.reset();
+        awaitingKeyframe = true;
+      }
+      lastFrameSeqRef.current = frameSeq;
+
+      // Keyframe gating
+      if (awaitingKeyframe) {
+        if (!isKeyframe) return;
+        awaitingKeyframe = false;
+      }
+
+      // Update stats
+      setStreamStats(prev => ({
+        ...prev,
+        frameId,
+        frameSeq,
+        lastKeyframeTime: isKeyframe ? Date.now() : prev.lastKeyframeTime,
+      }));
+
+      // Feed decoder (only in WS render mode)
+      if (h264DecoderRef.current && streamBackend === 'websocket') {
+        h264DecoderRef.current.decode(payload, isKeyframe);
+      }
+    };
+
+    const handleTelemetry = (buffer) => {
+      // 0x02 + u16 LE subject_len + subject bytes + payload
+      const view = new DataView(buffer);
+      const subjectLen = view.getUint16(1, true);
+      const subjectBytes = new Uint8Array(buffer, 3, subjectLen);
+      const subject = new TextDecoder().decode(subjectBytes);
+      const payload = new Uint8Array(buffer, 3 + subjectLen);
+
+      try {
+        const data = JSON.parse(new TextDecoder().decode(payload));
+        if (subject === 'training.metrics' || subject.includes('metrics')) {
+          setTrainingMetrics(data);
+          if (data.obs_breakdown) setObsBreakdown(data.obs_breakdown);
+          if (data.reward_breakdown) setRewardBreakdown(data.reward_breakdown);
+          if (data.velocity_command) setVelocityCommand(data.velocity_command);
+        } else if (subject === 'env.info') {
+          setEnvInfo(data);
+        } else if (subject === 'frame.stats') {
+          setFrameStats(data);
+        }
+      } catch {
+        // Non-JSON telemetry payload — ignore
+      }
+    };
+
+    const handleSignaling = (buffer) => {
+      try {
+        const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 1)));
+        handleSignalingMessage(json);
+      } catch (e) {
+        console.error('Failed to parse signaling message:', e);
+      }
+    };
+
     const connect = () => {
       try {
-        console.log('Connecting to Genesis bridge (WebSocket):', bridgeWsUrl);
+        console.log('Connecting to transport server:', bridgeWsUrl);
         ws = new WebSocket(bridgeWsUrl);
-        
-        ws.onopen = () => {
-          console.log('Genesis bridge WebSocket connected');
-          setBridgeWs(ws);
-          setGenesisConnected(true);
-          negotiateSentRef.current = false; // Reset for new connection
-        };
-        
-        ws.onmessage = (event) => {
-          if (event.data instanceof Blob) {
-            // Convert Blob to ArrayBuffer for parsing
-            event.data.arrayBuffer().then(buffer => {
-              const { type, frameId, flags, payload } = parseFrameHeader(buffer);
+        ws.binaryType = 'arraybuffer';
 
-              if (type === FrameType.H264 && h264DecoderRef.current) {
-                // H.264 path
-                h264DecoderRef.current.decode(payload, frameId, flags);
-              } else if (type === FrameType.JPEG || type === 0) {
-                // JPEG path (type 0 for backwards compatibility with old protocol)
-                if (currentFrameRef.current && blobUrlsRef.current.has(currentFrameRef.current)) {
-                  URL.revokeObjectURL(currentFrameRef.current);
-                  blobUrlsRef.current.delete(currentFrameRef.current);
-                }
-                const blob = new Blob([payload], { type: 'image/jpeg' });
-                const blobUrl = URL.createObjectURL(blob);
-                blobUrlsRef.current.add(blobUrl);
-                currentFrameRef.current = blobUrl;
-                // Trim runaway growth if cleanup ever lags
-                if (blobUrlsRef.current.size > 30) {
-                  const oldest = blobUrlsRef.current.values().next().value;
-                  URL.revokeObjectURL(oldest);
-                  blobUrlsRef.current.delete(oldest);
-                }
-                setCurrentFrame(blobUrl);
-              }
-            }).catch(err => {
-              console.error('Failed to read frame buffer:', err);
-            });
-            return;
-          }
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'training_metrics') {
-              setTrainingMetrics(msg);
-            } else if (msg.type === 'env_info') {
-              setEnvInfo(msg);
-            } else if (msg.type === 'negotiated') {
-              setStreamCodec(msg.stream_codec);
-              setH264Codec(msg.h264_codec);
-              console.log('Stream codec negotiated:', msg.stream_codec);
+        ws.onopen = () => {
+          console.log('Transport server WebSocket connected');
+          setBridgeWs(ws);
+          bridgeWsRef.current = ws;
+          setGenesisConnected(true);
+          awaitingKeyframe = true;
+          lastFrameSeqRef.current = -1;
+          negotiateSentRef.current = false;
+        };
+
+        ws.onmessage = (event) => {
+          if (event.data instanceof ArrayBuffer) {
+            const buffer = event.data;
+            if (buffer.byteLength < 1) return;
+            wsBytesAccRef.current += buffer.byteLength;
+
+            const msgType = new DataView(buffer).getUint8(0);
+            switch (msgType) {
+              case MsgType.VIDEO:     handleVideoFrame(buffer); break;
+              case MsgType.TELEMETRY: handleTelemetry(buffer);  break;
+              case MsgType.SIGNALING: handleSignaling(buffer);  break;
+              default: console.warn('Unknown WS message type:', msgType);
             }
-          } catch (e) {
-            console.error('Error parsing Genesis message:', e);
+          } else if (typeof event.data === 'string') {
+            // Fallback: JSON text messages (Socket.io compat)
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.type === 'training_metrics') setTrainingMetrics(msg);
+              else if (msg.type === 'env_info') setEnvInfo(msg);
+              else if (msg.type === 'negotiated') {
+                setStreamCodec(msg.stream_codec);
+                setH264Codec(msg.h264_codec);
+              }
+            } catch (e) {
+              console.error('Error parsing text message:', e);
+            }
           }
         };
-        
+
         ws.onerror = () => {
           setGenesisConnected(false);
         };
-        
+
         ws.onclose = () => {
           setBridgeWs(null);
+          bridgeWsRef.current = null;
           setGenesisConnected(false);
           reconnectTimer = setTimeout(() => connect(), 3000);
         };
       } catch (error) {
-        console.error('Error connecting to Genesis bridge:', error);
+        console.error('Error connecting to transport server:', error);
       }
     };
-    
+
     connect();
-    
+
     return () => {
+      clearInterval(statsInterval);
+      wsStatsIntervalRef.current = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws) ws.close();
-      blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
-      blobUrlsRef.current.clear();
+      bridgeWsRef.current = null;
     };
-  }, [streamBackend, bridgeWsUrl]);
+  }, [bridgeWsUrl, streamBackend]);
 
-  // Send codec negotiation after both WebSocket is connected AND h264Support is determined
-  useEffect(() => {
-    if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    if (h264Support === null) {
-      return; // Still detecting H.264 support
-    }
-    if (negotiateSentRef.current) {
-      return; // Already sent for this connection
-    }
+  // Helper: send a 0x03 signaling message over WebSocket
+  const sendSignaling = useCallback((payload) => {
+    const ws = bridgeWsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const json = JSON.stringify(payload);
+    const jsonBytes = new TextEncoder().encode(json);
+    const msg = new Uint8Array(1 + jsonBytes.length);
+    msg[0] = MsgType.SIGNALING;
+    msg.set(jsonBytes, 1);
+    ws.send(msg.buffer);
+  }, []);
 
-    // Send negotiate message now that we know our capabilities
-    if (h264Support.supported) {
-      bridgeWs.send(JSON.stringify({
-        type: 'negotiate',
-        supports_h264: true,
-        h264_codec: h264Support.config.codec
-      }));
-    } else {
-      bridgeWs.send(JSON.stringify({
-        type: 'negotiate',
-        supports_h264: false
-      }));
-    }
-    negotiateSentRef.current = true;
-    console.log('Sent codec negotiation:', h264Support.supported ? h264Support.config.codec : 'jpeg-only');
-  }, [bridgeWs, h264Support]);
+  // Handle incoming 0x03 signaling messages
+  const handleSignalingMessage = useCallback((msg) => {
+    const pc = webrtcPcRef.current;
+    const sessionId = signalingSessionRef.current;
 
-  // Connect via WebRTC (only when streamBackend === 'webrtc')
-  useEffect(() => {
-    if (streamBackend !== 'webrtc') {
-      if (webrtcPcRef.current) {
-        webrtcPcRef.current.close();
-        webrtcPcRef.current = null;
-      }
-      setMediaStream(null);
-      setWebrtcConnected(false);
-      if (webrtcReconnectTimerRef.current) {
-        clearTimeout(webrtcReconnectTimerRef.current);
-        webrtcReconnectTimerRef.current = null;
-      }
-      return;
+    switch (msg.type) {
+      case 'answer':
+        if (msg.session_id !== sessionId) return;
+        if (pc) {
+          pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: msg.sdp }))
+            .catch(e => console.error('Failed to set remote description:', e));
+        }
+        break;
+      case 'ice':
+        if (msg.session_id !== sessionId) return;
+        if (pc) {
+          pc.addIceCandidate(new RTCIceCandidate({
+            candidate: msg.candidate,
+            sdpMid: msg.sdpMid,
+            sdpMLineIndex: msg.sdpMLineIndex,
+          })).catch(e => console.warn('Error adding remote ICE candidate:', e));
+        }
+        break;
+      case 'close':
+        if (msg.session_id !== sessionId) return;
+        teardownWebRTC();
+        break;
+      default:
+        console.warn('Unknown signaling message type:', msg.type);
     }
-    let cancelled = false;
+  }, []);
+
+  // Teardown WebRTC session
+  const teardownWebRTC = useCallback(() => {
+    controlDcRef.current = null;
+    commandsDcRef.current = null;
+    if (webrtcPcRef.current) {
+      webrtcPcRef.current.close();
+      webrtcPcRef.current = null;
+    }
+    signalingSessionRef.current = null;
+    setMediaStream(null);
+    setWebrtcConnected(false);
+  }, []);
+
+  // Initiate WebRTC upgrade over WS signaling (0x03)
+  const initiateWebRTC = useCallback(async () => {
+    const ws = bridgeWsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    // Tear down existing session
+    teardownWebRTC();
+
+    const sessionId = crypto.randomUUID();
+    signalingSessionRef.current = sessionId;
+
     const iceServers = Array.isArray(webrtcStunUrls) && webrtcStunUrls.length > 0
       ? [{ urls: webrtcStunUrls }]
       : [{ urls: 'stun:stun.l.google.com:19302' }];
-    
-    const connectWebRTC = async () => {
-      try {
-        const pc = new RTCPeerConnection({ iceServers });
-        webrtcPcRef.current = pc;
-        const localCandidates = [];
-        pc.onicecandidate = (e) => {
-          if (e.candidate) localCandidates.push(e.candidate);
-        };
-        // Register track/state handlers BEFORE offer/answer exchange
-        pc.ontrack = (e) => {
-          if (cancelled) return;
-          if (e.streams && e.streams[0]) {
-            setMediaStream(e.streams[0]);
-            setWebrtcConnected(true);
-          }
-        };
-        pc.onconnectionstatechange = () => {
-          if (cancelled) return;
-          if (pc.connectionState === 'connected') {
-            setWebrtcConnected(true);
-          } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
-            setWebrtcConnected(false);
-            setMediaStream(null);
-            webrtcReconnectTimerRef.current = setTimeout(connectWebRTC, 3000);
-          }
-        };
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await new Promise((resolve) => {
-          if (pc.iceGatheringState === 'complete') return resolve();
-          pc.onicegatheringstatechange = () => {
-            if (pc.iceGatheringState === 'complete') resolve();
-          };
-          setTimeout(resolve, 2000);
-        });
-        const offerPayload = {
-          type: pc.localDescription.type,
-          sdp: pc.localDescription.sdp,
-          candidates: localCandidates.map(c => ({ candidate: c.candidate, mid: c.sdpMid, sdpMLineIndex: c.sdpMLineIndex })),
-        };
-        const baseUrl = webrtcSignalingUrl.replace(/\/$/, '');
-        const res = await fetch(`${baseUrl}/offer`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(offerPayload),
-        });
-        if (!res.ok || cancelled) {
-          throw new Error(`WebRTC offer failed: ${res.status}`);
+
+    try {
+      const pc = new RTCPeerConnection({ iceServers });
+      webrtcPcRef.current = pc;
+
+      // Create DataChannels BEFORE offer
+      const controlDc = pc.createDataChannel('control', { ordered: false, maxRetransmits: 0 });
+      const commandsDc = pc.createDataChannel('commands', { ordered: true });
+
+      controlDc.binaryType = 'arraybuffer';
+      controlDc.onopen = () => { controlDcRef.current = controlDc; };
+      controlDc.onclose = () => { controlDcRef.current = null; };
+
+      commandsDc.onopen = () => { commandsDcRef.current = commandsDc; };
+      commandsDc.onclose = () => { commandsDcRef.current = null; };
+
+      // Trickle ICE: send candidates as they arrive
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          sendSignaling({
+            type: 'ice',
+            session_id: sessionId,
+            candidate: e.candidate.candidate,
+            sdpMid: e.candidate.sdpMid,
+            sdpMLineIndex: e.candidate.sdpMLineIndex,
+          });
         }
-        const answerData = await res.json();
-        await pc.setRemoteDescription(new RTCSessionDescription({ type: answerData.type, sdp: answerData.sdp }));
-        const remoteCandidates = answerData.candidates || [];
-        for (const c of remoteCandidates) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(c));
-          } catch (err) {
-            console.warn('Error adding remote ICE candidate:', err);
-          }
+      };
+
+      pc.ontrack = (e) => {
+        if (e.streams && e.streams[0]) {
+          setMediaStream(e.streams[0]);
+          setWebrtcConnected(true);
+          setStreamStats(prev => ({ ...prev, mode: 'rtc' }));
         }
-      } catch (err) {
-        console.error('WebRTC connection error:', err);
-        setWebrtcConnected(false);
-        setMediaStream(null);
-        if (!cancelled) {
-          webrtcReconnectTimerRef.current = setTimeout(connectWebRTC, 3000);
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          setWebrtcConnected(true);
+        } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          console.warn('WebRTC connection', pc.connectionState, '— falling back to WS');
+          teardownWebRTC();
+          setStreamStats(prev => ({ ...prev, mode: 'ws' }));
+          // WS stays alive, browser auto-falls back to WS rendering
         }
+      };
+
+      // Create and send offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      sendSignaling({
+        type: 'offer',
+        session_id: sessionId,
+        sdp: pc.localDescription.sdp,
+      });
+
+    } catch (err) {
+      console.error('WebRTC initiation error:', err);
+      teardownWebRTC();
+    }
+  }, [webrtcStunUrls, sendSignaling, teardownWebRTC]);
+
+  // Auto-upgrade to WebRTC when setting enabled and WS is connected
+  useEffect(() => {
+    if (streamBackend === 'webrtc' && genesisConnected && bridgeWsRef.current) {
+      initiateWebRTC();
+    } else if (streamBackend !== 'webrtc') {
+      if (webrtcPcRef.current) {
+        sendSignaling({ type: 'close', session_id: signalingSessionRef.current });
+        teardownWebRTC();
       }
-    };
-    connectWebRTC();
+    }
     return () => {
-      cancelled = true;
       if (webrtcReconnectTimerRef.current) {
         clearTimeout(webrtcReconnectTimerRef.current);
         webrtcReconnectTimerRef.current = null;
       }
-      if (webrtcPcRef.current) {
-        webrtcPcRef.current.close();
-        webrtcPcRef.current = null;
-      }
-      setMediaStream(null);
-      setWebrtcConnected(false);
     };
-  }, [streamBackend, webrtcSignalingUrl, webrtcStunUrls]);
+  }, [streamBackend, genesisConnected, initiateWebRTC, sendSignaling, teardownWebRTC]);
   
   // Listen to Socket.io events for Genesis status
   useEffect(() => {
@@ -525,6 +618,13 @@ export const GenesisProvider = ({ children, socket }) => {
     }
   }, [socket]);
 
+  // Action: Set simulation timestep (dt)
+  const setDt = useCallback((newDt) => {
+    if (socket) {
+      socket.emit('genesis_settings', { dt: newDt });
+    }
+  }, [socket]);
+
   // Action: Emergency stop
   const estop = useCallback(() => {
     if (socket) {
@@ -534,6 +634,28 @@ export const GenesisProvider = ({ children, socket }) => {
     }
   }, [socket, pauseSim]);
   
+  // DataChannel: send gamepad axes (binary, unordered)
+  const sendGamepadAxes = useCallback((axes, buttonBitmask = 0) => {
+    const dc = controlDcRef.current;
+    if (!dc || dc.readyState !== 'open') return;
+    const axisCount = axes.length;
+    const buf = new ArrayBuffer(1 + axisCount * 4 + 4);
+    const view = new DataView(buf);
+    view.setUint8(0, axisCount);
+    for (let i = 0; i < axisCount; i++) {
+      view.setFloat32(1 + i * 4, axes[i], true);
+    }
+    view.setUint32(1 + axisCount * 4, buttonBitmask, true);
+    dc.send(buf);
+  }, []);
+
+  // DataChannel: send discrete command (reliable, ordered)
+  const sendCommand = useCallback((cmd) => {
+    const dc = commandsDcRef.current;
+    if (!dc || dc.readyState !== 'open') return;
+    dc.send(JSON.stringify(cmd));
+  }, []);
+
   // Extract safety/blend state from training metrics
   const blendAlpha = trainingMetrics?.blend_alpha ?? 0.0;
   const deadmanActive = trainingMetrics?.deadman_active ?? false;
@@ -567,7 +689,10 @@ export const GenesisProvider = ({ children, socket }) => {
     h264Codec,
     h264Support,
     h264DecoderRef,
-    
+
+    // Stream stats (for StreamStats component)
+    streamStats,
+
     // Script status
     scriptStatus,
     currentScriptName,
@@ -614,6 +739,11 @@ export const GenesisProvider = ({ children, socket }) => {
     estop,
     listPolicies,
     loadPolicy,
+    setDt,
+    initiateWebRTC,
+    webrtcPcRef,
+    sendGamepadAxes,
+    sendCommand,
   };
   
   return (

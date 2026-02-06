@@ -5,7 +5,7 @@ import TelemetryPanel from './TelemetryPanel';
 import '../styles/TelemetryConsole.css';
 
 const PRESETS = {
-  operate: { label: 'OPERATE', desc: 'ROS-first' },
+  operate: { label: 'ROS', desc: 'ROS-first' },
   sim: { label: 'SIM', desc: 'Simulation-first' },
   split: { label: 'SPLIT', desc: 'Side-by-side' },
 };

@@ -52,17 +52,14 @@ export class H264Decoder {
   }
 
   /**
-   * Decode an H.264 access unit.
-   * @param {ArrayBuffer} payload - AVCC-formatted access unit
-   * @param {number} frameId - Monotonic frame ID
-   * @param {number} flags - Frame flags (bit 0 = keyframe)
+   * Decode a raw Annex-B H.264 access unit.
+   * @param {Uint8Array} payload - Raw Annex-B NAL units
+   * @param {boolean} isKeyframe - Whether this frame is a keyframe (IDR)
    */
-  decode(payload, frameId, flags) {
+  decode(payload, isKeyframe) {
     if (!this.decoder || this.decoder.state === 'closed') {
       return;
     }
-
-    const isKeyframe = (flags & 0x01) !== 0;
 
     // Wait for keyframe before starting decode
     if (this.waitingForKeyframe) {
@@ -83,7 +80,7 @@ export class H264Decoder {
     try {
       this.decoder.decode(new EncodedVideoChunk({
         type: isKeyframe ? 'key' : 'delta',
-        timestamp: frameId * 16666, // ~60fps in microseconds
+        timestamp: this.frameCount * 16666, // ~60fps in microseconds
         data: payload,
       }));
     } catch (e) {
@@ -160,32 +157,38 @@ export async function detectH264Support() {
   return { supported: false };
 }
 
+// Transport server wire format message types (first byte of WS binary frame)
+export const MsgType = {
+  VIDEO: 0x01,
+  TELEMETRY: 0x02,
+  SIGNALING: 0x03,
+};
+
 /**
- * Parse binary frame header.
- * @param {ArrayBuffer} data - Binary frame data
- * @returns {{version: number, type: number, payloadLen: number, frameId: number, flags: number, payload: ArrayBuffer}}
+ * Parse the 32-byte LE video frame header (after the 0x01 type byte).
+ * Wire format: [0x01][32-byte header][Annex-B payload]
+ *
+ * Header layout (little-endian):
+ *   [0:8]   frame_id    u64
+ *   [8:16]  frame_seq   u64
+ *   [16:20] size        u32   payload size in bytes
+ *   [20:22] flags       u16   0x0001 = keyframe
+ *   [22:24] codec       u16   1 = H.264, 2 = HEVC
+ *   [24:28] crc32       i32
+ *   [28:32] reserved    u32
+ *
+ * @param {DataView} view - DataView over the full WS message (including type byte)
+ * @returns {{frameId: number, frameSeq: number, size: number, flags: number, isKeyframe: boolean, codec: number, payload: Uint8Array}}
  */
-export function parseFrameHeader(data) {
-  const view = new DataView(data);
-  const version = view.getUint8(0);
-  const type = view.getUint8(1);
-  const payloadLen = view.getUint32(2, false); // big-endian
-  const frameId = view.getUint32(6, false);
-  const flags = view.getUint16(10, false);
-  const payload = data.slice(12, 12 + payloadLen);
+export function parseVideoHeader(view) {
+  const buffer = view.buffer;
+  const frameId = Number(view.getBigUint64(1, true));
+  const frameSeq = Number(view.getBigUint64(9, true));
+  const size = view.getUint32(17, true);
+  const flags = view.getUint16(21, true);
+  const codec = view.getUint16(23, true);
+  const isKeyframe = (flags & 0x0001) !== 0;
+  const payload = new Uint8Array(buffer, 33, size);
 
-  return { version, type, payloadLen, frameId, flags, payload };
+  return { frameId, frameSeq, size, flags, isKeyframe, codec, payload };
 }
-
-// Frame type constants
-export const FrameType = {
-  JPEG: 0x00,
-  H264: 0x01,
-};
-
-// Frame flag constants
-export const FrameFlags = {
-  KEYFRAME: 0x01,
-  HAS_SPS_PPS: 0x02,
-  ANNEXB: 0x04,
-};

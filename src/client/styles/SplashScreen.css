@@ -3,7 +3,7 @@
 .splash {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--z-modal);
   background: #060a10;
   display: flex;
   flex-direction: column;
@@ -12,7 +12,7 @@
   gap: 32px;
   font-family: 'IBM Plex Mono', 'Space Grotesk', monospace;
   color: #c8d0e0;
-  transition: opacity 0.45s ease-out;
+  transition: opacity 450ms ease-out;
   user-select: none;
   cursor: pointer;
 }
@@ -54,7 +54,7 @@
   font-size: clamp(56px, 12vw, 128px);
   font-weight: 600;
   letter-spacing: 0.22em;
-  color: #dfe7ff;
+  color: var(--color-text-primary);
   text-shadow: 0 0 24px rgba(92, 140, 255, 0.25);
   animation: splash-pulse 3s ease-in-out infinite;
 }
@@ -63,7 +63,7 @@
   font-size: clamp(11px, 1.8vw, 16px);
   letter-spacing: 0.35em;
   text-transform: uppercase;
-  color: #5b7099;
+  color: var(--color-text-secondary);
 }
 
 @keyframes splash-pulse {
@@ -108,7 +108,7 @@
 }
 
 .splash__line--ok {
-  color: #4ade80;
+  color: var(--color-accent-green);
 }
 
 .splash__line--dim {
@@ -116,7 +116,7 @@
 }
 
 .splash__line-prefix {
-  color: #5b8def;
+  color: var(--color-accent-blue);
   flex-shrink: 0;
 }
 
@@ -125,7 +125,7 @@
   display: inline-block;
   width: 7px;
   height: 14px;
-  background: #5b8def;
+  background: var(--color-accent-blue);
   animation: splash-blink 0.9s step-end infinite;
   vertical-align: text-bottom;
   margin-left: 4px;
@@ -142,7 +142,7 @@
   bottom: 24px;
   font-size: 12px;
   letter-spacing: 0.1em;
-  color: #3a4a65;
+  color: var(--color-text-muted);
   animation: splash-skip-fade 2s ease-in-out infinite alternate;
 }
 

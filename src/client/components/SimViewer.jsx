@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGenesis } from '../contexts/GenesisContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { H264Decoder } from '../utils/H264Decoder';
+import StreamStats from './StreamStats';
 import '../styles/SimViewer.css';
 
 const SimViewer = () => {
@@ -19,15 +20,21 @@ const SimViewer = () => {
     h264Codec,
     h264Support,
     h264DecoderRef,
+    streamStats,
+    webrtcConnected,
+    webrtcPcRef,
   } = useGenesis();
   const { getSetting } = useSettings();
-  const webrtcSignalingUrl = getSetting('genesis', 'webrtcSignalingUrl', 'http://localhost:9092');
+  const showStats = getSetting('genesis', 'showStats', false);
   
   const [fps, setFps] = useState(0);
   const frameCountRef = useRef(0);
   const lastFpsUpdateRef = useRef(Date.now());
   const videoRef = useRef(null);
   const h264CanvasRef = useRef(null);
+  const [statsVisible, setStatsVisible] = useState(showStats);
+  const [rtcStats, setRtcStats] = useState(null);
+  const prevStreamBackendRef = useRef(streamBackend);
   
   // Camera state for orbit controls
   const containerRef = useRef(null);
@@ -179,6 +186,7 @@ const SimViewer = () => {
     switch (e.key.toLowerCase()) {
       case 'z': resetCamera(); break;
       case 'c': setContainMode(prev => !prev); break;
+      case 's': setStatsVisible(prev => !prev); break;
       case 'f':
         if (containerRef.current) {
           document.fullscreenElement ? document.exitFullscreen() : containerRef.current.requestFullscreen();
@@ -294,6 +302,42 @@ const SimViewer = () => {
       };
     }
   }, [streamCodec, h264Codec, h264Support, h264DecoderRef]);
+
+  // Reset H264 decoder on render mode switch (WS ↔ RTC)
+  useEffect(() => {
+    if (prevStreamBackendRef.current !== streamBackend) {
+      if (h264DecoderRef.current) {
+        h264DecoderRef.current.reset();
+      }
+      prevStreamBackendRef.current = streamBackend;
+    }
+  }, [streamBackend, h264DecoderRef]);
+
+  // Poll WebRTC stats when connected
+  useEffect(() => {
+    if (!webrtcConnected || !webrtcPcRef?.current) {
+      setRtcStats(null);
+      return;
+    }
+    const interval = setInterval(async () => {
+      try {
+        const stats = await webrtcPcRef.current.getStats();
+        let kbps = 0, rtt = 0;
+        stats.forEach(report => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            kbps = Math.round((report.bytesReceived || 0) / 1024);
+          }
+          if (report.type === 'candidate-pair' && report.currentRoundTripTime != null) {
+            rtt = Math.round(report.currentRoundTripTime * 1000);
+          }
+        });
+        setRtcStats({ kbps, rtt });
+      } catch {
+        // PC may have been closed
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [webrtcConnected, webrtcPcRef]);
 
   // Calculate FPS (WebSocket: from frame updates; WebRTC: from metrics or video)
   useEffect(() => {
@@ -457,7 +501,22 @@ const SimViewer = () => {
           <span>Shift+drag: pan</span>
           <span>Scroll: zoom</span>
           <span>Z: reset</span>
+          <span>S: stats</span>
         </div>
+      )}
+
+      {/* Stream stats strip */}
+      {statsVisible && hasVideo && (
+        <StreamStats
+          fps={fps}
+          frameId={streamStats?.frameId ?? 0}
+          lastKeyframeTime={streamStats?.lastKeyframeTime ?? null}
+          wsBytesPerSec={streamStats?.wsBytesPerSec ?? 0}
+          rtcStats={rtcStats}
+          mode={streamStats?.mode ?? 'ws'}
+          decoderQueueSize={h264DecoderRef?.current?.getStats()?.queueSize ?? 0}
+          maxQueueSize={3}
+        />
       )}
     </div>
   );

@@ -4,7 +4,7 @@ import ROSLIB from 'roslib';
 import soundEffects from '../audio/SoundEffects';
 import { useSettings } from '../contexts/SettingsContext';
 
-const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
+const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepadAxes, sendCommand }) => {
   const gamepadRef = useRef(null);
   const animationFrameRef = useRef();
   const { getSetting, updateSettings } = useSettings();
@@ -358,6 +358,12 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
                 data: JSON.stringify(newButtonStates)
               }));
             }
+            // DataChannel path (WebRTC) — send button events as commands
+            if (sendCommand) {
+              Object.entries(newButtonStates).forEach(([id, pressed]) => {
+                sendCommand({ type: 'button', id: parseInt(id, 10), pressed });
+              });
+            }
             if (socket) {
               socket.emit('controller_button_states', newButtonStates);
             }
@@ -369,6 +375,14 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
               joystickStatePublisher.publish(new ROSLIB.Message({
                 data: JSON.stringify(newState)
               }));
+            }
+            // DataChannel path (WebRTC) — send axes as binary
+            if (sendGamepadAxes) {
+              const axes = [getAxis(0), getAxis(1), getAxis(2), getAxis(3)];
+              const bitmask = Object.entries(newButtonStates).reduce(
+                (mask, [id, pressed]) => pressed ? mask | (1 << parseInt(id, 10)) : mask, 0
+              );
+              sendGamepadAxes(axes, bitmask);
             }
             if (socket) {
               const socketEmitter = socket.volatile || socket;
@@ -561,23 +575,27 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
         </div>
       </div>
     )}
-    <div 
+    <div
       className={`control-overlay ${isHidden ? 'hidden' : ''}`}
-      onClick={toggleHide}
     >
-      {!isHidden && (
+      {isHidden ? (
+        <div className="control-buttons control-buttons--collapsed" onClick={toggleHide}>
+          <h3>CONTROLS</h3>
+          <button className="control-button hide-toggle" onClick={toggleHide}>Show</button>
+        </div>
+      ) : (
         <>
           <div className="control-buttons">
             <h3>CONTROLS {isSafari && !isGamepadConnected && '(Press controller button)'}</h3>
             <div>
-              <button 
-                className="control-button mappings-toggle" 
+              <button
+                className="control-button mappings-toggle"
                 onClick={toggleMappings}
               >
                 {showMappings ? 'Hide Mappings' : 'Show Mappings'}
               </button>
-              <button 
-                className="control-button hide-toggle" 
+              <button
+                className="control-button hide-toggle"
                   onClick={toggleHide}
               >
                 Hide
@@ -593,7 +611,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
                   <div 
                     className="joystick-dot"
                     style={{
-                      transform: `translate(${safeControlState.linear.x * 30}px, ${safeControlState.linear.y * 30}px)`
+                      transform: `translate(${safeControlState.linear.x * 19}px, ${safeControlState.linear.y * 19}px)`
                     }}
                   />
                 </div>
@@ -654,7 +672,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket }) => {
                   <div 
                     className="joystick-dot"
                     style={{
-                      transform: `translate(${safeControlState.angular.x * 30}px, ${safeControlState.angular.y * 30}px)`
+                      transform: `translate(${safeControlState.angular.x * 19}px, ${safeControlState.angular.y * 19}px)`
                     }}
                   />
                 </div>

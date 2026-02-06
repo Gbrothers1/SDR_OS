@@ -7,6 +7,7 @@ import CommandBar from './CommandBar';
 import ControlOverlay from './ControlOverlay';
 import TelemetryConsole from './TelemetryConsole';
 import PolicyBrowserPanel from './PolicyBrowserPanel';
+import BlendPanel from './BlendPanel';
 import TrainingPanel from './TrainingPanel';
 import LogViewer from './LogViewer';
 import SettingsModal from './SettingsModal';
@@ -19,6 +20,48 @@ import ROSLIB from 'roslib';
 import io from 'socket.io-client';
 import '../styles/App.css';
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('[ErrorBoundary]', error, info.componentStack);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: '#0f1117', color: '#e2e4ea',
+          fontFamily: 'monospace', padding: 40,
+          display: 'flex', flexDirection: 'column', gap: 16,
+        }}>
+          <h2 style={{ color: '#ef5350', margin: 0 }}>SDR_OS — Render Error</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 13, opacity: 0.8 }}>
+            {String(this.state.error)}
+          </pre>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              alignSelf: 'flex-start',
+              padding: '8px 24px', cursor: 'pointer',
+              background: 'transparent', border: '1px solid #5b8def',
+              color: '#5b8def', borderRadius: 4, fontFamily: 'monospace',
+            }}
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const CockpitContent = ({ socket }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [ros, setRos] = useState(null);
@@ -27,7 +70,7 @@ const CockpitContent = ({ socket }) => {
   const [error, setError] = useState(null);
   const [appSettings, setAppSettings] = useState(null);
   const rosReconnectTimerRef = useRef(null);
-  const { genesisConnected, genesisMode: currentGenesisMode } = useGenesis();
+  const { genesisConnected, genesisMode: currentGenesisMode, sendGamepadAxes, sendCommand, currentFrame, mediaStream } = useGenesis();
 
   // ── Test mode: bypass ROS/Genesis connections for UI development ──
   const [testMode, setTestMode] = useState(() => {
@@ -55,10 +98,44 @@ const CockpitContent = ({ socket }) => {
   // Local mode tracking for test mode (no Genesis to store mode server-side)
   const [testModeView, setTestModeView] = useState('teleop');
 
-  // Derive whether policy browser should replace telemetry in right panel
+  // ── Viewer source selection (shared between ViewerLayer and TrustStrip) ──
+  // null = auto (genesis > ros > idle), 'genesis' or 'ros' = user override
+  const [viewerOverride, setViewerOverride] = useState(null);
+
+  // Compute what's actually showing
+  const hasGenesisStream = genesisConnected && (currentFrame || mediaStream);
+  const hasRos = rosConnected;
+  let effectiveViewer = 'idle';
+  if (viewerOverride) {
+    effectiveViewer = viewerOverride;
+  } else if (hasGenesisStream) {
+    effectiveViewer = 'genesis';
+  } else if (hasRos) {
+    effectiveViewer = 'ros';
+  } else if (testMode) {
+    effectiveViewer = 'ros';
+  }
+
+  // Can toggle when both sources available, or in test mode (has 3D demo + sim placeholder)
+  const canToggleViewer = (hasGenesisStream && hasRos) || testMode;
+
+  const handleViewerToggle = useCallback(() => {
+    setViewerOverride(prev => {
+      if (prev === 'genesis') return 'ros';
+      if (prev === 'ros') return 'genesis';
+      // Auto mode: flip from whatever's currently effective
+      if (hasGenesisStream) return 'ros';
+      return 'genesis';
+    });
+  }, [hasGenesisStream]);
+
+  // Derive which panel to show in the right edge panel
   const activeMode = testMode ? testModeView : currentGenesisMode;
-  const showPolicyPanel = (genesisConnected || testMode) &&
+  const isGenesisOrTest = genesisConnected || testMode;
+  const showPolicyPanel = isGenesisOrTest &&
     (activeMode === 'eval' || activeMode === 'policy');
+  const showBlendPanel = isGenesisOrTest &&
+    (activeMode === 'hil_blend' || activeMode === 'blend' || activeMode === 'online_finetune');
 
   // Edge panel state
   const [leftOpen, setLeftOpen] = useState(false);
@@ -70,14 +147,11 @@ const CockpitContent = ({ socket }) => {
   const [leftExpanded, setLeftExpanded] = useState(false);
   const [rightExpanded, setRightExpanded] = useState(false);
 
-  // Auto-open right panel when switching to policy mode
-  const prevShowPolicyRef = useRef(showPolicyPanel);
-  useEffect(() => {
-    if (showPolicyPanel && !prevShowPolicyRef.current) {
-      setRightOpen(true);
-    }
-    prevShowPolicyRef.current = showPolicyPanel;
-  }, [showPolicyPanel]);
+  // Handle mode change from TrustStrip — open right panel for all modes
+  const handleModeChange = useCallback((mode) => {
+    if (testMode) setTestModeView(mode);
+    setRightOpen(true);
+  }, [testMode]);
 
   // Control state for ControlOverlay
   const [controlState, setControlState] = useState({
@@ -270,13 +344,16 @@ const CockpitContent = ({ socket }) => {
         )}
 
         {/* Layer 1: Fullscreen viewer */}
-        <ViewerLayer ros={ros} appSettings={appSettings} testMode={testMode} />
+        <ViewerLayer ros={ros} appSettings={appSettings} testMode={testMode} viewerOverride={viewerOverride} onViewerChange={setViewerOverride} />
 
         {/* Layer 2: Trust strip */}
         <TrustStrip
           onStageClick={handleStageClick}
           testMode={testMode}
-          onModeChange={testMode ? setTestModeView : undefined}
+          onModeChange={handleModeChange}
+          effectiveViewer={effectiveViewer}
+          canToggleViewer={canToggleViewer}
+          onViewerToggle={handleViewerToggle}
         />
 
         {/* Layer 3: Edge panels */}
@@ -297,6 +374,8 @@ const CockpitContent = ({ socket }) => {
             controlState={controlState}
             onControlChange={handleControlChange}
             onExpandChange={setLeftExpanded}
+            sendGamepadAxes={sendGamepadAxes}
+            sendCommand={sendCommand}
           />
         </EdgePanel>
 
@@ -306,7 +385,7 @@ const CockpitContent = ({ socket }) => {
           id="overflow-panel-left"
         />
 
-        {/* Right: Details / Policy Browser */}
+        {/* Right: Telemetry / Policy Browser / Blend Panel */}
         <EdgePanel
           side="right"
           isOpen={rightOpen}
@@ -314,10 +393,12 @@ const CockpitContent = ({ socket }) => {
           onClose={() => { if (!rightPinned) setRightOpen(false); }}
           pinned={rightPinned}
           onTogglePin={() => setRightPinned(prev => !prev)}
-          title={showPolicyPanel ? 'Policy' : 'Info'}
+          title={showPolicyPanel ? 'Policy' : showBlendPanel ? 'Blend' : 'Telemetry'}
         >
           {showPolicyPanel ? (
             <PolicyBrowserPanel onExpandChange={setRightExpanded} />
+          ) : showBlendPanel ? (
+            <BlendPanel onExpandChange={setRightExpanded} />
           ) : (
             <TelemetryConsole
               ros={ros}
@@ -383,9 +464,11 @@ const AppWithGenesis = () => {
 };
 
 const App = () => (
-  <SettingsProvider>
-    <AppWithGenesis />
-  </SettingsProvider>
+  <ErrorBoundary>
+    <SettingsProvider>
+      <AppWithGenesis />
+    </SettingsProvider>
+  </ErrorBoundary>
 );
 
 export default App;

@@ -75,9 +75,10 @@ const defaultSettings = {
   genesis: {
     enabled: false,
     streamBackend: 'websocket',
-    bridgeWsUrl: `ws://${window.location.hostname}:9091`,
-    webrtcSignalingUrl: `http://${window.location.hostname}:9092`,
+    bridgeWsUrl: '',
     webrtcStunUrls: ['stun:stun.l.google.com:19302'],
+    webrtcAutoUpgrade: false,
+    showStats: false,
     defaultMode: 'Real Robot',
     activeRobot: '',
     activeEnvIdx: 0,
