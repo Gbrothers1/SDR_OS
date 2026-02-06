@@ -1,21 +1,31 @@
 site_name: SDR_OS Docs
-site_description: SDR_OS multi-backend development and CI documentation
+site_description: SDR_OS multi-backend robotics simulation and control platform
 site_url: https://example.invalid
 repo_name: SDR_OS
-repo_url: .
+repo_url: https://github.com/Gbrothers1/SDR_OS
 
 nav:
   - Home: index.md
+  - Setup: setup.md
   - Architecture: architecture.md
-  - CI Plan: ci.md
+  - Frontend: frontend.md
+  - Backend: backend.md
+  - Containers: containers.md
+  - CI/CD: ci.md
+  - Build log: build.md
+  - Plans:
+      - Multi-service backend design: plans/2026-02-05-multi-service-backend-design.md
+      - "Phase 1: CUDA Docker + pipeline": plans/2026-02-05-phase1-cuda-docker-basic-pipeline.md
 
 theme:
   name: material
   features:
     - navigation.tabs
     - navigation.top
+    - navigation.sections
     - content.code.copy
     - content.tabs.link
+    - toc.integrate
 
 plugins:
   - search
@@ -31,10 +41,12 @@ markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.highlight
+  - tables
+  - attr_list
 
 extra:
   version:
     provider: mike
   social:
     - icon: fontawesome/brands/github
-      link: .
+      link: https://github.com/Gbrothers1/SDR_OS
