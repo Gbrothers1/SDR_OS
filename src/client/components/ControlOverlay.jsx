@@ -58,6 +58,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
   const lastDebugUpdateRef = useRef(0);
   const [isGamepadConnected, setIsGamepadConnected] = useState(false);
   const isGamepadConnectedRef = useRef(false);
+  const lastLocalInputAtRef = useRef(0);
+  const lastRemoteInputAtRef = useRef(0);
   const [showGamepadPrompt, setShowGamepadPrompt] = useState(false);
   const gamepadMissCount = useRef(0);
   const GAMEPAD_MISS_THRESHOLD = 60; // ~1 second at 60fps before declaring disconnect
@@ -469,6 +471,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
           if (shouldUpdateUi) {
             setLocalControlState(newState);
             lastUiUpdateRef.current = nowEmit;
+            lastLocalInputAtRef.current = nowEmit;
             if (onControlChangeRef.current) {
               onControlChangeRef.current(newState);
             }
@@ -502,43 +505,66 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
 
   // Socket event handlers for remote gamepad updates
   useEffect(() => {
-    if (socket && !isGamepadConnected) {
-      socket.on('controller_button_states', (remoteButtonStates) => {
-        if (!isGamepadConnected) {
-          setButtonStates(remoteButtonStates);
-        }
-      });
+    if (!socket) return;
 
-      socket.on('controller_joystick_state', (remoteJoystickState) => {
-        if (!isGamepadConnected) {
-          // Convert Genesis bridge format back to display format if needed
-          if (remoteJoystickState.leftStickX !== undefined) {
-            // Convert from Genesis format to display format
-            setLocalControlState({
-              linear: {
-                x: remoteJoystickState.leftStickX,
-                y: remoteJoystickState.leftStickY,
-                z: 0
-              },
-              angular: {
-                x: remoteJoystickState.rightStickX,
-                y: remoteJoystickState.rightStickY,
-                z: 0
-              }
-            });
-          } else {
-            // Already in display format
-            setLocalControlState(remoteJoystickState);
+    const shouldIgnoreRemote = () => {
+      const now = Date.now();
+      return isGamepadConnectedRef.current && (now - lastLocalInputAtRef.current) < 500;
+    };
+
+    const handleRemoteButtons = (remoteButtonStates) => {
+      if (shouldIgnoreRemote()) return;
+      setButtonStates(remoteButtonStates);
+      lastRemoteInputAtRef.current = Date.now();
+    };
+
+    const handleRemoteJoystick = (remoteJoystickState) => {
+      if (shouldIgnoreRemote()) return;
+      lastRemoteInputAtRef.current = Date.now();
+
+      // Convert Genesis bridge format back to display format if needed
+      if (remoteJoystickState && remoteJoystickState.leftStickX !== undefined) {
+        setLocalControlState({
+          linear: {
+            x: remoteJoystickState.leftStickX,
+            y: remoteJoystickState.leftStickY,
+            z: 0
+          },
+          angular: {
+            x: remoteJoystickState.rightStickX,
+            y: remoteJoystickState.rightStickY,
+            z: 0
           }
-        }
-      });
+        });
+        return;
+      }
 
-      return () => {
-        socket.off('controller_button_states');
-        socket.off('controller_joystick_state');
-      };
-    }
-  }, [socket, isGamepadConnected]);
+      if (remoteJoystickState && remoteJoystickState.linear && remoteJoystickState.angular) {
+        setLocalControlState(remoteJoystickState);
+        return;
+      }
+
+      console.warn('Unexpected joystick payload:', remoteJoystickState);
+    };
+
+    socket.on('controller_button_states', handleRemoteButtons);
+    socket.on('controller_joystick_state', handleRemoteJoystick);
+
+    const warnInterval = setInterval(() => {
+      const now = Date.now();
+      const noLocal = !isGamepadConnectedRef.current || (now - lastLocalInputAtRef.current) > 1000;
+      const noRemote = (now - lastRemoteInputAtRef.current) > 5000;
+      if (noLocal && noRemote) {
+        console.warn('No remote gamepad packets received in 5s');
+      }
+    }, 2500);
+
+    return () => {
+      socket.off('controller_button_states', handleRemoteButtons);
+      socket.off('controller_joystick_state', handleRemoteJoystick);
+      clearInterval(warnInterval);
+    };
+  }, [socket]);
 
   // ROS mapping information
   const rosMappings = {
