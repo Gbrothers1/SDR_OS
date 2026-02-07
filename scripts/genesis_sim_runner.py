@@ -123,6 +123,69 @@ def load_policy(checkpoint_dir: str, model_file: str = None, obs_dim: int = 310)
     return policy
 
 
+class JpegEncoder:
+    """JPEG fallback encoder."""
+    def __init__(self, quality=80):
+        self.quality = quality
+        self.codec = Codec.JPEG
+
+    def encode(self, frame_rgb, frame_id):
+        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        ok, buf = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+        if not ok:
+            return None, False
+        return buf.tobytes(), True  # JPEG = always keyframe
+
+    def close(self):
+        pass
+
+
+class NvencEncoder:
+    """H.264 NVENC hardware encoder producing Annex-B NAL units."""
+    def __init__(self, width, height, fps=30, bitrate=3_000_000, gop=30):
+        import av
+        self.codec = Codec.H264
+        self.gop = gop
+        self.frame_count = 0
+
+        self.container = av.open(
+            "pipe:",
+            mode="w",
+            format="h264",
+            options={
+                "preset": "p4",
+                "tune": "ull",
+                "profile": "baseline",
+                "b": str(bitrate),
+                "g": str(gop),
+                "bf": "0",
+            },
+        )
+        self.stream = self.container.add_stream("h264_nvenc", rate=fps)
+        self.stream.width = width
+        self.stream.height = height
+        self.stream.pix_fmt = "yuv420p"
+
+    def encode(self, frame_rgb, frame_id):
+        import av
+        frame = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
+        frame.pts = frame_id
+        packets = self.stream.encode(frame)
+        if not packets:
+            return None, False
+
+        payload = b"".join(bytes(p) for p in packets)
+        is_keyframe = self.frame_count % self.gop == 0
+        self.frame_count += 1
+        return payload, is_keyframe
+
+    def close(self):
+        try:
+            self.container.close()
+        except Exception:
+            pass
+
+
 class GenesisSimRunner:
     """Runs Genesis Go2 env and writes frames to SHM.
 
@@ -146,6 +209,7 @@ class GenesisSimRunner:
         self.policy = None
         self.current_obs = None
         self.shm_writer = None
+        self.encoder = None
         self.frame_id = 0
         self.running = False
 
@@ -193,13 +257,22 @@ class GenesisSimRunner:
         else:
             logger.info("No checkpoint provided, using zero actions")
 
+        # Initialize encoder (NVENC with JPEG fallback)
+        width, height = self.camera_res
+        try:
+            self.encoder = NvencEncoder(width, height, fps=self.target_fps)
+            logger.info(f"NVENC H.264 encoder initialized ({width}x{height})")
+        except Exception as e:
+            logger.warning(f"NVENC unavailable ({e}), falling back to JPEG")
+            self.encoder = JpegEncoder(quality=self.jpeg_quality)
+
     def init_shm(self):
         """Initialize SHM ringbuffer writer."""
         self.shm_writer = ShmRingWriter(path=SHM_PATH, buffer_size=SHM_SIZE)
         logger.info(f"SHM writer ready at {SHM_PATH} ({SHM_SIZE / 1024 / 1024:.0f}MB)")
 
     def render_and_write(self):
-        """Render camera frame, JPEG-encode, write to SHM."""
+        """Render camera frame, encode (NVENC or JPEG), write to SHM."""
         render_result = self.env.camera.render()
         img = render_result[0] if isinstance(render_result, tuple) else render_result
 
@@ -210,19 +283,17 @@ class GenesisSimRunner:
         if frame_np.ndim == 4:
             frame_np = frame_np[0]
 
-        frame_bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
-        ok, jpeg_buf = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
-        if not ok:
+        payload, is_keyframe = self.encoder.encode(frame_np, self.frame_id)
+        if payload is None:
             return
 
-        payload = jpeg_buf.tobytes()
-        flags = FrameFlags.KEYFRAME  # JPEG = always keyframe
+        flags = FrameFlags.KEYFRAME if is_keyframe else FrameFlags.NONE
 
         self.shm_writer.write(
             payload=payload,
             frame_id=self.frame_id,
             flags=flags,
-            codec=Codec.JPEG,
+            codec=self.encoder.codec,
         )
         self.frame_id += 1
 
@@ -318,6 +389,8 @@ class GenesisSimRunner:
                 elif action == "settings":
                     if "jpeg_quality" in cmd_data:
                         self.jpeg_quality = int(cmd_data["jpeg_quality"])
+                        if isinstance(self.encoder, JpegEncoder):
+                            self.encoder.quality = self.jpeg_quality
                     if "stream_fps" in cmd_data:
                         self.target_fps = int(cmd_data["stream_fps"])
 

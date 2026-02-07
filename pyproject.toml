@@ -13,7 +13,9 @@ dependencies = [
 
 [dependency-groups]
 dev = []
-cuda = []
+cuda = [
+    "av>=14.0.0",
+]
 rocm = [
     "mlx[cpu]",
 ]
