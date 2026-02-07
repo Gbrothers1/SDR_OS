@@ -64,7 +64,7 @@ services:
       - TRANSPORT_HOST=transport-server
       - TRANSPORT_PORT=8080
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/status"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/status"]
       interval: 10s
       timeout: 3s
       retries: 3
