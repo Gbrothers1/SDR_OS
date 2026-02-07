@@ -35,11 +35,36 @@ services:
       - "443:443"
     volumes:
       - ./configs/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./dist:/srv/www:ro
     depends_on:
+      node:
+        condition: service_healthy
       ros-bridge:
         condition: service_started
+      transport-server:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  node:
+    profiles: ["sim", "dev"]
+    build:
+      context: .
+      dockerfile: containers/node/Dockerfile
+    image: sdr_os-node
+    networks: [backplane]
+    expose:
+      - "3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - TRANSPORT_HOST=transport-server
+      - TRANSPORT_PORT=8080
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/status"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -52,7 +77,7 @@ services:
       context: .
       dockerfile: containers/cuda/Dockerfile
     image: sdr_os-cuda
-    networks: [backplane]
+    network_mode: host  # TEMP: dev mode — revert to [backplane] before release
     volumes:
       - .:/workspace
       - sdr_ipc:/dev/shm/sdr_os_ipc
@@ -84,6 +109,8 @@ services:
       dockerfile: Dockerfile
     image: sdr_os-transport
     networks: [edge, backplane]
+    ports:
+      - "8080:8080"  # TEMP: dev mode — WebSocket stream endpoint
     volumes:
       - sdr_ipc:/dev/shm/sdr_os_ipc:ro
     environment:

@@ -132,9 +132,49 @@ updateSettings({ control: { maxLinearSpeed: 2.0 } });
 - Dev server proxies `/ros` to `ws://localhost:9090`
 - ROSLIB loaded as external (expects global `ROSLIB`)
 
-### Docker Networking
-- **Dev mode:** host network + port mapping, NATS on localhost:4222
-- **Production:** Caddy reverse proxy on backplane network, services addressed by container name
+### Docker Services & Networking
+
+**Profiles:** `sim` (full stack), `dev` (web only), `train`, `obs`, `cuda`, `rocm`, `mlx`
+
+| Service | Image | Network | Port | Purpose |
+|---------|-------|---------|------|---------|
+| `webserver` | caddy:2-alpine | edge+backplane | 80, 443 | Reverse proxy, static file server |
+| `node` | sdr_os-node | backplane | 3000 (internal) | Socket.io gamepad relay, /api |
+| `transport-server` | sdr_os-transport | edge+backplane | 8080 | SHM→WS fanout, NATS relay, video gate |
+| `genesis-sim` | sdr_os-cuda | host | — | Genesis simulation, NVENC encoder, SHM writer |
+| `nats` | nats:2-alpine | backplane | 4222, 8222 | Message broker |
+| `ros-bridge` | sdr_os-ros-jazzy | host | 9090 | ROS2 rosbridge WebSocket |
+
+**Caddy routes** (production entry point on `:80`):
+- `/stream/ws` → `transport-server:8080` (binary video/telemetry WS)
+- `/socket.io/*` → `node:3000` (gamepad relay)
+- `/api/*` → `node:3000` (health/status)
+- `/ros/*` → `ros-bridge:9090` (rosbridge WS)
+- `/*` → `/srv/www` (static bundle from `dist/`)
+
+## Running
+
+### Production (Docker Compose + Caddy)
+```bash
+npm run build                                    # Build frontend → dist/
+docker compose --profile sim up --build -d       # Build + start all services
+# Access at http://<host-ip>:80
+```
+
+### Development (bare metal Node)
+```bash
+npm run build                                    # Build frontend → dist/
+node server.js                                   # Start on :3000 (proxies /stream/ws)
+# Access at http://localhost:3000
+```
+
+### Rebuilding individual services
+```bash
+docker compose build transport-server            # After Rust code changes
+docker compose build node                        # After server.js changes
+docker compose build genesis-sim                 # After Dockerfile/dependency changes
+docker compose up -d <service>                   # Recreate with new image
+```
 
 ## Development Notes
 
@@ -144,3 +184,4 @@ updateSettings({ control: { maxLinearSpeed: 2.0 } });
 - Three.js used for 3D robot model rendering in `RobotViewer.jsx`
 - Genesis sim communication is via NATS (not Socket.io)
 - Transport server binary WS at `/stream/ws` (proxied through node server or Caddy)
+- Genesis-sim uses `network_mode: host` in dev — revert to `[backplane]` for release
