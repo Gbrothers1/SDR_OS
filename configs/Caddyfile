@@ -2,29 +2,35 @@
 # For Tailscale TLS, replace :80 with your tailscale hostname
 
 :80 {
-    # Health endpoint
     handle /health {
         respond "OK" 200
     }
 
-    # Static web app
-    handle / {
-        root * /srv/www
-        file_server
+    handle /stream/ws {
+        reverse_proxy transport-server:8080 {
+            flush_interval -1
+            transport http {
+                read_timeout 0
+            }
+        }
     }
 
-    # ROS bridge WebSocket (proxied to ros-bridge on host network)
+    @socketio path /socket.io/*
+    handle @socketio {
+        reverse_proxy node:3000
+    }
+
     handle /ros/* {
-        reverse_proxy localhost:9090
+        reverse_proxy ros-bridge:9090
     }
 
-    # Transport server (Phase 2 - WebSocket frame fanout)
-    # handle /stream/* {
-    #     reverse_proxy transport-server:8080
-    # }
+    handle /api/* {
+        reverse_proxy node:3000
+    }
 
-    # NATS monitoring
-    handle /nats/* {
-        reverse_proxy nats:8222
+    handle {
+        root * /srv/www
+        try_files {path} /index.html
+        file_server
     }
 }
