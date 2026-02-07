@@ -23,6 +23,8 @@ const SimViewer = () => {
     streamStats,
     webrtcConnected,
     webrtcPcRef,
+    videoHealthy,
+    safetyState,
   } = useGenesis();
   const { getSetting } = useSettings();
   const showStats = getSetting('genesis', 'showStats', false);
@@ -448,7 +450,14 @@ const SimViewer = () => {
           </div>
         )}
       </div>
-      
+
+      {/* VIDEO LOST overlay */}
+      {!videoHealthy && (
+        <div className="sim-viewer__video-lost">
+          <span className="sim-viewer__video-lost-text">VIDEO LOST — {safetyState?.mode || 'UNKNOWN'}</span>
+        </div>
+      )}
+
       {/* Overlay info */}
       <div className="sim-viewer-overlay">
         {/* Top left: Connection status */}

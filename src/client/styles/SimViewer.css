@@ -202,3 +202,28 @@
     padding: var(--space-2) var(--space-3);
   }
 }
+
+/* ===== VIDEO LOST overlay ===== */
+.sim-viewer__video-lost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(200, 0, 0, 0.3);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.sim-viewer__video-lost-text {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #ff4444;
+  text-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+  animation: pulse-red 1s ease-in-out infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

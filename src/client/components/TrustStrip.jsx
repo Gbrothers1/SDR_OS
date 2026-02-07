@@ -633,6 +633,9 @@ const TrustStrip = ({ onStageClick, testMode = false, onModeChange, effectiveVie
     setAlpha,
     blendAlpha,
     estop,
+    estopClear,
+    safetyState,
+    videoHealthy,
     currentRobot,
     streamBackend,
     bridgeConnected,
@@ -864,9 +867,20 @@ const TrustStrip = ({ onStageClick, testMode = false, onModeChange, effectiveVie
         </button>
       )}
 
+      {/* Safety badge */}
+      {safetyState.mode !== 'ARMED' && (
+        <span className={`trust-strip__safety-badge trust-strip__safety-badge--${safetyState.mode.toLowerCase()}`}>
+          {safetyState.mode}
+        </span>
+      )}
+
       {/* E-STOP */}
-      <button className="trust-strip__estop" onClick={handleEstop} title="Emergency stop — halt all motion">
-        E-STOP
+      <button
+        className={`trust-strip__estop ${safetyState.mode === 'ESTOP' ? 'trust-strip__estop--active' : ''}`}
+        onClick={() => safetyState.mode === 'ESTOP' ? estopClear() : handleEstop()}
+        title={safetyState.mode === 'ESTOP' ? 'Clear E-STOP (re-arm)' : 'Emergency stop'}
+      >
+        {safetyState.mode === 'ESTOP' ? 'RE-ARM' : 'E-STOP'}
       </button>
     </div>
   );
