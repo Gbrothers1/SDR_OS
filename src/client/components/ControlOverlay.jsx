@@ -62,12 +62,19 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
   }, []);
   const lastDebugUpdateRef = useRef(0);
   const [isGamepadConnected, setIsGamepadConnected] = useState(false);
+  const isGamepadConnectedRef = useRef(false);
   const [showGamepadPrompt, setShowGamepadPrompt] = useState(false);
+  const gamepadMissCount = useRef(0);
+  const GAMEPAD_MISS_THRESHOLD = 60; // ~1 second at 60fps before declaring disconnect
 
   useEffect(() => {
     buttonStatesRef.current = buttonStates;
   }, [buttonStates]);
-  
+
+  useEffect(() => {
+    isGamepadConnectedRef.current = isGamepadConnected;
+  }, [isGamepadConnected]);
+
   // Detect Safari browser
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
   
@@ -123,6 +130,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
       console.log('Gamepad connected:', e.gamepad);
       console.log('Gamepad buttons:', e.gamepad.buttons.length, 'axes:', e.gamepad.axes.length);
       gamepadRef.current = e.gamepad;
+      gamepadMissCount.current = 0;
       setIsGamepadConnected(true);
       setShowGamepadPrompt(false); // Hide Safari prompt when gamepad connects
       soundEffects.playMenuButtonClick().catch(console.error); // Feedback for connection
@@ -204,24 +212,45 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
     };
   }, [isSafari]);
 
+  // ROS publisher refs — created lazily when both ros and gamepad are available
+  const buttonStatePublisherRef = useRef(null);
+  const joystickStatePublisherRef = useRef(null);
+  const rosRef = useRef(ros);
+  const socketRef = useRef(socket);
+  const onControlChangeRef = useRef(onControlChange);
+
+  useEffect(() => {
+    rosRef.current = ros;
+    buttonStatePublisherRef.current = null;
+    joystickStatePublisherRef.current = null;
+  }, [ros]);
+  useEffect(() => { socketRef.current = socket; }, [socket]);
+  useEffect(() => { onControlChangeRef.current = onControlChange; }, [onControlChange]);
+
   // Gamepad polling and ROS/Socket publishing
   useEffect(() => {
-    let buttonStatePublisher = null;
-    let joystickStatePublisher = null;
-
-    if (ros && isGamepadConnected) {
-        buttonStatePublisher = new ROSLIB.Topic({
-          ros: ros,
-          name: buttonStatesTopic,
-          messageType: 'std_msgs/String'
-        });
-
-        joystickStatePublisher = new ROSLIB.Topic({
-          ros: ros,
-          name: joystickStateTopic,
-          messageType: 'std_msgs/String'
-        });
-    }
+    const getOrCreatePublishers = () => {
+      if (rosRef.current && isGamepadConnectedRef.current) {
+        if (!buttonStatePublisherRef.current) {
+          buttonStatePublisherRef.current = new ROSLIB.Topic({
+            ros: rosRef.current,
+            name: buttonStatesTopic,
+            messageType: 'std_msgs/String'
+          });
+        }
+        if (!joystickStatePublisherRef.current) {
+          joystickStatePublisherRef.current = new ROSLIB.Topic({
+            ros: rosRef.current,
+            name: joystickStateTopic,
+            messageType: 'std_msgs/String'
+          });
+        }
+      }
+      return {
+        buttonStatePublisher: buttonStatePublisherRef.current,
+        joystickStatePublisher: joystickStatePublisherRef.current,
+      };
+    };
 
     const pollGamepad = () => {
       // Safari-safe: navigator.getGamepads() may return null before user presses a button
@@ -252,9 +281,20 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
       }
 
       if (gamepadRef.current) {
-        const gamepad = gamepads[gamepadRef.current.index];
+        let gamepad = gamepads[gamepadRef.current.index];
+
+        // If lookup by stored index fails, scan all gamepads for a match
+        if (!gamepad) {
+          const fallback = Array.from(gamepads).find(Boolean);
+          if (fallback) {
+            gamepad = fallback;
+            gamepadRef.current = fallback;
+            gamepadMissCount.current = 0;
+          }
+        }
 
         if (gamepad) {
+          gamepadMissCount.current = 0;
           if (debugGamepad) {
             const now = Date.now();
             if (now - lastDebugUpdateRef.current > 200) {
@@ -352,6 +392,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
           const shouldSendJoystick = nowEmit - lastJoystickEmitRef.current >= joystickSendIntervalMs;
           const shouldUpdateUi = nowEmit - lastUiUpdateRef.current >= uiUpdateIntervalMs;
 
+          const { buttonStatePublisher, joystickStatePublisher } = getOrCreatePublishers();
+
           if (shouldSendButtons) {
             if (buttonStatePublisher) {
               buttonStatePublisher.publish(new ROSLIB.Message({
@@ -364,8 +406,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
                 sendCommand({ type: 'button', id: parseInt(id, 10), pressed });
               });
             }
-            if (socket) {
-              socket.emit('controller_button_states', newButtonStates);
+            if (socketRef.current) {
+              socketRef.current.emit('controller_button_states', newButtonStates);
             }
             lastButtonEmitRef.current = nowEmit;
           }
@@ -384,8 +426,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
               );
               sendGamepadAxes(axes, bitmask);
             }
-            if (socket) {
-              const socketEmitter = socket.volatile || socket;
+            if (socketRef.current) {
+              const socketEmitter = socketRef.current.volatile || socketRef.current;
               socketEmitter.emit('controller_joystick_state', joystickState);
             }
             lastJoystickEmitRef.current = nowEmit;
@@ -410,14 +452,18 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
           if (shouldUpdateUi) {
             setLocalControlState(newState);
             lastUiUpdateRef.current = nowEmit;
-            if (onControlChange) {
-              onControlChange(newState);
+            if (onControlChangeRef.current) {
+              onControlChangeRef.current(newState);
             }
           }
-        } else if (isGamepadConnected) {
-          console.log('Gamepad missing in polling; marking disconnected');
-          gamepadRef.current = null;
-          setIsGamepadConnected(false);
+        } else {
+          gamepadMissCount.current++;
+          if (gamepadMissCount.current >= GAMEPAD_MISS_THRESHOLD && isGamepadConnectedRef.current) {
+            console.log(`Gamepad missing for ${gamepadMissCount.current} frames; marking disconnected`);
+            gamepadRef.current = null;
+            gamepadMissCount.current = 0;
+            setIsGamepadConnected(false);
+          }
         }
       }
 
@@ -430,8 +476,11 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      buttonStatePublisherRef.current = null;
+      joystickStatePublisherRef.current = null;
     };
-  }, [onControlChange, ros, socket, isGamepadConnected, buttonStatesTopic, joystickStateTopic]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buttonStatesTopic, joystickStateTopic]);
 
   // Socket event handlers for remote gamepad updates
   useEffect(() => {
