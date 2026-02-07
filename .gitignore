@@ -1,5 +1,6 @@
 .DS_Store
 ._.DS_Store
+._*
 .codex/
 ref/
 
@@ -23,3 +24,11 @@ services/*/target/
 
 # MkDocs build output
 site/
+
+# Local scratch / logs
+.playwright-mcp/
+.worker-talk/
+test-results/
+README.html
+configs/tls/
+.ref/
