@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSettings } from './SettingsContext';
-import { detectH264Support, H264Decoder, MsgType, parseVideoHeader } from '../utils/H264Decoder';
+import { detectH264Support, H264Decoder, MsgType, CodecType, parseVideoHeader } from '../utils/H264Decoder';
 
 const GenesisContext = createContext();
 
@@ -77,6 +77,18 @@ export const GenesisProvider = ({ children, socket }) => {
   const controlDcRef = useRef(null);
   const commandsDcRef = useRef(null);
 
+  // Safety state (driven by telemetry.safety.state from sim)
+  const [safetyState, setSafetyState] = useState({ state_id: 0, mode: 'ARMED', reason: 'ok', since_ms: 0 });
+  const [videoHealthy, setVideoHealthy] = useState(true);
+  const lastFrameTimeRef = useRef(Date.now());
+  const lastSafetyStateIdRef = useRef(0);
+
+  // Command sequence counter for 0x04 messages
+  const cmdSeqRef = useRef(0);
+
+  // Track previous JPEG frame URL for cleanup
+  const prevFrameUrlRef = useRef(null);
+
   // Track Blob URLs for cleanup
   const blobUrlsRef = useRef(new Set());
   const webrtcPcRef = useRef(null);
@@ -119,7 +131,11 @@ export const GenesisProvider = ({ children, socket }) => {
 
     const handleVideoFrame = (buffer) => {
       const view = new DataView(buffer);
-      const { frameId, frameSeq, isKeyframe, payload } = parseVideoHeader(view);
+      const { frameId, frameSeq, isKeyframe, codec, payload } = parseVideoHeader(view);
+
+      // Update video health tracking
+      lastFrameTimeRef.current = Date.now();
+      if (!videoHealthy) setVideoHealthy(true);
 
       // Detect sequence discontinuity → reset decoder
       if (lastFrameSeqRef.current >= 0 && frameSeq > lastFrameSeqRef.current + 1) {
@@ -129,8 +145,8 @@ export const GenesisProvider = ({ children, socket }) => {
       }
       lastFrameSeqRef.current = frameSeq;
 
-      // Keyframe gating
-      if (awaitingKeyframe) {
+      // Keyframe gating (for H.264)
+      if (awaitingKeyframe && codec === CodecType.H264) {
         if (!isKeyframe) return;
         awaitingKeyframe = false;
       }
@@ -143,9 +159,22 @@ export const GenesisProvider = ({ children, socket }) => {
         lastKeyframeTime: isKeyframe ? Date.now() : prev.lastKeyframeTime,
       }));
 
-      // Feed decoder (only in WS render mode)
-      if (h264DecoderRef.current && streamBackend === 'websocket') {
-        h264DecoderRef.current.decode(payload, isKeyframe);
+      // Codec-aware frame routing
+      if (codec === CodecType.H264) {
+        if (h264DecoderRef.current && streamBackend !== 'webrtc') {
+          h264DecoderRef.current.decode(payload, isKeyframe);
+        }
+        if (streamCodec !== 'h264') setStreamCodec('h264');
+      } else if (codec === CodecType.JPEG) {
+        // JPEG: create object URL for img tag rendering
+        if (prevFrameUrlRef.current) {
+          URL.revokeObjectURL(prevFrameUrlRef.current);
+        }
+        const blob = new Blob([payload], { type: 'image/jpeg' });
+        const url = URL.createObjectURL(blob);
+        prevFrameUrlRef.current = url;
+        setCurrentFrame(url);
+        if (streamCodec !== 'jpeg') setStreamCodec('jpeg');
       }
     };
 
@@ -155,19 +184,36 @@ export const GenesisProvider = ({ children, socket }) => {
       const subjectLen = view.getUint16(1, true);
       const subjectBytes = new Uint8Array(buffer, 3, subjectLen);
       const subject = new TextDecoder().decode(subjectBytes);
-      const payload = new Uint8Array(buffer, 3 + subjectLen);
+      const telPayload = new Uint8Array(buffer, 3 + subjectLen);
 
       try {
-        const data = JSON.parse(new TextDecoder().decode(payload));
-        if (subject === 'training.metrics' || subject.includes('metrics')) {
+        const data = JSON.parse(new TextDecoder().decode(telPayload));
+
+        // Route by NATS subject
+        if (subject === 'telemetry.training.metrics') {
           setTrainingMetrics(data);
-          if (data.obs_breakdown) setObsBreakdown(data.obs_breakdown);
-          if (data.reward_breakdown) setRewardBreakdown(data.reward_breakdown);
           if (data.velocity_command) setVelocityCommand(data.velocity_command);
-        } else if (subject === 'env.info') {
-          setEnvInfo(data);
-        } else if (subject === 'frame.stats') {
+        } else if (subject === 'telemetry.reward.breakdown') {
+          setRewardBreakdown(data);
+        } else if (subject === 'telemetry.obs.breakdown') {
+          setObsBreakdown(data);
+        } else if (subject === 'telemetry.velocity.command') {
+          setVelocityCommand(data);
+        } else if (subject === 'telemetry.safety.state') {
+          // Canonical safety state from sim — ignore out-of-order
+          if (data.state_id > lastSafetyStateIdRef.current) {
+            lastSafetyStateIdRef.current = data.state_id;
+            setSafetyState(data);
+          }
+        } else if (subject === 'telemetry.command.ack') {
+          // Command acknowledgment — could be used for UI feedback
+          if (data.action === 'load_policy') {
+            setPolicyLoadStatus(data.status);
+          }
+        } else if (subject === 'telemetry.frame.stats') {
           setFrameStats(data);
+        } else if (subject === 'telemetry.safety.video_gate') {
+          // Transport video gate state — informational
         }
       } catch {
         // Non-JSON telemetry payload — ignore
@@ -243,14 +289,27 @@ export const GenesisProvider = ({ children, socket }) => {
       }
     };
 
+    // Video health check (Layer 1: 500ms)
+    const videoHealthInterval = setInterval(() => {
+      const age = Date.now() - lastFrameTimeRef.current;
+      if (age > 500) {
+        setVideoHealthy(false);
+      }
+    }, 200);
+
     connect();
 
     return () => {
       clearInterval(statsInterval);
+      clearInterval(videoHealthInterval);
       wsStatsIntervalRef.current = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws) ws.close();
       bridgeWsRef.current = null;
+      if (prevFrameUrlRef.current) {
+        URL.revokeObjectURL(prevFrameUrlRef.current);
+        prevFrameUrlRef.current = null;
+      }
     };
   }, [bridgeWsUrl, streamBackend]);
 
@@ -262,6 +321,23 @@ export const GenesisProvider = ({ children, socket }) => {
     const jsonBytes = new TextEncoder().encode(json);
     const msg = new Uint8Array(1 + jsonBytes.length);
     msg[0] = MsgType.SIGNALING;
+    msg.set(jsonBytes, 1);
+    ws.send(msg.buffer);
+  }, []);
+
+  // Helper: send a 0x04 command message over WebSocket
+  const sendWsCommand = useCallback((action, data = {}, ttlMs = null) => {
+    const ws = bridgeWsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    cmdSeqRef.current += 1;
+    const cmd = { action, cmd_seq: cmdSeqRef.current, data };
+    if (ttlMs !== null) cmd.ttl_ms = ttlMs;
+
+    const jsonStr = JSON.stringify(cmd);
+    const jsonBytes = new TextEncoder().encode(jsonStr);
+    const msg = new Uint8Array(1 + jsonBytes.length);
+    msg[0] = MsgType.COMMAND;
     msg.set(jsonBytes, 1);
     ws.send(msg.buffer);
   }, []);
@@ -407,232 +483,101 @@ export const GenesisProvider = ({ children, socket }) => {
     };
   }, [streamBackend, genesisConnected, initiateWebRTC, sendSignaling, teardownWebRTC]);
   
-  // Listen to Socket.io events for Genesis status
-  useEffect(() => {
-    if (!socket) return;
-    
-    const handleGenesisStatus = (data) => {
-      setGenesisConnected(data.connected);
-    };
-    
-    const handleScriptStatus = (data) => {
-      setScriptStatus(data.status || 'idle');
-      setCurrentScriptName(data.script_name || null);
-      setScriptError(data.error || null);
-    };
-    
-    const handleFrameStats = (data) => {
-      setFrameStats(data);
-    };
-    
-    const handleEnvInfo = (data) => {
-      setEnvInfo(data);
-    };
-    
-    const handleRobotList = (data) => {
-      console.log('Received robot list:', data);
-      setRobotList(data.robots || []);
-    };
-    
-    const handleRobotLoaded = (data) => {
-      console.log('Robot loaded:', data);
-      setCurrentRobot({
-        name: data.robot_name,
-        label: data.label || data.robot_name
-      });
-      // Update memory estimate if provided
-      if (data.memory_estimate) {
-        setMemoryEstimate(data.memory_estimate);
-      }
-    };
-    
-    const handleMemoryEstimate = (data) => {
-      console.log('Memory estimate:', data);
-      setMemoryEstimate(data);
-    };
-    
-    const handleRobotUnloaded = (data) => {
-      console.log('Robot unloaded:', data);
-      if (data.success) {
-        setCurrentRobot(null);
-      }
-    };
-    
-    const handleTrainingMetrics = (data) => {
-      setTrainingMetrics(data);
-      // Extract structured telemetry if bundled in metrics
-      if (data.obs_breakdown) setObsBreakdown(data.obs_breakdown);
-      if (data.reward_breakdown) setRewardBreakdown(data.reward_breakdown);
-      if (data.velocity_command) setVelocityCommand(data.velocity_command);
-    };
-
-    const handleObsBreakdown = (data) => setObsBreakdown(data);
-    const handleRewardBreakdown = (data) => setRewardBreakdown(data);
-    const handleVelocityCommand = (data) => setVelocityCommand(data);
-
-    const handlePolicyList = (data) => {
-      setPolicyList(data.policies || []);
-    };
-    const handlePolicyLoadStatus = (data) => {
-      setPolicyLoadStatus(data.status || null);
-      setPolicyLoadError(data.error || null);
-    };
-
-    socket.on('genesis_policy_list', handlePolicyList);
-    socket.on('genesis_policy_load_status', handlePolicyLoadStatus);
-    socket.on('genesis_obs_breakdown', handleObsBreakdown);
-    socket.on('genesis_reward_breakdown', handleRewardBreakdown);
-    socket.on('genesis_velocity_command', handleVelocityCommand);
-    socket.on('genesis_status', handleGenesisStatus);
-    socket.on('genesis_script_status', handleScriptStatus);
-    socket.on('genesis_frame_stats', handleFrameStats);
-    socket.on('genesis_env_info', handleEnvInfo);
-    socket.on('genesis_robot_list', handleRobotList);
-    socket.on('genesis_robot_loaded', handleRobotLoaded);
-    socket.on('genesis_robot_unloaded', handleRobotUnloaded);
-    socket.on('genesis_training_metrics', handleTrainingMetrics);
-    socket.on('genesis_memory_estimate', handleMemoryEstimate);
-    
-    // Request robot list on connect
-    socket.emit('genesis_scan_robots');
-    
-    return () => {
-      socket.off('genesis_status', handleGenesisStatus);
-      socket.off('genesis_script_status', handleScriptStatus);
-      socket.off('genesis_frame_stats', handleFrameStats);
-      socket.off('genesis_env_info', handleEnvInfo);
-      socket.off('genesis_robot_list', handleRobotList);
-      socket.off('genesis_robot_loaded', handleRobotLoaded);
-      socket.off('genesis_robot_unloaded', handleRobotUnloaded);
-      socket.off('genesis_training_metrics', handleTrainingMetrics);
-      socket.off('genesis_memory_estimate', handleMemoryEstimate);
-      socket.off('genesis_policy_list', handlePolicyList);
-      socket.off('genesis_policy_load_status', handlePolicyLoadStatus);
-      socket.off('genesis_obs_breakdown', handleObsBreakdown);
-      socket.off('genesis_reward_breakdown', handleRewardBreakdown);
-      socket.off('genesis_velocity_command', handleVelocityCommand);
-    };
-  }, [socket]);
-  
-  // Emit genesis viewer settings to bridge when they change
+  // Send genesis viewer settings via 0x04 when they change
   const genesisJpegQuality = getSetting('genesis', 'jpegQuality', 80);
   const genesisStreamFps = getSetting('genesis', 'streamFps', 60);
   const genesisCameraRes = getSetting('genesis', 'cameraRes', '1280x720');
-  const genesisMetricsRate = getSetting('genesis', 'trainingMetricsRate', 5);
 
   useEffect(() => {
-    if (!socket) return;
-    socket.emit('genesis_settings', {
-      jpegQuality: genesisJpegQuality,
-      streamFps: genesisStreamFps,
-      cameraRes: genesisCameraRes,
-      trainingMetricsRate: genesisMetricsRate,
+    if (!genesisConnected) return;
+    sendWsCommand('settings', {
+      jpeg_quality: genesisJpegQuality,
+      stream_fps: genesisStreamFps,
+      camera_res: genesisCameraRes,
     });
-  }, [socket, genesisJpegQuality, genesisStreamFps, genesisCameraRes, genesisMetricsRate]);
+  }, [genesisConnected, genesisJpegQuality, genesisStreamFps, genesisCameraRes, sendWsCommand]);
 
   // Action: Load a robot
   const loadRobot = useCallback((robotName) => {
-    if (socket) {
-      console.log('Loading robot:', robotName);
-      socket.emit('genesis_load_robot', { robot_name: robotName });
-    }
-  }, [socket]);
-  
+    sendWsCommand('load_robot', { robot_name: robotName });
+  }, [sendWsCommand]);
+
   // Action: Unload the current robot
   const unloadRobot = useCallback(() => {
-    if (socket) {
-      console.log('Unloading robot');
-      socket.emit('genesis_unload_robot', {});
-    }
-  }, [socket]);
-  
+    sendWsCommand('unload_robot');
+  }, [sendWsCommand]);
+
   // Action: Reset environment
   const resetEnv = useCallback(() => {
-    if (socket) {
-      console.log('Resetting Genesis environment');
-      socket.emit('genesis_reset', {});
-    }
-  }, [socket]);
-  
+    sendWsCommand('reset');
+  }, [sendWsCommand]);
+
   // Action: Pause/Resume simulation
   const pauseSim = useCallback((paused) => {
-    if (socket) {
-      console.log('Genesis pause:', paused);
-      socket.emit('genesis_pause', { paused });
-    }
-  }, [socket]);
-  
+    sendWsCommand('pause', { paused });
+  }, [sendWsCommand]);
+
   // Action: Set Genesis mode
   const setMode = useCallback((mode) => {
-    if (socket) {
-      console.log('Setting Genesis mode:', mode);
-      setGenesisMode(mode);
-      socket.emit('genesis_set_mode', { mode });
-    }
-  }, [socket]);
-  
+    setGenesisMode(mode);
+    sendWsCommand('set_mode', { mode });
+  }, [sendWsCommand]);
+
   // Action: Select environment index
   const selectEnv = useCallback((envIdx) => {
-    if (socket) {
-      console.log('Selecting env index:', envIdx);
-      socket.emit('genesis_select_env', { env_idx: envIdx });
-    }
-  }, [socket]);
-  
+    sendWsCommand('select_env', { env_idx: envIdx });
+  }, [sendWsCommand]);
+
   // Action: Set camera position
   const setCameraPos = useCallback((position, lookat) => {
-    if (socket) {
-      socket.emit('genesis_camera', { position, lookat });
-    }
-  }, [socket]);
-  
+    sendWsCommand('camera', { position, lookat });
+  }, [sendWsCommand]);
+
   // Action: Set target alpha manually
   const setAlpha = useCallback((alpha) => {
-    if (socket) {
-      socket.emit('genesis_set_alpha', { alpha });
-    }
-  }, [socket]);
+    sendWsCommand('set_alpha', { alpha });
+  }, [sendWsCommand]);
 
   // Action: Set command source (gamepad or ros)
   const setCommandSource = useCallback((source) => {
-    if (socket) {
-      socket.emit('genesis_set_command_source', { source });
-    }
-  }, [socket]);
+    sendWsCommand('set_command_source', { source });
+  }, [sendWsCommand]);
 
   // Action: List available policy checkpoints
   const listPolicies = useCallback(() => {
-    if (socket) {
-      socket.emit('genesis_list_policies');
-    }
-  }, [socket]);
+    sendWsCommand('list_policies');
+  }, [sendWsCommand]);
 
   // Action: Load a specific policy checkpoint
   const loadPolicy = useCallback((checkpointDir, modelFile = null) => {
-    if (socket) {
-      setPolicyLoadStatus('loading');
-      setPolicyLoadError(null);
-      const payload = { checkpoint_dir: checkpointDir };
-      if (modelFile) payload.model_file = modelFile;
-      socket.emit('genesis_load_policy', payload);
-    }
-  }, [socket]);
+    setPolicyLoadStatus('loading');
+    setPolicyLoadError(null);
+    const payload = { checkpoint_dir: checkpointDir };
+    if (modelFile) payload.model_file = modelFile;
+    sendWsCommand('load_policy', payload);
+  }, [sendWsCommand]);
 
   // Action: Set simulation timestep (dt)
   const setDt = useCallback((newDt) => {
-    if (socket) {
-      socket.emit('genesis_settings', { dt: newDt });
-    }
-  }, [socket]);
+    sendWsCommand('settings', { dt: newDt });
+  }, [sendWsCommand]);
 
   // Action: Emergency stop
   const estop = useCallback(() => {
-    if (socket) {
-      socket.emit('genesis_estop', {});
-      // Also pause locally
-      pauseSim(true);
-    }
-  }, [socket, pauseSim]);
+    sendWsCommand('estop', { reason: 'operator' });
+  }, [sendWsCommand]);
+
+  // Action: Clear E-STOP (re-arm)
+  const estopClear = useCallback(() => {
+    sendWsCommand('estop_clear');
+  }, [sendWsCommand]);
+
+  // Action: Send velocity command with TTL
+  const sendVelocityCommand = useCallback((linearX, linearY, angularZ) => {
+    // Layer 1: don't send commands when video is lost
+    if (!videoHealthy) return;
+    sendWsCommand('set_cmd_vel', { linear_x: linearX, linear_y: linearY, angular_z: angularZ }, 200);
+  }, [sendWsCommand, videoHealthy]);
   
   // DataChannel: send gamepad axes (binary, unordered)
   const sendGamepadAxes = useCallback((axes, buttonBitmask = 0) => {
@@ -679,10 +624,10 @@ export const GenesisProvider = ({ children, socket }) => {
     webrtcConnected,
     genesisMode,
     robotList,
-    currentRobot,  // Currently loaded robot info
+    currentRobot,
     envInfo,
     bridgeConnected: bridgeWs !== null || webrtcConnected,
-    socket, // Expose socket for components that need it
+    socket,
 
     // H.264 codec state
     streamCodec,
@@ -693,15 +638,19 @@ export const GenesisProvider = ({ children, socket }) => {
     // Stream stats (for StreamStats component)
     streamStats,
 
+    // Safety state (from canonical telemetry.safety.state)
+    safetyState,
+    videoHealthy,
+
     // Script status
     scriptStatus,
     currentScriptName,
     scriptError,
     frameStats,
-    
+
     // Memory estimates
     memoryEstimate,
-    
+
     // Derived state
     blendAlpha,
     deadmanActive,
@@ -737,6 +686,7 @@ export const GenesisProvider = ({ children, socket }) => {
     setAlpha,
     setCommandSource,
     estop,
+    estopClear,
     listPolicies,
     loadPolicy,
     setDt,
@@ -744,6 +694,8 @@ export const GenesisProvider = ({ children, socket }) => {
     webrtcPcRef,
     sendGamepadAxes,
     sendCommand,
+    sendWsCommand,
+    sendVelocityCommand,
   };
   
   return (
