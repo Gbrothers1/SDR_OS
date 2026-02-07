@@ -449,6 +449,10 @@ const AppWithGenesis = () => {
 
   useEffect(() => {
     const newSocket = io(socketUrl);
+    console.log('[socket] connecting', socketUrl);
+    newSocket.on('connect', () => console.log('[socket] connected', newSocket.id));
+    newSocket.on('connect_error', (err) => console.warn('[socket] connect_error', err?.message || err));
+    newSocket.on('disconnect', (reason) => console.warn('[socket] disconnected', reason));
     setSocket(newSocket);
     return () => { if (newSocket) newSocket.disconnect(); };
   }, [socketUrl]);

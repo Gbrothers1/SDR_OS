@@ -129,14 +129,21 @@ impl ShmReader {
             }
         }
 
-        // Lap detection: frame_seq should be last_frame_seq + 1
-        if self.last_frame_seq > 0 && header.frame_seq != self.last_frame_seq + 1 {
-            tracing::warn!(
-                expected = self.last_frame_seq + 1,
-                got = header.frame_seq,
-                "SHM lap detected, awaiting keyframe"
-            );
-            self.awaiting_keyframe = true;
+        // Single-slot "latest wins" SHM means the reader can legitimately observe gaps in
+        // frame_seq (it may miss intermediate frames). Treat forward gaps as dropped frames,
+        // not an error. Only treat non-monotonic (<=) as a reset/corruption signal.
+        if self.last_frame_seq > 0 {
+            if header.frame_seq <= self.last_frame_seq {
+                tracing::warn!(
+                    last = self.last_frame_seq,
+                    got = header.frame_seq,
+                    "SHM non-monotonic frame_seq, awaiting keyframe"
+                );
+                self.awaiting_keyframe = true;
+            } else if header.frame_seq > self.last_frame_seq + 1 {
+                // We dropped one or more frames; wait for an IDR to guarantee decoder resync.
+                self.awaiting_keyframe = true;
+            }
         }
 
         // Keyframe gating: drop non-IDR frames while awaiting recovery
@@ -257,6 +264,35 @@ mod tests {
             }
             other => panic!("expected Frame, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_forward_gap_is_not_fatal_but_requires_keyframe() {
+        // seq=1 frame_seq=1 keyframe -> accepted
+        // seq=2 frame_seq=3 keyframe -> forward gap (dropped frame) should still be accepted
+        let payload = b"fake frame";
+        let crc = crc32fast::hash(payload) as i32;
+
+        let header1 = FrameHeader {
+            frame_id: 1, frame_seq: 1, size: payload.len() as u32,
+            flags: FLAG_KEYFRAME, codec: CODEC_H264, crc32: crc, reserved: 0,
+        };
+        let buf1 = make_shm_buffer(1, &header1, payload);
+        let mmap1 = make_mmap(&buf1);
+        let mut reader = ShmReader::new(mmap1, true);
+        assert!(matches!(reader.try_read_frame(), ReadResult::Frame(_)));
+
+        let header2 = FrameHeader {
+            frame_id: 2, frame_seq: 3, size: payload.len() as u32,
+            flags: FLAG_KEYFRAME, codec: CODEC_H264, crc32: crc, reserved: 0,
+        };
+        let buf2 = make_shm_buffer(2, &header2, payload);
+        // Swap the mmap underneath by constructing a fresh reader; simulate a jump.
+        let mmap2 = make_mmap(&buf2);
+        let mut reader2 = ShmReader::new(mmap2, true);
+        reader2.last_frame_seq = reader.last_frame_seq;
+
+        assert!(matches!(reader2.try_read_frame(), ReadResult::Frame(_)));
     }
 
     #[test]

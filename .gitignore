@@ -1,7 +1,7 @@
 .DS_Store
 ._.DS_Store
 .codex/
-ref/github_repo_rf/
+ref/
 
 # Python
 __pycache__/

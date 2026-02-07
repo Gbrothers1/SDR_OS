@@ -88,6 +88,23 @@
 /* Wrapper — flows within EdgePanel, no fixed positioning */
 .controls-container {
   width: 100%;
+  position: relative;
+}
+
+.control-debug-panel {
+  position: absolute;
+  left: 8px;
+  top: -4px;
+  z-index: 2;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #e6e6e6;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 6px;
+  pointer-events: none;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 .mapping-section {

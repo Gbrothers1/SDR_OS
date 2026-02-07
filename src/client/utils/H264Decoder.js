@@ -189,10 +189,20 @@ export const CodecType = {
  * @param {DataView} view - DataView over the full WS message (including type byte)
  * @returns {{frameId: number, frameSeq: number, size: number, flags: number, isKeyframe: boolean, codec: number, payload: Uint8Array}}
  */
+function readU64LE(view, offset) {
+  if (typeof view.getBigUint64 === 'function') {
+    return Number(view.getBigUint64(offset, true));
+  }
+  // Safari fallback: compose from two u32s
+  const lo = view.getUint32(offset, true);
+  const hi = view.getUint32(offset + 4, true);
+  return hi * 0x100000000 + lo;
+}
+
 export function parseVideoHeader(view) {
   const buffer = view.buffer;
-  const frameId = Number(view.getBigUint64(1, true));
-  const frameSeq = Number(view.getBigUint64(9, true));
+  const frameId = readU64LE(view, 1);
+  const frameSeq = readU64LE(view, 9);
   const size = view.getUint32(17, true);
   const flags = view.getUint16(21, true);
   const codec = view.getUint16(23, true);

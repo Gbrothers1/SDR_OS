@@ -32,6 +32,8 @@ struct VideoGateState {
     gate_active: AtomicBool,
     estop_active: AtomicBool,
     last_shm_frame_time: std::sync::Mutex<Instant>,
+    last_codec: std::sync::Mutex<Option<u16>>,
+    last_codec_change_time: std::sync::Mutex<Option<Instant>>,
 }
 
 /// Shared application state passed to axum handlers.
@@ -45,6 +47,7 @@ struct AppState {
     video_gate: Arc<VideoGateState>,
     video_gate_hold_ms: u64,
     video_gate_estop_ms: u64,
+    video_gate_codec_change_grace_ms: u64,
 }
 
 #[tokio::main]
@@ -98,6 +101,8 @@ async fn main() {
         gate_active: AtomicBool::new(false),
         estop_active: AtomicBool::new(false),
         last_shm_frame_time: std::sync::Mutex::new(Instant::now()),
+        last_codec: std::sync::Mutex::new(None),
+        last_codec_change_time: std::sync::Mutex::new(None),
     });
 
     // Spawn SHM reader loop
@@ -121,6 +126,7 @@ async fn main() {
         video_gate,
         video_gate_hold_ms: cfg.video_gate_hold_ms,
         video_gate_estop_ms: cfg.video_gate_estop_ms,
+        video_gate_codec_change_grace_ms: cfg.video_gate_codec_change_grace_ms,
     };
 
     // Build router
@@ -183,6 +189,7 @@ async fn handle_ws_client(socket: WebSocket, state: AppState) {
         Arc::clone(&state.video_gate),
         state.video_gate_hold_ms,
         state.video_gate_estop_ms,
+        state.video_gate_codec_change_grace_ms,
     )
     .await;
 
@@ -211,6 +218,7 @@ async fn unified_send_loop(
     video_gate: Arc<VideoGateState>,
     video_gate_hold_ms: u64,
     video_gate_estop_ms: u64,
+    video_gate_codec_change_grace_ms: u64,
 ) {
     let mut client_state = ClientState::AwaitingKeyframe {
         since: Instant::now(),
@@ -281,14 +289,23 @@ async fn unified_send_loop(
                                             let stale_ms = video_gate.last_shm_frame_time
                                                 .lock().unwrap().elapsed().as_millis() as u64;
 
-                                            if stale_ms > video_gate_estop_ms {
+                                            let mut effective_estop_ms = video_gate_estop_ms;
+                                            if video_gate_codec_change_grace_ms > 0 {
+                                                if let Some(t) = *video_gate.last_codec_change_time.lock().unwrap() {
+                                                    if t.elapsed().as_millis() as u64 <= video_gate_codec_change_grace_ms {
+                                                        effective_estop_ms = effective_estop_ms.saturating_add(video_gate_codec_change_grace_ms);
+                                                    }
+                                                }
+                                            }
+
+                                            if stale_ms > effective_estop_ms {
                                                 // ESTOP escalation — publish once
                                                 if !video_gate.estop_active.swap(true, Ordering::SeqCst) {
                                                     let estop = serde_json::json!({"reason": "video_timeout", "_safety": "estop"});
                                                     let _ = nats::publisher::publish_command(nc, "estop", &serde_json::to_vec(&estop).unwrap()).await;
                                                     let gate_msg = serde_json::json!({"gated": true, "mode": "ESTOP", "stale_ms": stale_ms});
                                                     let _ = nc.publish("telemetry.safety.video_gate".to_string(), serde_json::to_vec(&gate_msg).unwrap().into()).await;
-                                                    tracing::warn!(stale_ms, "video gate ESTOP — video stale, blocking all motion");
+                                                    tracing::warn!(stale_ms, effective_estop_ms, "video gate ESTOP — video stale, blocking all motion");
                                                 }
                                                 continue;
                                             } else if stale_ms > video_gate_hold_ms {
@@ -386,6 +403,7 @@ async fn shm_read_loop(
                 health.shm_seq.store(reader.last_seq(), Ordering::Relaxed);
                 *health.last_frame_time.lock().unwrap() = Some(Instant::now());
                 *video_gate.last_shm_frame_time.lock().unwrap() = Instant::now();
+                update_codec_change_tracking(&video_gate, frame.header.codec);
 
                 // Clear gate if video recovered
                 if video_gate.gate_active.swap(false, Ordering::SeqCst) {
@@ -416,8 +434,21 @@ async fn shm_read_loop(
                 tokio::task::yield_now().await;
             }
             ReadResult::SkippedNonKeyframe => {
-                // Normal during lap recovery
+                // Frames are still arriving, but we're waiting for a keyframe/IDR. This must
+                // count as "video fresh" for the gate; otherwise we'd ESTOP while the encoder
+                // is actively producing frames.
+                health.shm_seq.store(reader.last_seq(), Ordering::Relaxed);
+                *health.last_frame_time.lock().unwrap() = Some(Instant::now());
+                *video_gate.last_shm_frame_time.lock().unwrap() = Instant::now();
             }
         }
+    }
+}
+
+fn update_codec_change_tracking(video_gate: &VideoGateState, codec: u16) {
+    let mut last_codec = video_gate.last_codec.lock().unwrap();
+    if last_codec.map(|c| c != codec).unwrap_or(true) {
+        *last_codec = Some(codec);
+        *video_gate.last_codec_change_time.lock().unwrap() = Some(Instant::now());
     }
 }

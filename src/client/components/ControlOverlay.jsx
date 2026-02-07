@@ -55,12 +55,28 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
       return false;
     }
   }, []);
+  const debugSocket = useMemo(() => {
+    try {
+      return localStorage.getItem('debugSocket') === 'true';
+    } catch (e) {
+      return false;
+    }
+  }, []);
+  const debugRos = useMemo(() => {
+    try {
+      return localStorage.getItem('debugRos') === 'true';
+    } catch (e) {
+      return false;
+    }
+  }, []);
   const lastDebugUpdateRef = useRef(0);
   const [isGamepadConnected, setIsGamepadConnected] = useState(false);
   const isGamepadConnectedRef = useRef(false);
   const lastLocalInputAtRef = useRef(0);
   const lastRemoteInputAtRef = useRef(0);
   const [showGamepadPrompt, setShowGamepadPrompt] = useState(false);
+  const [lastSocketButtonAt, setLastSocketButtonAt] = useState(0);
+  const [lastSocketJoystickAt, setLastSocketJoystickAt] = useState(0);
   const gamepadMissCount = useRef(0);
   const GAMEPAD_MISS_THRESHOLD = 60; // ~1 second at 60fps before declaring disconnect
   const portalTarget = document.getElementById('overflow-panel-left');
@@ -237,6 +253,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             name: buttonStatesTopic,
             messageType: 'std_msgs/String'
           });
+          if (debugRos) {
+            console.log('[ros] button_states publisher created', buttonStatesTopic);
+          }
         }
         if (!joystickStatePublisherRef.current) {
           joystickStatePublisherRef.current = new ROSLIB.Topic({
@@ -244,6 +263,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             name: joystickStateTopic,
             messageType: 'std_msgs/String'
           });
+          if (debugRos) {
+            console.log('[ros] joystick_state publisher created', joystickStateTopic);
+          }
         }
         if (!cmdVelPublisherRef.current) {
           cmdVelPublisherRef.current = new ROSLIB.Topic({
@@ -251,6 +273,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             name: cmdVelTopic,
             messageType: 'geometry_msgs/Twist'
           });
+          if (debugRos) {
+            console.log('[ros] cmd_vel publisher created', cmdVelTopic);
+          }
         }
       }
       return {
@@ -407,6 +432,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
               buttonStatePublisher.publish(new ROSLIB.Message({
                 data: JSON.stringify(newButtonStates)
               }));
+              if (debugRos) {
+                console.log('[ros] button_states publish');
+              }
             }
             // DataChannel path (WebRTC) — send button events as commands
             if (sendCommand) {
@@ -416,6 +444,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             }
             if (socketRef.current) {
               socketRef.current.emit('controller_button_states', newButtonStates);
+              if (debugSocket) {
+                console.log('[socket] emit controller_button_states');
+              }
             }
             lastButtonEmitRef.current = nowEmit;
           }
@@ -427,6 +458,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
                 linear: { x: newState.linear.x, y: newState.linear.y, z: newState.linear.z },
                 angular: { x: newState.angular.x, y: newState.angular.y, z: newState.angular.z }
               }));
+              if (debugRos) {
+                console.log('[ros] cmd_vel publish');
+              }
             }
             // Genesis NATS set_cmd_vel — sim-specific with safety stack
             if (sendVelocityCommand) {
@@ -436,6 +470,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
               joystickStatePublisher.publish(new ROSLIB.Message({
                 data: JSON.stringify(newState)
               }));
+              if (debugRos) {
+                console.log('[ros] joystick_state publish');
+              }
             }
             // DataChannel path (WebRTC) — send axes as binary
             if (sendGamepadAxes) {
@@ -448,6 +485,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             if (socketRef.current) {
               const socketEmitter = socketRef.current.volatile || socketRef.current;
               socketEmitter.emit('controller_joystick_state', joystickState);
+              if (debugSocket) {
+                console.log('[socket] emit controller_joystick_state');
+              }
             }
             lastJoystickEmitRef.current = nowEmit;
 
@@ -509,18 +549,26 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
 
     const shouldIgnoreRemote = () => {
       const now = Date.now();
-      return isGamepadConnectedRef.current && (now - lastLocalInputAtRef.current) < 500;
+      const ignore = isGamepadConnectedRef.current && (now - lastLocalInputAtRef.current) < 500;
+      if (ignore) {
+        console.log('Ignoring remote input: recent local gamepad activity');
+      }
+      return ignore;
     };
 
     const handleRemoteButtons = (remoteButtonStates) => {
       if (shouldIgnoreRemote()) return;
       setButtonStates(remoteButtonStates);
-      lastRemoteInputAtRef.current = Date.now();
+      const now = Date.now();
+      lastRemoteInputAtRef.current = now;
+      setLastSocketButtonAt(now);
     };
 
     const handleRemoteJoystick = (remoteJoystickState) => {
       if (shouldIgnoreRemote()) return;
-      lastRemoteInputAtRef.current = Date.now();
+      const now = Date.now();
+      lastRemoteInputAtRef.current = now;
+      setLastSocketJoystickAt(now);
 
       // Convert Genesis bridge format back to display format if needed
       if (remoteJoystickState && remoteJoystickState.leftStickX !== undefined) {
@@ -550,6 +598,11 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
     socket.on('controller_button_states', handleRemoteButtons);
     socket.on('controller_joystick_state', handleRemoteJoystick);
 
+    if (socket) {
+      socket.on('connect', () => console.log('[socket] ControlOverlay connected', socket.id));
+      socket.on('disconnect', (reason) => console.warn('[socket] ControlOverlay disconnected', reason));
+    }
+
     const warnInterval = setInterval(() => {
       const now = Date.now();
       const noLocal = !isGamepadConnectedRef.current || (now - lastLocalInputAtRef.current) > 1000;
@@ -562,6 +615,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
     return () => {
       socket.off('controller_button_states', handleRemoteButtons);
       socket.off('controller_joystick_state', handleRemoteJoystick);
+      socket.off('connect');
+      socket.off('disconnect');
       clearInterval(warnInterval);
     };
   }, [socket]);
@@ -662,6 +717,15 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
 
   return (
     <div className="controls-container">
+    {debugSocket && (
+      <div className="control-debug-panel">
+        <div>Socket Debug</div>
+        <div>button: {lastSocketButtonAt ? `${Math.round((Date.now() - lastSocketButtonAt) / 100) / 10}s ago` : '—'}</div>
+        <div>joystick: {lastSocketJoystickAt ? `${Math.round((Date.now() - lastSocketJoystickAt) / 100) / 10}s ago` : '—'}</div>
+        <div>local: {lastLocalInputAtRef.current ? `${Math.round((Date.now() - lastLocalInputAtRef.current) / 100) / 10}s ago` : '—'}</div>
+        <div>gamepad: {isGamepadConnected ? 'connected' : 'none'}</div>
+      </div>
+    )}
     {/* Safari gamepad prompt */}
     {showGamepadPrompt && !isGamepadConnected && (
       <div className="gamepad-prompt" onClick={() => setShowGamepadPrompt(false)}>

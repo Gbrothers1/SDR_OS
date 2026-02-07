@@ -14,6 +14,7 @@ pub struct Config {
     pub telemetry_max_size: usize,
     pub video_gate_hold_ms: u64,
     pub video_gate_estop_ms: u64,
+    pub video_gate_codec_change_grace_ms: u64,
 }
 
 impl Config {
@@ -58,6 +59,13 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(5000),
+            // After a codec switch (e.g., H264 <-> JPEG), it can take extra time for
+            // the pipeline to reconnect and start producing frames. During that window,
+            // extend the ESTOP threshold by this amount to avoid spurious ESTOPs.
+            video_gate_codec_change_grace_ms: env::var("SDR_VIDEO_GATE_CODEC_CHANGE_GRACE_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2000),
         }
     }
 }
@@ -75,7 +83,7 @@ mod tests {
             "SDR_SHM_PATH", "SDR_SHM_SIZE", "SDR_NATS_URL", "SDR_LISTEN_ADDR",
             "SDR_BROADCAST_CAPACITY", "SDR_CRC_ENABLED", "SDR_IDR_COALESCE_MS",
             "SDR_IDR_TIMEOUT_MS", "SDR_TELEMETRY_SUBJECTS", "SDR_TELEMETRY_MAX_SIZE",
-            "SDR_VIDEO_GATE_HOLD_MS", "SDR_VIDEO_GATE_ESTOP_MS",
+            "SDR_VIDEO_GATE_HOLD_MS", "SDR_VIDEO_GATE_ESTOP_MS", "SDR_VIDEO_GATE_CODEC_CHANGE_GRACE_MS",
         ] {
             env::remove_var(key);
         }
@@ -93,6 +101,7 @@ mod tests {
         assert_eq!(cfg.telemetry_max_size, 65536);
         assert_eq!(cfg.video_gate_hold_ms, 1000);
         assert_eq!(cfg.video_gate_estop_ms, 5000);
+        assert_eq!(cfg.video_gate_codec_change_grace_ms, 2000);
 
         // --- CRC disabled ---
         env::set_var("SDR_CRC_ENABLED", "false");

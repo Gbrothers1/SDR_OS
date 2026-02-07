@@ -130,8 +130,18 @@ export const GenesisProvider = ({ children, socket }) => {
     wsStatsIntervalRef.current = statsInterval;
 
     const handleVideoFrame = (buffer) => {
-      const view = new DataView(buffer);
-      const { frameId, frameSeq, isKeyframe, codec, payload } = parseVideoHeader(view);
+      let frameId;
+      let frameSeq;
+      let isKeyframe;
+      let codec;
+      let payload;
+      try {
+        const view = new DataView(buffer);
+        ({ frameId, frameSeq, isKeyframe, codec, payload } = parseVideoHeader(view));
+      } catch (err) {
+        console.warn('Failed to parse video header, dropping frame', err);
+        return;
+      }
 
       // Update video health tracking
       lastFrameTimeRef.current = Date.now();
@@ -163,8 +173,11 @@ export const GenesisProvider = ({ children, socket }) => {
       if (codec === CodecType.H264) {
         if (h264DecoderRef.current && streamBackend !== 'webrtc') {
           h264DecoderRef.current.decode(payload, isKeyframe);
+          if (streamCodec !== 'h264') setStreamCodec('h264');
+        } else if (streamCodec !== 'h264') {
+          // Safari fallback: if WebCodecs is missing, keep codec state but avoid hard failure.
+          setStreamCodec('h264');
         }
-        if (streamCodec !== 'h264') setStreamCodec('h264');
       } else if (codec === CodecType.JPEG) {
         // JPEG: create object URL for img tag rendering
         if (prevFrameUrlRef.current) {
@@ -587,10 +600,9 @@ export const GenesisProvider = ({ children, socket }) => {
 
   // Action: Send velocity command with TTL
   const sendVelocityCommand = useCallback((linearX, linearY, angularZ) => {
-    // Layer 1: don't send commands when video is lost
-    if (!videoHealthy) return;
+    // UI updates should not be gated by video health; keep command path live.
     sendWsCommand('set_cmd_vel', { linear_x: linearX, linear_y: linearY, angular_z: angularZ }, 200);
-  }, [sendWsCommand, videoHealthy]);
+  }, [sendWsCommand]);
   
   // DataChannel: send gamepad axes (binary, unordered)
   const sendGamepadAxes = useCallback((axes, buttonBitmask = 0) => {
