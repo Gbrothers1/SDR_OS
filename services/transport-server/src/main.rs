@@ -25,7 +25,7 @@ use crate::fanout::broadcast::FrameBroadcast;
 use crate::health::{HealthResponse, HealthState};
 use crate::nats::subscriber::{telemetry_relay, TelemetryMsg};
 use crate::shm::reader::{ReadResult, ShmReader};
-use crate::transport::websocket::encode_video_frame;
+use crate::transport::websocket::{encode_video_frame, MSG_TYPE_COMMAND};
 
 /// Shared application state passed to axum handlers.
 #[derive(Clone)]
@@ -34,6 +34,7 @@ struct AppState {
     telemetry_tx: broadcast::Sender<Arc<TelemetryMsg>>,
     health: HealthState,
     idr_timeout_ms: u64,
+    nats_client: Option<async_nats::Client>,
 }
 
 #[tokio::main]
@@ -60,13 +61,6 @@ async fn main() {
         start_time: Instant::now(),
     };
 
-    let app_state = AppState {
-        frame_broadcast: Arc::clone(&frame_broadcast),
-        telemetry_tx: telemetry_tx.clone(),
-        health: health_state.clone(),
-        idr_timeout_ms: cfg.idr_timeout_ms,
-    };
-
     // Spawn SHM reader loop
     let shm_health = health_state.clone();
     let shm_broadcast = Arc::clone(&frame_broadcast);
@@ -77,24 +71,36 @@ async fn main() {
         shm_read_loop(shm_path, shm_size, crc_enabled, shm_broadcast, shm_health).await;
     });
 
-    // Spawn NATS relay (non-fatal if NATS unavailable)
-    let nats_url = cfg.nats_url.clone();
-    let nats_subject = cfg.telemetry_subjects.clone();
-    let nats_max_size = cfg.telemetry_max_size;
-    let nats_tx = telemetry_tx.clone();
-    tokio::spawn(async move {
-        loop {
-            match telemetry_relay(&nats_url, &nats_subject, nats_max_size, nats_tx.clone()).await {
-                Ok(()) => {
-                    tracing::info!("NATS relay ended, reconnecting in 5s");
-                }
-                Err(e) => {
-                    tracing::warn!("NATS relay error: {e}, reconnecting in 5s");
-                }
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    // Connect to NATS (non-fatal if unavailable)
+    let nats_client = match async_nats::connect(&cfg.nats_url).await {
+        Ok(client) => {
+            tracing::info!(url = %cfg.nats_url, "connected to NATS");
+            Some(client)
         }
-    });
+        Err(e) => {
+            tracing::warn!(url = %cfg.nats_url, error = %e, "NATS unavailable, commands will not be relayed");
+            None
+        }
+    };
+
+    // Spawn NATS telemetry relay (uses its own subscription on the shared connection)
+    if let Some(ref nc) = nats_client {
+        let nc = nc.clone();
+        let nats_subject = cfg.telemetry_subjects.clone();
+        let nats_max_size = cfg.telemetry_max_size;
+        let nats_tx = telemetry_tx.clone();
+        tokio::spawn(async move {
+            telemetry_relay(nc, &nats_subject, nats_max_size, nats_tx).await;
+        });
+    }
+
+    let app_state = AppState {
+        frame_broadcast: Arc::clone(&frame_broadcast),
+        telemetry_tx: telemetry_tx.clone(),
+        health: health_state.clone(),
+        idr_timeout_ms: cfg.idr_timeout_ms,
+        nats_client,
+    };
 
     // Build router
     let app = Router::new()
@@ -134,7 +140,7 @@ async fn ws_upgrade_handler(
 }
 
 async fn handle_ws_client(socket: WebSocket, state: AppState) {
-    let (ws_sender, _ws_receiver) = socket.split();
+    let (ws_sender, ws_receiver) = socket.split();
     let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
 
     let (video_rx, guard) = state.frame_broadcast.subscribe();
@@ -145,7 +151,16 @@ async fn handle_ws_client(socket: WebSocket, state: AppState) {
         "client connected"
     );
 
-    unified_send_loop(ws_sender, video_rx, telemetry_rx, guard, state.idr_timeout_ms).await;
+    unified_send_loop(
+        ws_sender,
+        ws_receiver,
+        video_rx,
+        telemetry_rx,
+        guard,
+        state.idr_timeout_ms,
+        state.nats_client.clone(),
+    )
+    .await;
 
     tracing::info!(
         clients = state.frame_broadcast.client_count(),
@@ -153,20 +168,22 @@ async fn handle_ws_client(socket: WebSocket, state: AppState) {
     );
 }
 
-/// Merged video + telemetry send loop per client.
+/// Merged video + telemetry + command send loop per client.
 ///
-/// Uses `tokio::select!` to multiplex video frames and telemetry messages
-/// onto a single WebSocket connection. Handles per-client backpressure:
-/// if the client lags behind the broadcast, it drops non-keyframes until
-/// a keyframe arrives (or the IDR timeout fires).
+/// Uses `tokio::select!` to multiplex video frames, telemetry messages,
+/// and inbound 0x04 commands onto a single WebSocket connection.
+/// Handles per-client backpressure: if the client lags behind the broadcast,
+/// it drops non-keyframes until a keyframe arrives (or the IDR timeout fires).
 async fn unified_send_loop(
     ws_sender: Arc<
         tokio::sync::Mutex<futures_util::stream::SplitSink<WebSocket, Message>>,
     >,
+    mut ws_receiver: futures_util::stream::SplitStream<WebSocket>,
     mut video_rx: broadcast::Receiver<Arc<crate::shm::reader::Frame>>,
     mut telemetry_rx: broadcast::Receiver<Arc<TelemetryMsg>>,
     _guard: crate::fanout::broadcast::ClientGuard,
     idr_timeout_ms: u64,
+    nats_client: Option<async_nats::Client>,
 ) {
     let mut client_state = ClientState::AwaitingKeyframe {
         since: Instant::now(),
@@ -220,6 +237,26 @@ async fn unified_send_loop(
                         // Silently drop old telemetry
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            msg = ws_receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Binary(data))) => {
+                        if data.len() > 1 && data[0] == MSG_TYPE_COMMAND {
+                            if let Some(ref nc) = nats_client {
+                                if let Ok(cmd) = serde_json::from_slice::<serde_json::Value>(&data[1..]) {
+                                    if let Some(action) = cmd.get("action").and_then(|a| a.as_str()) {
+                                        let payload = &data[1..];
+                                        if let Err(e) = nats::publisher::publish_command(nc, action, payload).await {
+                                            tracing::warn!(action, error = %e, "failed to publish command to NATS");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    _ => {}
                 }
             }
         }

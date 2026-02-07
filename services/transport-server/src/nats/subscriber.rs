@@ -17,15 +17,21 @@ pub struct TelemetryMsg {
 /// Subscribes to the configured subject pattern, encodes messages as binary
 /// WS frames, and sends them to the telemetry broadcast channel.
 pub async fn telemetry_relay(
-    nats_url: &str,
+    client: async_nats::Client,
     subject: &str,
     max_payload_size: usize,
     tx: broadcast::Sender<Arc<TelemetryMsg>>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let client = async_nats::connect(nats_url).await?;
-    tracing::info!(subject, "subscribed to NATS telemetry");
-
-    let mut sub = client.subscribe(subject.to_string()).await?;
+) {
+    let mut sub = match client.subscribe(subject.to_string()).await {
+        Ok(s) => {
+            tracing::info!(subject, "subscribed to NATS telemetry");
+            s
+        }
+        Err(e) => {
+            tracing::error!(subject, error = %e, "failed to subscribe to NATS telemetry");
+            return;
+        }
+    };
 
     while let Some(msg) = sub.next().await {
         let subject = msg.subject.as_str();
@@ -56,8 +62,6 @@ pub async fn telemetry_relay(
         // Best-effort send; if no receivers, that's fine
         let _ = tx.send(msg);
     }
-
-    Ok(())
 }
 
 // Integration tests for NATS relay require nats-server - covered in Task 11.

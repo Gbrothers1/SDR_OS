@@ -1692,6 +1692,7 @@ version = "0.1.0"
 dependencies = [
  "async-nats",
  "axum",
+ "bytes",
  "crc32fast",
  "futures-util",
  "memmap2",
