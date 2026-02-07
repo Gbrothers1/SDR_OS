@@ -1,7 +1,8 @@
 # SDR_OS reverse proxy
-# For Tailscale TLS, replace :80 with your tailscale hostname
+# Tailscale HTTPS — required for Safari Gamepad API (secure context)
 
-:80 {
+https://amd-rtx.tail09c99.ts.net {
+    tls /etc/caddy/tls/amd-rtx.tail09c99.ts.net.crt /etc/caddy/tls/amd-rtx.tail09c99.ts.net.key
     log {
         output stdout
         format console

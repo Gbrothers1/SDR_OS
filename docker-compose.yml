@@ -35,6 +35,7 @@ services:
       - "443:443"
     volumes:
       - ./configs/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./configs/tls:/etc/caddy/tls:ro
       - ./dist:/srv/www:ro
     depends_on:
       node:
@@ -44,7 +45,7 @@ services:
       transport-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      test: ["CMD", "wget", "--spider", "-q", "--no-check-certificate", "https://localhost:443/health"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -105,7 +106,7 @@ services:
   # ──────────────── TRANSPORT ────────────────
 
   transport-server:
-    profiles: ["sim"]
+    profiles: ["sim", "dev"]
     build:
       context: services/transport-server
       dockerfile: Dockerfile
