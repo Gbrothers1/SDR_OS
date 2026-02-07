@@ -62,90 +62,11 @@ app.get('/api/status', (req, res) => {
     ok: true,
     uptime: process.uptime(),
     clients: connectedClients,
-    genesisBridge: genesisBridgeConnected,
   });
 });
 
 // ── Connection tracking ──────────────────────────────────────────
 let connectedClients = 0;
-let genesisBridgeConnected = false;
-
-// ── Genesis events to forward between clients ────────────────────
-// Every event in this list is forwarded via socket.broadcast.emit
-// when received from any client (browser or Genesis bridge).
-const GENESIS_EVENTS = [
-  // Simulation control
-  'genesis_load_robot',
-  'genesis_unload_robot',
-  'genesis_load_script',
-  'genesis_reset',
-  'genesis_pause',
-  'genesis_set_mode',
-  'genesis_select_env',
-  'genesis_camera',
-  'genesis_set_goal',
-  'genesis_set_alpha',
-  'genesis_set_control_mode',
-  'genesis_velocity_command',
-  'genesis_estop',
-  'genesis_set_command_source',
-  'genesis_skill_command',
-  'genesis_mapping_type',
-
-  // Status and info
-  'genesis_status',
-  'genesis_env_info',
-  'genesis_robot_list',
-  'genesis_robot_info',
-  'genesis_robot_loaded',
-  'genesis_robot_unloaded',
-  'genesis_robot_load_failed',
-  'genesis_memory_estimate',
-  'genesis_init_status',
-  'genesis_get_memory_estimate',
-  'genesis_get_init_status',
-  'genesis_get_robot_info',
-  'genesis_scan_robots',
-
-  // Training and metrics
-  'genesis_training_metrics',
-  'genesis_obs_breakdown',
-  'genesis_reward_breakdown',
-  'genesis_frame_stats',
-  'genesis_load_policy',
-  'genesis_list_policies',
-  'genesis_policy_list',
-  'genesis_policy_load_status',
-
-  // Camera
-  'genesis_get_camera_list',
-  'genesis_camera_list',
-
-  // Scripts, profiles, settings
-  'genesis_script_status',
-  'load_profile',
-  'genesis_settings',
-
-  // Training panel (session CRUD, checkpoints, demos, environments)
-  'genesis_create_session',
-  'genesis_clone_session',
-  'genesis_delete_session',
-  'genesis_set_param',
-  'genesis_save_checkpoint',
-  'genesis_load_checkpoint',
-  'genesis_list_checkpoints',
-  'genesis_save_episode_highlight',
-  'genesis_tag_demo',
-  'genesis_trim_demo',
-  'genesis_export_dataset',
-  'genesis_list_environments',
-  'genesis_import_environment',
-  'genesis_set_environment',
-  'genesis_start_slam',
-  'genesis_stop_slam',
-  'genesis_drop_anchor',
-  'genesis_export_map',
-];
 
 // ── Socket.io connection handling ────────────────────────────────
 io.on('connection', (socket) => {
@@ -219,35 +140,11 @@ io.on('connection', (socket) => {
     io.emit('controller_vibration', payload);
   });
 
-  // ── Genesis bridge identification protocol ────────────────────
-
-  socket.on('genesis_identify', (data) => {
-    console.log(`[${new Date().toISOString()}] Genesis bridge identified — ID: ${clientId}`);
-    genesisBridgeConnected = true;
-    socket.isGenesisBridge = true;
-    io.emit('genesis_status', { connected: true, bridge_id: clientId });
-  });
-
-  // ── Forward all Genesis events between clients ────────────────
-
-  GENESIS_EVENTS.forEach(eventName => {
-    socket.on(eventName, (data) => {
-      console.log(`[${new Date().toISOString()}] Genesis event: ${eventName} from ${clientId}`);
-      socket.broadcast.emit(eventName, data);
-    });
-  });
-
   // ── Disconnect ────────────────────────────────────────────────
 
   socket.on('disconnect', () => {
     connectedClients--;
     console.log(`[${new Date().toISOString()}] Client disconnected — ID: ${clientId}, Remaining: ${connectedClients}`);
-
-    if (socket.isGenesisBridge) {
-      genesisBridgeConnected = false;
-      io.emit('genesis_status', { connected: false });
-      console.log(`[${new Date().toISOString()}] Genesis bridge disconnected`);
-    }
   });
 });
 
@@ -260,11 +157,61 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
+// ── WebSocket proxy for /stream/ws → transport-server ────────────
+// Forwards binary video/telemetry stream from transport-server to browser.
+const TRANSPORT_HOST = process.env.TRANSPORT_HOST || 'localhost';
+const TRANSPORT_PORT = process.env.TRANSPORT_PORT || 8080;
+
+server.on('upgrade', (req, clientSocket, head) => {
+  // Let Socket.io handle its own upgrade path
+  if (req.url.startsWith('/socket.io')) return;
+
+  if (req.url === '/stream/ws') {
+    const options = {
+      hostname: TRANSPORT_HOST,
+      port: TRANSPORT_PORT,
+      path: '/stream/ws',
+      method: 'GET',
+      headers: {
+        ...req.headers,
+        host: `${TRANSPORT_HOST}:${TRANSPORT_PORT}`,
+      },
+    };
+
+    const proxyReq = http.request(options);
+    proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+      // Send the 101 response back to the client
+      clientSocket.write(
+        'HTTP/1.1 101 Switching Protocols\r\n' +
+        `upgrade: ${proxyRes.headers['upgrade']}\r\n` +
+        `connection: ${proxyRes.headers['connection']}\r\n` +
+        `sec-websocket-accept: ${proxyRes.headers['sec-websocket-accept']}\r\n` +
+        '\r\n'
+      );
+
+      // Bidirectional pipe
+      proxySocket.pipe(clientSocket);
+      clientSocket.pipe(proxySocket);
+
+      proxySocket.on('error', () => clientSocket.destroy());
+      clientSocket.on('error', () => proxySocket.destroy());
+    });
+
+    proxyReq.on('error', (err) => {
+      console.error(`[${new Date().toISOString()}] Stream proxy error: ${err.message}`);
+      clientSocket.destroy();
+    });
+
+    proxyReq.end();
+  }
+});
+
 // ── Start server ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 server.listen(PORT, HOST, () => {
   console.log(`SDR_OS server running on ${HOST}:${PORT}`);
+  console.log(`Stream proxy: /stream/ws → ${TRANSPORT_HOST}:${TRANSPORT_PORT}`);
   console.log(`Open http://localhost:${PORT} in your browser`);
 });
 
