@@ -1,23 +1,25 @@
 # Backend
 
-The backend is a Node.js/Express server (`server.js`) that serves the web app and acts as the real-time relay between browser clients and the Genesis simulation bridge.
+The backend consists of a Node.js/Express server (`server.js`) for gamepad relay and API routes, a Rust transport server for binary video/telemetry streaming, and Caddy as a reverse proxy. Genesis simulation communication uses NATS messaging through the transport server — Socket.io is **not** used for sim data.
 
-## Server overview
+## Node server (`server.js`)
 
 | Property | Value |
 |----------|-------|
 | Runtime | Node.js + Express |
 | Port | 3000 (configurable via `PORT` env var) |
 | Host | 0.0.0.0 (configurable via `HOST` env var) |
-| Real-time | Socket.io |
-| Static files | `dist/` (Webpack output), `configs/`, `assets/` |
+| Real-time | Socket.io (gamepad relay only) |
+| Docker image | `sdr_os-node` (`containers/node/Dockerfile`) |
 
 ```bash
-pnpm start          # production: node server.js
-pnpm run dev:server  # development: nodemon server.js (auto-restart)
+npm start          # production: node server.js
+npm run dev:server # development: nodemon server.js (auto-restart)
 ```
 
-## Static file serving
+### Static file serving (dev mode only)
+
+In production, Caddy serves static files. In dev mode (bare-metal Node):
 
 | Route | Directory | Purpose |
 |-------|-----------|---------|
@@ -25,13 +27,9 @@ pnpm run dev:server  # development: nodemon server.js (auto-restart)
 | `/configs/*` | `configs/` | URDF registry, robot YAML configs |
 | `/assets/*` | `assets/` | URDF files, 3D models (DAE, OBJ, MTL) |
 
-Development headers disable caching for `.js` and `.css` files.
+### Socket.io events (gamepad relay)
 
-## Socket.io events
-
-### Controller events (gamepad relay)
-
-These events are broadcast from any browser client to all connected clients (including the Genesis bridge).
+These events are broadcast from any browser client to all connected clients for gamepad synchronization between tabs.
 
 | Event | Payload | Transport |
 |-------|---------|-----------|
@@ -41,70 +39,60 @@ These events are broadcast from any browser client to all connected clients (inc
 | `controller_mapping_type` | `{type: string}` | Reliable |
 | `controller_vibration` | Haptic feedback payload | Reliable |
 
-The joystick state uses `io.volatile.emit` to drop stale frames rather than queue them -- important for low-latency control.
+The joystick state uses `io.volatile.emit` to drop stale frames rather than queue them — important for low-latency control.
 
-### Genesis bridge protocol
+### `/stream/ws` proxy
 
-The Genesis bridge (Python, port 9091) connects as a Socket.io client and identifies itself:
+In dev mode (bare-metal Node), `server.js` proxies WebSocket connections at `/stream/ws` to `transport-server:8080`. In production, Caddy handles this route directly.
 
-1. Bridge sends `genesis_identify` with metadata.
-2. Server marks the socket as bridge, broadcasts `genesis_status: {connected: true}` to all clients.
-3. On disconnect, server broadcasts `genesis_status: {connected: false}`.
+### `/api/status` endpoint
 
-### Genesis events (40+ forwarded)
+Returns server health and connection count as JSON.
 
-The server forwards these events between browser clients and the Genesis bridge using `socket.broadcast.emit`:
+## Transport server (Rust)
 
-**Simulation control:**
-`genesis_load_robot`, `genesis_unload_robot`, `genesis_reset`, `genesis_pause`, `genesis_set_mode`, `genesis_select_env`, `genesis_camera`, `genesis_set_goal`, `genesis_set_alpha`, `genesis_set_control_mode`, `genesis_velocity_command`, `genesis_estop`, `genesis_set_command_source`, `genesis_skill_command`, `genesis_mapping_type`
+See `services/transport-server/` for full source. The transport server handles:
 
-**Status and info:**
-`genesis_status`, `genesis_env_info`, `genesis_robot_list`, `genesis_robot_info`, `genesis_robot_loaded`, `genesis_robot_unloaded`, `genesis_robot_load_failed`, `genesis_memory_estimate`, `genesis_init_status`, `genesis_get_memory_estimate`, `genesis_get_init_status`, `genesis_get_robot_info`, `genesis_scan_robots`
+- **SHM → WS fanout**: Reads encoded video frames from the SHM ringbuffer and fans them out to browser clients over WebSocket as `0x01` VIDEO frames.
+- **NATS → WS relay**: Subscribes to `telemetry.*` NATS subjects and forwards them to browsers as `0x02` TELEMETRY frames.
+- **WS → NATS commands**: Receives `0x04` COMMAND frames from browsers and publishes them to `command.genesis.*` NATS subjects.
+- **Video gate (Layer 2 safety)**: Monitors SHM freshness — HOLD after 1s stale, ESTOP after 5s.
 
-**Training and metrics:**
-`genesis_training_metrics`, `genesis_obs_breakdown`, `genesis_reward_breakdown`, `genesis_frame_stats`, `genesis_load_policy`, `genesis_list_policies`, `genesis_policy_list`, `genesis_policy_load_status`
+Configuration is via `SDR_*` environment variables (see `services/transport-server/src/config.rs`).
 
-**Camera:**
-`genesis_get_camera_list`, `genesis_camera_list`
+```bash
+cargo build --manifest-path services/transport-server/Cargo.toml
+cargo test --manifest-path services/transport-server/Cargo.toml
+```
 
-**Scripts and profiles:**
-`genesis_load_script`, `genesis_script_status`, `load_profile`, `genesis_settings`
+## Caddy reverse proxy
 
-### Logging
+Caddy (`configs/Caddyfile`) is the production entry point on port 80. Routes:
 
-The server logs:
+| Route | Upstream | Purpose |
+|-------|----------|---------|
+| `/stream/ws` | `transport-server:8080` | Binary video/telemetry WebSocket |
+| `/socket.io/*` | `node:3000` | Gamepad relay WebSocket |
+| `/api/*` | `node:3000` | Health/status API |
+| `/ros/*` | `ros-bridge:9090` | ROS 2 rosbridge WebSocket |
+| `/*` | `/srv/www` (static) | SPA bundle from `dist/` |
 
-- Client connect/disconnect with socket ID and IP
-- HTTP requests (method + URL)
-- Button payload shape (once per socket, for debugging)
-- Button/joystick ticks (throttled to 1/sec per socket)
-- L1 (deadman switch) state changes
-- Genesis bridge connect/disconnect
-- All Genesis event names with source client ID
-
-## Connection tracking
-
-The server tracks:
-
-- `connectedClients` -- count of active Socket.io connections
-- `genesisBridgeConnected` -- boolean, whether the Genesis bridge is connected
+The `/stream/ws` route uses `flush_interval -1` and `read_timeout 0` for persistent WebSocket connections.
 
 ## How the pieces connect
 
 ```
-Browser (React)                              Genesis bridge (Python)
-  |                                              |
-  |-- Socket.io -----> server.js (port 3000) <---|-- Socket.io
-  |                      |                       |
-  |                      +-- broadcasts to all --+
-  |                                              |
-  |-- ROSLIB WS -----> rosbridge (port 9090) --> ROS 2 topics
-  |                                              |
-  |-- Genesis WS ----> Genesis sim (port 9091) --+
+Browser (React)
+  ├── Binary WS (/stream/ws) ──→ Caddy ──→ transport-server (Rust)
+  │                                           ├── SHM ←── genesis-sim (GPU)
+  │                                           └── NATS ←→ genesis-sim
+  ├── Socket.io ──→ Caddy ──→ node:3000 (gamepad relay only)
+  └── ROSLIB WS (/ros/) ──→ Caddy ──→ ros-bridge:9090 ──→ ROS 2 topics
 ```
 
 ## Performance notes
 
 - Joystick state is volatile (fire-and-forget) to avoid buffering stale control inputs.
-- Button payloads are logged once per socket to avoid log spam.
-- The server is I/O bound (relay only); heavy compute stays in Python/CUDA.
+- The node server is I/O bound (relay only); heavy compute stays in Python/CUDA/Rust.
+- Video frames are zero-copy via SHM between genesis-sim and transport-server.
+- NATS provides ordered, at-most-once delivery for commands and telemetry.

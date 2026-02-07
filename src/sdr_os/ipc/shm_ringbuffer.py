@@ -61,6 +61,7 @@ class FrameFlags(IntFlag):
 class Codec(int):
     H264 = 1
     HEVC = 2
+    JPEG = 3
 
 
 @dataclass(frozen=True, slots=True)

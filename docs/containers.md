@@ -1,10 +1,27 @@
 # Containers
 
-SDR_OS uses Docker Compose with profiles to provide reproducible environments for each GPU backend. VS Code devcontainers are configured for each target.
+SDR_OS uses Docker Compose with profiles for both the multi-service production stack and reproducible CI environments for each GPU backend.
 
 ## Docker Compose
 
-The `docker-compose.yml` defines three services (one per backend) using Compose profiles:
+### Production services (`sim` profile)
+
+The `sim` profile starts the full simulation stack:
+
+```bash
+docker compose --profile sim up --build -d
+```
+
+| Service | Image | Network | Port | Purpose |
+|---------|-------|---------|------|---------|
+| `webserver` | `caddy:2-alpine` | edge + backplane | 80, 443 | Reverse proxy, static file server |
+| `node` | `sdr_os-node` | backplane | 3000 (internal) | Socket.io gamepad relay, /api |
+| `transport-server` | `sdr_os-transport` | edge + backplane | 8080 | SHM→WS fanout, NATS relay, video gate |
+| `genesis-sim` | `sdr_os-cuda` | host | — | Genesis simulation, NVENC/JPEG encoder, SHM writer |
+| `nats` | `nats:2-alpine` | backplane | 4222, 8222 | Message broker (command + telemetry) |
+| `ros-bridge` | `sdr_os-ros-jazzy` | host | 9090 | ROS 2 rosbridge WebSocket |
+
+### CI targets
 
 | Service | Profile | Base image | GPU access |
 |---------|---------|-----------|------------|
@@ -12,72 +29,97 @@ The `docker-compose.yml` defines three services (one per backend) using Compose 
 | `app-rocm` | `rocm` | `rocm/rocm-terminal:6.1.2` | `/dev/kfd` + `/dev/dri`, `video` group |
 | `app-mlx` | `mlx` | `python:3.11-slim` | None (CPU parity on Linux) |
 
-All services mount the repo as `/workspace` and allocate 2 GB shared memory.
+All CI services mount the repo as `/workspace` and allocate 2 GB shared memory.
+
+### All profiles
+
+| Profile | Services | Use |
+|---------|----------|-----|
+| `sim` | webserver, node, transport-server, genesis-sim, nats, ros-bridge | Full simulation stack |
+| `dev` | webserver, node, ros-bridge | Web development (no sim) |
+| `train` | training-runner, nats | RL training |
+| `obs` | prometheus, grafana | Observability |
+| `cuda` | app-cuda | CUDA CI target |
+| `rocm` | app-rocm | ROCm CI target |
+| `mlx` | app-mlx | MLX CI target |
 
 ### Common commands
 
 ```bash
-# Build a specific backend
-docker compose --profile cuda build
-docker compose --profile rocm build
-docker compose --profile mlx build
+# Full simulation stack
+docker compose --profile sim up --build -d
+docker compose --profile sim down
 
-# Run interactively
-docker compose --profile cuda run --rm app-cuda bash
+# Rebuild individual services
+docker compose build node               # After server.js changes
+docker compose build transport-server   # After Rust code changes
+docker compose build genesis-sim        # After Dockerfile/dependency changes
 
-# Run smoke tests
+# CI targets
 docker compose --profile cuda run --rm app-cuda pytest -q tests/smoke
 docker compose --profile rocm run --rm app-rocm pytest -q tests/smoke
 ```
 
-### MLX variant switching
+### Networks
 
-The MLX container supports multiple variants via the `MLX_VARIANT` build arg:
+| Network | Type | Purpose |
+|---------|------|---------|
+| `edge` | bridge | External-facing services (Caddy, transport WS) |
+| `backplane` | bridge (internal) | Internal services (NATS, node); no external DNS |
 
-| Variant | Use case |
-|---------|----------|
-| `mlx_cpu` (default) | Linux CPU parity mode |
-| `mlx_cuda12` | NVIDIA Linux with CUDA 12 |
-| `mlx_cuda13` | NVIDIA Linux with CUDA 13 |
-| `mlx` | macOS Apple Silicon (native, not containerized) |
+### Shared volumes
 
-```bash
-# Override at build time
-MLX_VARIANT=mlx_cuda12 docker compose --profile mlx build app-mlx
-
-# Override at run time
-MLX_VARIANT=mlx_cuda12 docker compose --profile mlx run --rm app-mlx bash
-```
+| Volume | Type | Purpose |
+|--------|------|---------|
+| `sdr_ipc` | tmpfs (512 MB) | SHM ringbuffer for zero-copy video frames (`/dev/shm/sdr_os_ipc`) |
+| `nats_data` | named | NATS JetStream persistence |
 
 ## Dockerfiles
 
-All three Dockerfiles follow the same pattern:
+### Node (`containers/node/Dockerfile`)
 
-1. Install system packages (Python, Node, git, build-essential)
-2. Create a virtualenv at `/opt/venv`
-3. Install `uv` for Python package management
-4. Copy lockfiles first (maximizes Docker layer cache)
-5. Install deps from lockfile using the appropriate dependency group
-6. Copy full repo
+Minimal Alpine image for the gamepad relay server.
+
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY server.js ./
+EXPOSE 3000
+CMD ["node", "server.js"]
+```
 
 ### CUDA (`containers/cuda/Dockerfile`)
 
 ```dockerfile
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
-# ... system deps ...
+# System deps, Python 3.10, uv
 COPY pyproject.toml uv.lock ./
-COPY requirements/requirements-cuda.txt ./requirements/
 RUN uv sync --frozen --group cuda
+# cp site-packages to /opt/venv (volume mount workaround)
 COPY . /workspace
 ```
+
+### ROS Jazzy (`containers/ros-jazzy/Dockerfile`)
+
+```dockerfile
+FROM ros:jazzy-ros-base
+# rosbridge_server, rosbridge_library
+COPY scripts/ros/ /workspace/scripts/ros/
+CMD ["/workspace/scripts/ros/run_nodes.sh"]
+```
+
+### Transport Server (`services/transport-server/Dockerfile`)
+
+Rust multi-stage build (build + runtime). See `services/transport-server/` for source.
 
 ### ROCm (`containers/rocm/Dockerfile`)
 
 ```dockerfile
 FROM rocm/rocm-terminal:6.1.2
-# ... system deps ...
+# System deps, Python, uv
 COPY pyproject.toml uv.lock ./
-COPY requirements/requirements-rocm.txt ./requirements/
 RUN uv sync --frozen --group rocm
 COPY . /workspace
 ```
@@ -87,9 +129,8 @@ COPY . /workspace
 ```dockerfile
 FROM python:3.11-slim
 ARG MLX_VARIANT=mlx_cpu
-# ... system deps ...
+# System deps, uv
 COPY pyproject.toml uv.lock ./
-COPY requirements/requirements-mlx*.txt ./requirements/
 RUN uv sync --frozen --group ${MLX_VARIANT}
 COPY . /workspace
 ```
@@ -104,26 +145,11 @@ Three VS Code devcontainer configs in `.devcontainer/`:
 | `.devcontainer/rocm/devcontainer.json` | `app-rocm` | `/workspace` |
 | `.devcontainer/mlx/devcontainer.json` | `app-mlx` | `/workspace` |
 
-All reference `docker-compose.yml` and use `stopCompose` as the shutdown action. Open the repo in VS Code, select "Reopen in Container", and choose the target backend.
+## Dependency management
 
-## Planned multi-service architecture
-
-Phase 1 defines a more granular Compose setup (see [Architecture](architecture.md)):
-
-| Service | Image | Role | Network |
-|---------|-------|------|---------|
-| webserver | Caddy 2 | Reverse proxy, TLS | edge + backplane |
-| genesis-sim | Custom (CUDA) | Simulation + NVENC | backplane |
-| ros-bridge | Custom (ROS 2 Jazzy) | ROS 2 to NATS relay | backplane |
-| training-runner | Custom (CUDA) | RL training | backplane |
-| nats | Official NATS | Message bus + JetStream | backplane |
-| transport-server | Custom (Rust) | Frame fanout, WebSocket | backplane |
-
-This uses two Docker networks (edge + backplane) with tmpfs shared memory (`/dev/shm/sdr_os_ipc`) for zero-copy video frames.
-
-## Dependency management in containers
-
-- Python deps installed via `uv sync --frozen --group <backend>` from `uv.lock`
-- Fallback: `uv pip sync requirements/requirements-<backend>.txt`
-- Node deps installed via `npm ci` (from `package-lock.json`) or `pnpm install --frozen-lockfile`
+- Python deps: `uv sync --frozen --group <backend>` from `uv.lock`
+- Node deps: `npm ci --omit=dev` (from `package-lock.json`)
 - Lockfiles are copied before the full repo to maximize Docker layer cache hits
+- **Important**: `uv pip sync` is destructive (removes unlisted packages) — use `uv pip install -r` for additive installs
+- **Important**: Host `.venv` has Python 3.12, containers have Python 3.10 — don't confuse them
+- **Important**: `backplane` network has no external DNS — all packages must be baked into images at build time

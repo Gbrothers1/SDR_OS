@@ -11,6 +11,7 @@ nav:
   - Frontend: frontend.md
   - Backend: backend.md
   - Containers: containers.md
+  - NATS Subjects: nats-subjects.md
   - CI/CD: ci.md
   - Build log: build.md
   - Development:
@@ -21,8 +22,14 @@ nav:
     - Overview: solutions/index.md
     - "Phase 1: CUDA Docker + Pipeline": solutions/phase1-architecture.md
   - Plans:
-      - Multi-service backend design: plans/2026-02-05-multi-service-backend-design.md
-      - "Phase 1: CUDA Docker + pipeline": plans/2026-02-05-phase1-cuda-docker-basic-pipeline.md
+    - Multi-service backend design: plans/2026-02-05-multi-service-backend-design.md
+    - "Phase 1: CUDA Docker + pipeline": plans/2026-02-05-phase1-cuda-docker-basic-pipeline.md
+    - "Phase 2: Rust transport server design": plans/2026-02-05-phase2-rust-transport-server-design.md
+    - "Phase 2: Rust transport server plan": plans/2026-02-05-phase2-transport-server-plan.md
+    - "Phase 3: WebRTC end-to-end design": plans/2026-02-05-phase3-webrtc-end-to-end-design.md
+    - "NATS safety transport design": plans/2026-02-06-nats-safety-transport-design.md
+    - "NATS safety transport plan": plans/2026-02-06-nats-safety-transport-plan.md
+    - "UI integration design": plans/2026-02-05-ui-integration-design.md
   - Phase 1 Summary: phase1-summary.md
 
 theme:

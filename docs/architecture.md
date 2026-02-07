@@ -7,8 +7,8 @@ SDR_OS connects a browser UI to either a real robot (via ROS 2) or a Genesis phy
 ```
 Browser (React + Three.js + WebCodecs)
  ├── ROSLIB WebSocket ──→ rosbridge_server :9090 ──→ ROS 2 topics
- ├── Socket.io ──→ Node.js/Express :3000 ──→ multi-client sync
- └── GenesisContext WS ──→ Genesis bridge :9091 ──→ Genesis sim (GPU)
+ ├── Socket.io ──→ Node.js/Express :3000 ──→ gamepad relay (browser-only)
+ └── Binary WS ──→ /stream/ws ──→ transport-server ──→ SHM + NATS ──→ Genesis sim (GPU)
 ```
 
 ## Dual-mode UI
@@ -18,9 +18,9 @@ The app switches between two modes via a toolbar selector:
 | Mode | Visualization | Panels | Data path |
 |------|---------------|--------|-----------|
 | **Real Robot** | `RobotViewer` (Three.js 3D) | `TelemetryPanel`, `CameraViewer` | ROS 2 via rosbridge |
-| **Genesis Sim** | `SimViewer` (JPEG stream) | `GenesisControlPanel`, `SimTelemetryPane`, `GenesisRobotSelector`, `MultiCameraViewer`, `SimulationStarter` | Socket.io → Genesis bridge |
+| **Genesis Sim** | `SimViewer` (H.264/JPEG stream) | `GenesisControlPanel`, `SimTelemetryPane`, `GenesisRobotSelector`, `MultiCameraViewer`, `SimulationStarter` | Binary WS → transport-server → NATS |
 
-Both modes share: `ControlOverlay` (gamepad), `LogViewer`, `SettingsModal`, `SafetyIndicator`.
+Both modes share: `ControlOverlay` (gamepad), `LogViewer`, `SettingsModal`, `SafetyIndicator`, `TrustStrip`.
 
 ## Pipelines
 
@@ -29,8 +29,12 @@ Both modes share: `ControlOverlay` (gamepad), `LogViewer`, `SettingsModal`, `Saf
 ```
 Browser gamepad → ControlOverlay (every animationFrame)
  → Socket.io: controller_button_states, controller_joystick_state
- → server.js broadcasts to all clients + Genesis bridge
+ → server.js broadcasts to all browser clients (gamepad relay only)
  → ROS: ROSLIB publishes to /cmd_vel
+
+Genesis velocity commands:
+ → Browser sends 0x04 COMMAND over WS → transport-server
+ → NATS command.genesis.set_cmd_vel → genesis-sim
 ```
 
 ### Telemetry
@@ -38,15 +42,46 @@ Browser gamepad → ControlOverlay (every animationFrame)
 ```
 Sensors / IIO / IMU / GPS → ROS 2 topics
  → rosbridge → Browser TelemetryPanel charts
-Genesis sim → genesis_training_metrics, genesis_obs_breakdown
- → Socket.io → Browser TrainingDashboard
+
+Genesis sim → NATS telemetry.* subjects
+ → transport-server → 0x02 WS → Browser TrainingDashboard
 ```
 
 ### Video
 
-Current: Genesis bridge streams JPEG frames over WebSocket (port 9091), displayed in `SimViewer`.
+```
+Genesis GPU render → NVENC H.264 (or JPEG fallback)
+ → SHM ringbuffer (/dev/shm/sdr_os_ipc/frames)
+ → Rust transport-server reads SHM
+ → 0x01 WS fanout to browser clients
+ → H.264: WebCodecs VideoDecoder → canvas
+ → JPEG: Blob → objectURL → <img>
+```
 
-Planned (Phase 2+): Genesis GPU render → NVENC H.264/HEVC encode → SHM ringbuffer → Rust transport server → WebSocket/WebRTC fanout → Browser WebCodecs decode (`H264Decoder.js`).
+### Binary WebSocket Protocol
+
+Type byte prefix on every WS binary frame:
+
+| Byte | Type | Direction | Payload |
+|------|------|-----------|---------|
+| `0x01` | VIDEO | server→browser | 32-byte LE header + Annex-B/JPEG |
+| `0x02` | TELEMETRY | server→browser | NATS subject (null-terminated) + JSON |
+| `0x03` | SIGNALING | reserved | WebRTC signaling |
+| `0x04` | COMMAND | browser→server | JSON `{action, cmd_seq, data, ttl_ms?}` |
+
+See `docs/nats-subjects.md` for the full subject schema.
+
+### Safety Stack (3 Layers)
+
+| Layer | Location | HOLD | ESTOP | Authority |
+|-------|----------|------|-------|-----------|
+| 1 | Frontend (GenesisContext) | — | 500ms video age | Cosmetic (VIDEO LOST overlay) |
+| 2 | Transport (Rust) | 1s SHM stale | 5s SHM stale | Gate + latch zero velocity |
+| 3 | Sim (genesis_sim_runner) | 200ms cmd TTL | 2s cmd TTL | Canonical state authority |
+
+- **ARMED** → normal operation
+- **HOLD** → zero velocity, auto-recoverable on fresh command
+- **ESTOP** → zero velocity, requires operator RE-ARM via TrustStrip button
 
 ### Training
 
@@ -116,19 +151,20 @@ The [Multi-Service Backend Design](plans/2026-02-05-multi-service-backend-design
 
 | Service | Language | Role | Network |
 |---------|----------|------|---------|
-| Caddy | Go | Reverse proxy, Tailscale TLS | edge + backplane |
-| transport-server | Rust | Frame fanout, WebSocket/WebRTC | backplane |
-| genesis-sim | Python | Genesis simulation, NVENC encoding | backplane |
-| ros-bridge | Python | ROS 2 ↔ NATS relay, topic allowlist | host network (DDS) |
+| Caddy (webserver) | Go | Reverse proxy, static files, Tailscale TLS | edge + backplane |
+| node | Node.js | Socket.io gamepad relay, /api routes | backplane |
+| transport-server | Rust | SHM→WS fanout, 0x04→NATS, video gate | edge + backplane |
+| genesis-sim | Python | Genesis simulation, NVENC/JPEG encoding, safety L3 | host network |
+| ros-bridge | Python | ROS 2 ↔ rosbridge WebSocket | host network (DDS) |
 | training-runner | Python | genesis-forge RL, rsl_rl PPO | backplane |
-| NATS | NATS | Message bus + JetStream | backplane |
+| NATS | NATS | Message bus (command + telemetry) | backplane |
 
 ### Docker Compose Profiles
 
 | Profile | Services | Use |
 |---------|----------|-----|
 | `dev` | webserver, ros-bridge | Development |
-| `sim` | webserver, genesis-sim, ros-bridge, nats, caddy, transport-server | Simulation + streaming |
+| `sim` | webserver (Caddy), node, transport-server, genesis-sim, nats, ros-bridge | Full simulation stack |
 | `train` | training-runner, nats | RL training |
 | `obs` | prometheus, grafana | Observability |
 | `cuda` | app-cuda | CUDA CI target |
@@ -169,6 +205,8 @@ Genesis Render (CUDA) → NVENC encoder → SHM ringbuffer → transport-server 
 | Container | Base Image | Purpose |
 |-----------|-----------|---------|
 | `sdr_os-cuda` | `nvidia/cuda:12.4.1-runtime-ubuntu22.04` | CUDA CI + sim |
+| `sdr_os-node` | `node:20-alpine` | Socket.io gamepad relay + /api |
+| `sdr_os-transport` | Custom Rust | SHM→WS fanout, NATS relay |
 | `sdr_os-rocm` | `rocm/rocm-terminal:6.1.2` | ROCm CI |
 | `sdr_os-mlx` | `python:3.11-slim` | MLX Linux parity |
 | `sdr_os-ros-jazzy` | `ros:jazzy-ros-base` | ROS2 Jazzy + rosbridge |
@@ -178,13 +216,13 @@ Genesis Render (CUDA) → NVENC encoder → SHM ringbuffer → transport-server 
 | Phase | Scope | Status |
 |-------|-------|--------|
 | **1** | CUDA Docker + basic pipeline: NATS, Caddy, ROS 2 Jazzy container, SHM ringbuffer, pytest, justfile, NVENC validation, docs. | **Complete** |
-| **2** | Rust transport server: SHM reader, WebSocket fanout, NATS telemetry. | Planned |
+| **2** | NATS backbone, safety stack, transport integration, Caddy routing, node service, docs alignment. | **Complete** |
 | **3** | Production hardening: healthchecks, host tuning, Prometheus/Grafana, CI. | Planned |
 | **4** | WebRTC + control path: signaling, DataChannel, H.264 RTP, WebCodecs. | Planned |
 | **5** | Training integration: JetStream streams, genesis-forge, episode recording. | Planned |
 | **6** | Distribution (future): NATS leafnodes, multi-node, capability roles. | Planned |
 
-See [Phase 1 Implementation Plan](plans/2026-02-05-phase1-cuda-docker-basic-pipeline.md) for the 12-task breakdown.
+See [Phase 1 Implementation Plan](plans/2026-02-05-phase1-cuda-docker-basic-pipeline.md) and [NATS Safety Transport Plan](plans/2026-02-06-nats-safety-transport-plan.md) for task breakdowns.
 
 ## Key design decisions
 

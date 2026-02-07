@@ -17,6 +17,7 @@ RUN apt-get update \
         libgl1 \
         libglib2.0-0 \
         libxrender1 \
+        libopengl0 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV VIRTUAL_ENV=/opt/venv

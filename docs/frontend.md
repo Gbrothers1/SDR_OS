@@ -28,7 +28,7 @@ pnpm run dev        # development watch mode (unminified)
 
 ```
 SettingsProvider
-  GenesisProvider (socket)
+  GenesisProvider (binary WS)
     SessionProvider
       PhaseProvider
         TrainingPanelProvider
@@ -67,7 +67,7 @@ SettingsProvider
 | Component | Purpose |
 |-----------|---------|
 | `RobotViewer.jsx` | Three.js 3D robot model (Real Robot mode); IMU quaternion to Euler, TF subscriptions |
-| `SimViewer.jsx` | JPEG stream viewer (Genesis mode); displays frames from GenesisContext |
+| `SimViewer.jsx` | H.264/JPEG stream viewer (Genesis mode); WebCodecs decoder for H.264, Blob URL for JPEG, VIDEO LOST overlay on stale frames |
 | `CameraViewer.jsx` | Single camera feed (ROS webcam topic) |
 | `MultiCameraViewer.jsx` | Multiple camera feeds from Genesis |
 | `URDFPreview.jsx` | URDF model preview |
@@ -107,6 +107,7 @@ SettingsProvider
 |-----------|---------|
 | `SafetyIndicator.jsx` | Blend alpha, deadman status, safety flags overlay |
 | `SafetyStatusPanel.jsx` | Detailed safety status panel |
+| `TrustStrip.jsx` | Safety badge (HOLD/ESTOP mode), E-STOP / RE-ARM toggle button |
 
 ### Settings and UI
 
@@ -144,12 +145,15 @@ updateSettings({ control: { maxLinearSpeed: 2.0 } });
 
 ### GenesisContext (useGenesis hook)
 
-Manages the Genesis simulation connection:
+Manages the Genesis simulation connection via binary WebSocket:
 
-- WebSocket connection to Genesis bridge (port 9091)
-- JPEG frame streaming with Blob URL lifecycle management (revokes old URLs to prevent memory leaks)
-- Training metrics, robot list, mode/alpha/safety state
-- Actions: loadRobot, reset, pause, setMode, setAlpha, setCameraPos, etc.
+- Connects to `/stream/ws` (transport-server via Caddy or Node proxy)
+- Receives `0x01` VIDEO frames — routes to H264Decoder (WebCodecs) or JPEG Blob URL based on codec byte
+- Receives `0x02` TELEMETRY frames — parses NATS subject + JSON, updates training metrics / safety state
+- Sends `0x04` COMMAND frames — JSON `{action, cmd_seq, data, ttl_ms?}` for velocity, E-STOP, RE-ARM, settings
+- Tracks `videoHealthy` (false after 500ms without frames) and `safetyState` (`{mode, state_id}`)
+- Blob URL lifecycle management (revokes old URLs to prevent memory leaks)
+- Actions: loadRobot, reset, pause, setMode, setAlpha, setCameraPos, sendCommand, estop, estopClear, etc.
 
 ### PhaseContext
 
@@ -167,7 +171,7 @@ Training panel UI state (which panels are open, training progress).
 
 | File | Purpose |
 |------|---------|
-| `utils/H264Decoder.js` | WebCodecs-based H.264 decoder with frame parsing (for planned WebRTC pipeline) |
+| `utils/H264Decoder.js` | WebCodecs VideoDecoder wrapper — parses 32-byte LE frame header, extracts Annex-B NALUs, decodes H.264 to canvas. Used by GenesisContext for `0x01` VIDEO frames with codec=1. |
 
 ## Audio
 
