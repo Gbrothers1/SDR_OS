@@ -162,6 +162,14 @@ export const MsgType = {
   VIDEO: 0x01,
   TELEMETRY: 0x02,
   SIGNALING: 0x03,
+  COMMAND: 0x04,
+};
+
+// Codec types in frame header
+export const CodecType = {
+  H264: 1,
+  HEVC: 2,
+  JPEG: 3,
 };
 
 /**

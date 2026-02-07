@@ -19,6 +19,7 @@ pub const FLAG_WRAP_MARKER: u16 = 0x0002;
 
 pub const CODEC_H264: u16 = 1;
 pub const CODEC_HEVC: u16 = 2;
+pub const CODEC_JPEG: u16 = 3;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameHeader {

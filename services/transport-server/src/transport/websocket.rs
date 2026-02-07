@@ -4,6 +4,8 @@ use crate::shm::reader::Frame;
 /// WS message type byte prefixes.
 pub const MSG_TYPE_VIDEO: u8 = 0x01;
 pub const MSG_TYPE_TELEMETRY: u8 = 0x02;
+pub const MSG_TYPE_SIGNALING: u8 = 0x03;
+pub const MSG_TYPE_COMMAND: u8 = 0x04;
 
 /// Maximum subject length for telemetry frames.
 pub const MAX_SUBJECT_LEN: usize = 256;
