@@ -19,7 +19,7 @@ Binary WS protocol type bytes: `0x01` VIDEO, `0x02` TELEMETRY, `0x03` SIGNALING,
 | `command.genesis.estop` | `{reason?}` |
 | `command.genesis.estop_clear` | `{cmd_seq}` |
 | `command.genesis.camera` | `{position, lookat}` |
-| `command.genesis.settings` | `{jpeg_quality, stream_fps, camera_res}` |
+| `command.genesis.settings` | `{codec, jpeg_quality, stream_fps, camera_res, h264_bitrate, h264_preset}` |
 
 ## Telemetry (sim → NATS → transport → browser)
 

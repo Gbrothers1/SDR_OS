@@ -78,6 +78,7 @@ const defaultSettings = {
     defaultMode: 'Real Robot',
     activeRobot: '',
     activeEnvIdx: 0,
+    codec: 'h264',
     streamFps: 60,
     jpegQuality: 80,
     h264Bitrate: 3,
@@ -1131,46 +1132,63 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
                     </>
                   )}
                   <div className="setting-item">
-                    <label htmlFor="genesis-h264-bitrate">H.264 Bitrate (Mbps)</label>
-                    <input
-                      id="genesis-h264-bitrate"
-                      type="range"
-                      min="0.5"
-                      max="10"
-                      step="0.5"
-                      value={getSetting('genesis', 'h264Bitrate', 3)}
-                      onChange={(e) => handleSliderChange('genesis', 'h264Bitrate', e.target.value, 0.5, 10)}
-                    />
-                    <span className="setting-value">{getSetting('genesis', 'h264Bitrate', 3)} Mbps</span>
-                  </div>
-                  <div className="setting-item">
-                    <label htmlFor="genesis-h264-preset">Encoder Preset</label>
+                    <label htmlFor="genesis-codec">Video Codec</label>
                     <select
-                      id="genesis-h264-preset"
-                      value={getSetting('genesis', 'h264Preset', 'llhp')}
-                      onChange={(e) => handleChange('genesis', 'h264Preset', e.target.value)}
+                      id="genesis-codec"
+                      value={getSetting('genesis', 'codec', 'h264')}
+                      onChange={(e) => handleChange('genesis', 'codec', e.target.value)}
                     >
-                      <option value="llhp">Low Latency HP</option>
-                      <option value="ll">Low Latency</option>
-                      <option value="llhq">Low Latency HQ</option>
-                      <option value="hq">High Quality</option>
-                      <option value="hp">High Perf</option>
-                      <option value="default">Default</option>
+                      <option value="h264">H.264 (NVENC)</option>
+                      <option value="jpeg">JPEG</option>
                     </select>
                   </div>
-                  <div className="setting-item">
-                    <label htmlFor="genesis-jpeg-quality">Quality (JPEG fallback)</label>
-                    <input
-                      id="genesis-jpeg-quality"
-                      type="range"
-                      min="10"
-                      max="100"
-                      step="5"
-                      value={getSetting('genesis', 'jpegQuality', 80)}
-                      onChange={(e) => handleSliderChange('genesis', 'jpegQuality', e.target.value, 10, 100)}
-                    />
-                    <span className="setting-value">{getSetting('genesis', 'jpegQuality', 80)}%</span>
-                  </div>
+                  {getSetting('genesis', 'codec', 'h264') === 'h264' && (
+                    <>
+                      <div className="setting-item">
+                        <label htmlFor="genesis-h264-bitrate">H.264 Bitrate (Mbps)</label>
+                        <input
+                          id="genesis-h264-bitrate"
+                          type="range"
+                          min="0.5"
+                          max="10"
+                          step="0.5"
+                          value={getSetting('genesis', 'h264Bitrate', 3)}
+                          onChange={(e) => handleSliderChange('genesis', 'h264Bitrate', e.target.value, 0.5, 10)}
+                        />
+                        <span className="setting-value">{getSetting('genesis', 'h264Bitrate', 3)} Mbps</span>
+                      </div>
+                      <div className="setting-item">
+                        <label htmlFor="genesis-h264-preset">Encoder Preset</label>
+                        <select
+                          id="genesis-h264-preset"
+                          value={getSetting('genesis', 'h264Preset', 'llhp')}
+                          onChange={(e) => handleChange('genesis', 'h264Preset', e.target.value)}
+                        >
+                          <option value="llhp">Low Latency HP</option>
+                          <option value="ll">Low Latency</option>
+                          <option value="llhq">Low Latency HQ</option>
+                          <option value="hq">High Quality</option>
+                          <option value="hp">High Perf</option>
+                          <option value="default">Default</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
+                  {getSetting('genesis', 'codec', 'h264') === 'jpeg' && (
+                    <div className="setting-item">
+                      <label htmlFor="genesis-jpeg-quality">JPEG Quality</label>
+                      <input
+                        id="genesis-jpeg-quality"
+                        type="range"
+                        min="10"
+                        max="100"
+                        step="5"
+                        value={getSetting('genesis', 'jpegQuality', 80)}
+                        onChange={(e) => handleSliderChange('genesis', 'jpegQuality', e.target.value, 10, 100)}
+                      />
+                      <span className="setting-value">{getSetting('genesis', 'jpegQuality', 80)}%</span>
+                    </div>
+                  )}
                   <div className="setting-item">
                     <label htmlFor="genesis-stream-fps">Stream FPS</label>
                     <input

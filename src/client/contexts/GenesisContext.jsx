@@ -488,6 +488,7 @@ export const GenesisProvider = ({ children, socket }) => {
   }, [streamBackend, genesisConnected, initiateWebRTC, sendSignaling, teardownWebRTC]);
   
   // Send genesis viewer settings via 0x04 when they change
+  const genesisCodec = getSetting('genesis', 'codec', 'h264');
   const genesisJpegQuality = getSetting('genesis', 'jpegQuality', 80);
   const genesisStreamFps = getSetting('genesis', 'streamFps', 60);
   const genesisCameraRes = getSetting('genesis', 'cameraRes', '1280x720');
@@ -497,13 +498,14 @@ export const GenesisProvider = ({ children, socket }) => {
   useEffect(() => {
     if (!genesisConnected) return;
     sendWsCommand('settings', {
+      codec: genesisCodec,
       jpeg_quality: genesisJpegQuality,
       stream_fps: genesisStreamFps,
       camera_res: genesisCameraRes,
       h264_bitrate: genesisH264Bitrate,
       h264_preset: genesisH264Preset,
     });
-  }, [genesisConnected, genesisJpegQuality, genesisStreamFps, genesisCameraRes, genesisH264Bitrate, genesisH264Preset, sendWsCommand]);
+  }, [genesisConnected, genesisCodec, genesisJpegQuality, genesisStreamFps, genesisCameraRes, genesisH264Bitrate, genesisH264Preset, sendWsCommand]);
 
   // Action: Load a robot
   const loadRobot = useCallback((robotName) => {

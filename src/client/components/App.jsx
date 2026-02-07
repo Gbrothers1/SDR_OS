@@ -70,7 +70,7 @@ const CockpitContent = ({ socket }) => {
   const [error, setError] = useState(null);
   const [appSettings, setAppSettings] = useState(null);
   const rosReconnectTimerRef = useRef(null);
-  const { genesisConnected, genesisMode: currentGenesisMode, sendGamepadAxes, sendCommand, currentFrame, mediaStream } = useGenesis();
+  const { genesisConnected, genesisMode: currentGenesisMode, sendGamepadAxes, sendCommand, sendVelocityCommand, currentFrame, mediaStream } = useGenesis();
 
   // ── Test mode: bypass ROS/Genesis connections for UI development ──
   const [testMode, setTestMode] = useState(() => {
@@ -376,6 +376,7 @@ const CockpitContent = ({ socket }) => {
             onExpandChange={setLeftExpanded}
             sendGamepadAxes={sendGamepadAxes}
             sendCommand={sendCommand}
+            sendVelocityCommand={sendVelocityCommand}
           />
         </EdgePanel>
 

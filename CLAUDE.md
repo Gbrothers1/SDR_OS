@@ -44,6 +44,7 @@ ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 - **Components:** Each has paired `.jsx` and `.css` in `components/` and `styles/`
 - **ROS:** ROSLIB connects to rosbridge_websocket (default `ws://localhost:9090`)
 - **Socket.io:** Browser-only, used for gamepad relay between tabs (NOT for sim communication)
+- **Gamepad → dual cmd_vel:** ControlOverlay publishes `geometry_msgs/Twist` on ROS `/cmd_vel` (any ROS2 robot) AND sends `set_cmd_vel` via Genesis NATS (sim safety stack) in parallel at 30Hz
 
 ### Backend (`server.js`)
 - Express static server for `dist/`
@@ -70,6 +71,7 @@ Telemetry (sim → NATS → transport → browser): `telemetry.*`
 
 Key subjects:
 - `command.genesis.set_cmd_vel` — velocity with `cmd_seq` for ordering
+- `command.genesis.settings` — codec, bitrate, preset, quality, fps, resolution
 - `telemetry.training.metrics` — sim step/fps/policy state
 - `telemetry.safety.state` — canonical safety mode (ARMED/HOLD/ESTOP)
 - `telemetry.safety.video_gate` — transport→sim gate notifications
@@ -88,7 +90,7 @@ Full schema: `docs/nats-subjects.md`
 - **ESTOP** → zero velocity, requires operator RE-ARM
 
 ### Genesis Sim Runner (`scripts/genesis_sim_runner.py`)
-- NVENC H.264 encoder with JPEG fallback (via PyAV)
+- NVENC H.264 encoder with JPEG fallback (via PyAV), runtime codec switching via `settings` command
 - NATS command subscriber (`command.genesis.>`)
 - Layer 3 safety: TTL decay + ESTOP on command timeout
 - Publishes `telemetry.safety.state` at 2Hz (canonical authority)

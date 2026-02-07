@@ -4,12 +4,13 @@ import ROSLIB from 'roslib';
 import soundEffects from '../audio/SoundEffects';
 import { useSettings } from '../contexts/SettingsContext';
 
-const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepadAxes, sendCommand }) => {
+const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepadAxes, sendCommand, sendVelocityCommand }) => {
   const gamepadRef = useRef(null);
   const animationFrameRef = useRef();
   const { getSetting, updateSettings } = useSettings();
   const buttonStatesTopic = getSetting('topics', 'button_states', '/controller/button_states');
   const joystickStateTopic = getSetting('topics', 'joystick_state', '/controller/joystick_state');
+  const cmdVelTopic = getSetting('topics', 'cmd_vel', '/cmd_vel');
 
   // Get minimized state from settings
   const initialMinimized = getSetting('ui', 'controllerMinimized', false);
@@ -215,6 +216,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
   // ROS publisher refs — created lazily when both ros and gamepad are available
   const buttonStatePublisherRef = useRef(null);
   const joystickStatePublisherRef = useRef(null);
+  const cmdVelPublisherRef = useRef(null);
   const rosRef = useRef(ros);
   const socketRef = useRef(socket);
   const onControlChangeRef = useRef(onControlChange);
@@ -223,6 +225,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
     rosRef.current = ros;
     buttonStatePublisherRef.current = null;
     joystickStatePublisherRef.current = null;
+    cmdVelPublisherRef.current = null;
   }, [ros]);
   useEffect(() => { socketRef.current = socket; }, [socket]);
   useEffect(() => { onControlChangeRef.current = onControlChange; }, [onControlChange]);
@@ -245,10 +248,18 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             messageType: 'std_msgs/String'
           });
         }
+        if (!cmdVelPublisherRef.current) {
+          cmdVelPublisherRef.current = new ROSLIB.Topic({
+            ros: rosRef.current,
+            name: cmdVelTopic,
+            messageType: 'geometry_msgs/Twist'
+          });
+        }
       }
       return {
         buttonStatePublisher: buttonStatePublisherRef.current,
         joystickStatePublisher: joystickStatePublisherRef.current,
+        cmdVelPublisher: cmdVelPublisherRef.current,
       };
     };
 
@@ -392,7 +403,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
           const shouldSendJoystick = nowEmit - lastJoystickEmitRef.current >= joystickSendIntervalMs;
           const shouldUpdateUi = nowEmit - lastUiUpdateRef.current >= uiUpdateIntervalMs;
 
-          const { buttonStatePublisher, joystickStatePublisher } = getOrCreatePublishers();
+          const { buttonStatePublisher, joystickStatePublisher, cmdVelPublisher } = getOrCreatePublishers();
 
           if (shouldSendButtons) {
             if (buttonStatePublisher) {
@@ -413,6 +424,17 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
           }
 
           if (shouldSendJoystick) {
+            // ROS /cmd_vel — standard geometry_msgs/Twist for any ROS2 robot
+            if (cmdVelPublisher) {
+              cmdVelPublisher.publish(new ROSLIB.Message({
+                linear: { x: newState.linear.x, y: newState.linear.y, z: newState.linear.z },
+                angular: { x: newState.angular.x, y: newState.angular.y, z: newState.angular.z }
+              }));
+            }
+            // Genesis NATS set_cmd_vel — sim-specific with safety stack
+            if (sendVelocityCommand) {
+              sendVelocityCommand(newState.linear.x, newState.linear.y, newState.angular.z);
+            }
             if (joystickStatePublisher) {
               joystickStatePublisher.publish(new ROSLIB.Message({
                 data: JSON.stringify(newState)
@@ -478,9 +500,10 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
       }
       buttonStatePublisherRef.current = null;
       joystickStatePublisherRef.current = null;
+      cmdVelPublisherRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buttonStatesTopic, joystickStateTopic]);
+  }, [buttonStatesTopic, joystickStateTopic, cmdVelTopic]);
 
   // Socket event handlers for remote gamepad updates
   useEffect(() => {

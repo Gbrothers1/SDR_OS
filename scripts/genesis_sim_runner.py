@@ -508,6 +508,16 @@ class GenesisSimRunner:
                             self.encoder.quality = self.jpeg_quality
                     if "stream_fps" in cmd_data:
                         self.target_fps = int(cmd_data["stream_fps"])
+                    # Codec switch: h264 ↔ jpeg
+                    if "codec" in cmd_data:
+                        requested = cmd_data["codec"]
+                        if requested == "jpeg" and isinstance(self.encoder, NvencEncoder):
+                            logger.info("Switching encoder to JPEG")
+                            self.encoder.close()
+                            self.encoder = JpegEncoder(quality=self.jpeg_quality)
+                        elif requested == "h264" and isinstance(self.encoder, JpegEncoder):
+                            logger.info("Switching encoder to H.264 (NVENC)")
+                            self._recreate_encoder()
                     recreate = False
                     if "h264_bitrate" in cmd_data:
                         new_bitrate = int(float(cmd_data["h264_bitrate"]) * 1_000_000)

@@ -18,9 +18,11 @@ nav:
     - Dev Workflow: dev-workflow.md
     - Testing & Verification: testing.md
     - GitHub Actions Guide: github-actions.md
+    - Self-Hosted GPU Runner: runner.md
   - Solutions:
     - Overview: solutions/index.md
     - "Phase 1: CUDA Docker + Pipeline": solutions/phase1-architecture.md
+    - "Phase 2: NATS Backbone + Safety": solutions/phase2-architecture.md
   - Plans:
     - Multi-service backend design: plans/2026-02-05-multi-service-backend-design.md
     - "Phase 1: CUDA Docker + pipeline": plans/2026-02-05-phase1-cuda-docker-basic-pipeline.md
@@ -30,6 +32,9 @@ nav:
     - "NATS safety transport design": plans/2026-02-06-nats-safety-transport-design.md
     - "NATS safety transport plan": plans/2026-02-06-nats-safety-transport-plan.md
     - "UI integration design": plans/2026-02-05-ui-integration-design.md
+    - "Docs, screenshots & theme": plans/2026-02-06-docs-screenshots-theme-design.md
+    - "Gamepad dual cmd_vel": plans/2026-02-07-gamepad-dual-cmd-vel-design.md
+    - "Policy panel & environments": plans/2026-02-07-policy-panel-envs-design.md
   - Phase 1 Summary: phase1-summary.md
 
 theme:
