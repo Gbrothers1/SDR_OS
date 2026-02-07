@@ -71,10 +71,9 @@ const defaultSettings = {
     announceErrors: true
   },
   genesis: {
-    enabled: false,
+    enabled: true,
     streamBackend: 'websocket',
-    bridgeWsUrl: `ws://${window.location.hostname}:9091`,
-    webrtcSignalingUrl: `http://${window.location.hostname}:9092`,
+    bridgeWsUrl: '',
     webrtcStunUrls: ['stun:stun.l.google.com:19302'],
     defaultMode: 'Real Robot',
     activeRobot: '',
@@ -1106,27 +1105,17 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
                     </select>
                   </div>
                   <div className="setting-item">
-                    <label htmlFor="genesis-bridge-ws-url">Genesis Bridge URL (WebSocket)</label>
+                    <label htmlFor="genesis-bridge-ws-url">Transport WS URL (empty = auto-discover)</label>
                     <input
                       id="genesis-bridge-ws-url"
                       type="text"
-                      value={getSetting('genesis', 'bridgeWsUrl', `ws://${window.location.hostname}:9091`)}
+                      value={getSetting('genesis', 'bridgeWsUrl', '')}
                       onChange={(e) => handleChange('genesis', 'bridgeWsUrl', e.target.value)}
-                      placeholder={`ws://${window.location.hostname}:9091`}
+                      placeholder="auto (/stream/ws on same origin)"
                     />
                   </div>
                   {getSetting('genesis', 'streamBackend', 'websocket') === 'webrtc' && (
                     <>
-                      <div className="setting-item">
-                        <label htmlFor="genesis-webrtc-signaling-url">WebRTC Signaling URL</label>
-                        <input
-                          id="genesis-webrtc-signaling-url"
-                          type="text"
-                          value={getSetting('genesis', 'webrtcSignalingUrl', `http://${window.location.hostname}:9092`)}
-                          onChange={(e) => handleChange('genesis', 'webrtcSignalingUrl', e.target.value)}
-                          placeholder={`http://${window.location.hostname}:9092`}
-                        />
-                      </div>
                       <div className="setting-item">
                         <label htmlFor="genesis-webrtc-stun">STUN Servers (one per line)</label>
                         <textarea

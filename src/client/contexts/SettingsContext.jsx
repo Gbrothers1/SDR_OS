@@ -73,7 +73,7 @@ const defaultSettings = {
     announceErrors: true
   },
   genesis: {
-    enabled: false,
+    enabled: true,
     streamBackend: 'websocket',
     bridgeWsUrl: '',
     webrtcStunUrls: ['stun:stun.l.google.com:19302'],
