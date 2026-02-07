@@ -205,10 +205,14 @@ export const GenesisProvider = ({ children, socket }) => {
             lastSafetyStateIdRef.current = data.state_id;
             setSafetyState(data);
           }
+        } else if (subject === 'telemetry.policy.list') {
+          setPolicyList(data.policies || []);
         } else if (subject === 'telemetry.command.ack') {
           // Command acknowledgment — could be used for UI feedback
           if (data.action === 'load_policy') {
             setPolicyLoadStatus(data.status);
+          } else if (data.action === 'list_policies' && data.status !== 'ok') {
+            console.warn('list_policies failed:', data);
           }
         } else if (subject === 'telemetry.frame.stats') {
           setFrameStats(data);
@@ -487,6 +491,8 @@ export const GenesisProvider = ({ children, socket }) => {
   const genesisJpegQuality = getSetting('genesis', 'jpegQuality', 80);
   const genesisStreamFps = getSetting('genesis', 'streamFps', 60);
   const genesisCameraRes = getSetting('genesis', 'cameraRes', '1280x720');
+  const genesisH264Bitrate = getSetting('genesis', 'h264Bitrate', 3);
+  const genesisH264Preset = getSetting('genesis', 'h264Preset', 'llhp');
 
   useEffect(() => {
     if (!genesisConnected) return;
@@ -494,8 +500,10 @@ export const GenesisProvider = ({ children, socket }) => {
       jpeg_quality: genesisJpegQuality,
       stream_fps: genesisStreamFps,
       camera_res: genesisCameraRes,
+      h264_bitrate: genesisH264Bitrate,
+      h264_preset: genesisH264Preset,
     });
-  }, [genesisConnected, genesisJpegQuality, genesisStreamFps, genesisCameraRes, sendWsCommand]);
+  }, [genesisConnected, genesisJpegQuality, genesisStreamFps, genesisCameraRes, genesisH264Bitrate, genesisH264Preset, sendWsCommand]);
 
   // Action: Load a robot
   const loadRobot = useCallback((robotName) => {

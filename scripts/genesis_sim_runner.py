@@ -141,47 +141,54 @@ class JpegEncoder:
 
 
 class NvencEncoder:
-    """H.264 NVENC hardware encoder producing Annex-B NAL units."""
-    def __init__(self, width, height, fps=30, bitrate=3_000_000, gop=30):
+    """H.264 NVENC hardware encoder producing Annex-B NAL units.
+
+    Uses a standalone codec context (no container/muxer) so that
+    encode() returns packets directly with inline SPS/PPS on every IDR.
+    """
+    def __init__(self, width, height, fps=30, bitrate=3_000_000, gop=1, preset="llhp"):  # TEMP: GOP=1 until multi-slot SHM ringbuffer lands
         import av
+        from fractions import Fraction
+
         self.codec = Codec.H264
-        self.gop = gop
         self.frame_count = 0
 
-        self.container = av.open(
-            "pipe:",
-            mode="w",
-            format="h264",
-            options={
-                "preset": "p4",
-                "tune": "ull",
-                "profile": "baseline",
-                "b": str(bitrate),
-                "g": str(gop),
-                "bf": "0",
-            },
-        )
-        self.stream = self.container.add_stream("h264_nvenc", rate=fps)
-        self.stream.width = width
-        self.stream.height = height
-        self.stream.pix_fmt = "yuv420p"
+        self.ctx = av.CodecContext.create("h264_nvenc", "w")
+        self.ctx.width = width
+        self.ctx.height = height
+        self.ctx.pix_fmt = "yuv420p"
+        self.ctx.framerate = Fraction(fps, 1)
+        self.ctx.time_base = Fraction(1, fps)
+        self.ctx.bit_rate = bitrate
+        self.ctx.gop_size = gop
+        self.ctx.max_b_frames = 0
+        self.ctx.options = {
+            "preset": preset,
+            "tune": "ull",
+            "g": str(gop),
+            "bf": "0",
+            "repeat_headers": "1",
+            "zerolatency": "1",
+        }
+        self.ctx.open()
 
     def encode(self, frame_rgb, frame_id):
         import av
         frame = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
+        frame = frame.reformat(format="yuv420p", width=self.ctx.width, height=self.ctx.height)
         frame.pts = frame_id
-        packets = self.stream.encode(frame)
+        packets = self.ctx.encode(frame)
         if not packets:
             return None, False
 
         payload = b"".join(bytes(p) for p in packets)
-        is_keyframe = self.frame_count % self.gop == 0
+        is_keyframe = any(p.is_keyframe for p in packets)
         self.frame_count += 1
         return payload, is_keyframe
 
     def close(self):
         try:
-            self.container.close()
+            self.ctx.encode(None)
         except Exception:
             pass
 
@@ -212,6 +219,8 @@ class GenesisSimRunner:
         self.encoder = None
         self.frame_id = 0
         self.running = False
+        self.h264_bitrate = 3_000_000
+        self.h264_preset = "llhp"
 
         # NATS
         self.nc = None
@@ -270,6 +279,101 @@ class GenesisSimRunner:
         """Initialize SHM ringbuffer writer."""
         self.shm_writer = ShmRingWriter(path=SHM_PATH, buffer_size=SHM_SIZE)
         logger.info(f"SHM writer ready at {SHM_PATH} ({SHM_SIZE / 1024 / 1024:.0f}MB)")
+
+    def _scan_checkpoints(self):
+        """Scan rl/checkpoints/ for policy directories and standalone .pt files."""
+        ckpt_root = os.path.join(_project_root, "rl", "checkpoints")
+        if not os.path.isdir(ckpt_root):
+            return []
+
+        policies = []
+        loaded_dir = os.path.abspath(self.checkpoint_dir) if self.checkpoint_dir else None
+
+        for entry in sorted(os.scandir(ckpt_root), key=lambda e: e.name):
+            if entry.is_dir():
+                model_files = sorted(glob.glob(os.path.join(entry.path, "model_*.pt")))
+                if not model_files:
+                    continue
+
+                # Determine algorithm from cfgs.pkl
+                algorithm = "PPO"
+                cfg_path = os.path.join(entry.path, "cfgs.pkl")
+                if os.path.exists(cfg_path):
+                    try:
+                        with open(cfg_path, "rb") as f:
+                            cfgs = pickle.load(f)
+                        if isinstance(cfgs, (list, tuple)) and len(cfgs) >= 5:
+                            train_cfg = cfgs[4]
+                            if isinstance(train_cfg, dict):
+                                algorithm = train_cfg.get("algorithm", {}).get("class_name", "PPO")
+                    except Exception:
+                        pass
+
+                # Extract step numbers from filenames
+                checkpoints = [os.path.basename(f) for f in model_files]
+                steps = []
+                for name in checkpoints:
+                    try:
+                        steps.append(int(name.replace("model_", "").replace(".pt", "")))
+                    except ValueError:
+                        pass
+
+                total_size = sum(os.path.getsize(f) for f in model_files)
+                latest_mtime = max(os.path.getmtime(f) for f in model_files)
+
+                is_loaded = loaded_dir is not None and os.path.abspath(entry.path) == loaded_dir
+                loaded_ckpt = None
+                if is_loaded and self.policy is not None and hasattr(self, '_loaded_model_file'):
+                    loaded_ckpt = self._loaded_model_file
+
+                policies.append({
+                    "name": entry.name,
+                    "path": entry.path,
+                    "type": "directory",
+                    "algorithm": algorithm,
+                    "checkpoints": checkpoints,
+                    "num_checkpoints": len(checkpoints),
+                    "latest_step": max(steps) if steps else None,
+                    "size_mb": round(total_size / (1024 * 1024), 1),
+                    "modified_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(latest_mtime)),
+                    "is_loaded": is_loaded,
+                    "loaded_checkpoint": loaded_ckpt,
+                })
+
+            elif entry.is_file() and entry.name.endswith(".pt"):
+                policies.append({
+                    "name": entry.name,
+                    "path": entry.path,
+                    "type": "file",
+                    "algorithm": "unknown",
+                    "checkpoints": [entry.name],
+                    "num_checkpoints": 1,
+                    "latest_step": None,
+                    "size_mb": round(entry.stat().st_size / (1024 * 1024), 1),
+                    "modified_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(entry.stat().st_mtime)),
+                    "is_loaded": False,
+                    "loaded_checkpoint": None,
+                })
+
+        return policies
+
+    def _recreate_encoder(self):
+        """Recreate H.264 encoder with current params, fallback to JPEG."""
+        width, height = self.camera_res
+        if self.encoder:
+            self.encoder.close()
+        try:
+            self.encoder = NvencEncoder(
+                width, height,
+                fps=self.target_fps,
+                bitrate=self.h264_bitrate,
+                gop=1,
+                preset=self.h264_preset,
+            )
+            logger.info(f"NVENC encoder recreated: bitrate={self.h264_bitrate}, preset={self.h264_preset}")
+        except Exception as e:
+            logger.warning(f"NVENC recreation failed ({e}), falling back to JPEG")
+            self.encoder = JpegEncoder(quality=self.jpeg_quality)
 
     def render_and_write(self):
         """Render camera frame, encode (NVENC or JPEG), write to SHM."""
@@ -374,12 +478,23 @@ class GenesisSimRunner:
                         logger.info("ESTOP cleared by operator")
                     else:
                         logger.warning("ESTOP clear rejected — video gate still active")
+                elif action == "list_policies":
+                    policies = self._scan_checkpoints()
+                    await self.nc.publish(
+                        "telemetry.policy.list",
+                        json.dumps({"policies": policies}).encode(),
+                    )
                 elif action == "load_policy":
                     checkpoint_dir = cmd_data.get("checkpoint_dir", "")
                     model_file = cmd_data.get("model_file")
                     if checkpoint_dir and os.path.exists(checkpoint_dir):
                         obs_dim = self.current_obs.shape[-1] if self.current_obs is not None else 310
                         self.policy = load_policy(checkpoint_dir, model_file=model_file, obs_dim=obs_dim)
+                        if self.policy:
+                            self.checkpoint_dir = checkpoint_dir
+                            self._loaded_model_file = model_file or os.path.basename(
+                                sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))[-1]
+                            )
                 elif action == "load_robot":
                     pass  # TODO: implement robot loading
                 elif action == "set_mode":
@@ -393,6 +508,19 @@ class GenesisSimRunner:
                             self.encoder.quality = self.jpeg_quality
                     if "stream_fps" in cmd_data:
                         self.target_fps = int(cmd_data["stream_fps"])
+                    recreate = False
+                    if "h264_bitrate" in cmd_data:
+                        new_bitrate = int(float(cmd_data["h264_bitrate"]) * 1_000_000)
+                        if new_bitrate != self.h264_bitrate:
+                            self.h264_bitrate = new_bitrate
+                            recreate = True
+                    if "h264_preset" in cmd_data:
+                        new_preset = str(cmd_data["h264_preset"])
+                        if new_preset != self.h264_preset:
+                            self.h264_preset = new_preset
+                            recreate = True
+                    if recreate and isinstance(self.encoder, NvencEncoder):
+                        self._recreate_encoder()
 
                 # Publish ack
                 ack = {"action": action, "cmd_seq": cmd_seq, "status": "ok"}
@@ -468,6 +596,7 @@ class GenesisSimRunner:
                         "step": step_count,
                         "fps": self.target_fps,
                         "policy_loaded": self.policy is not None,
+                        "policy_checkpoint": getattr(self, '_loaded_model_file', None),
                         "paused": self.paused,
                     }
                     if self.env:

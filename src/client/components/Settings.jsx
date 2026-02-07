@@ -80,6 +80,8 @@ const defaultSettings = {
     activeEnvIdx: 0,
     streamFps: 60,
     jpegQuality: 80,
+    h264Bitrate: 3,
+    h264Preset: 'llhp',
     cameraRes: '1280x720',
     trainingMetricsRate: 5,
     showSimOverlay: true,
@@ -1129,7 +1131,35 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
                     </>
                   )}
                   <div className="setting-item">
-                    <label htmlFor="genesis-jpeg-quality">JPEG Quality</label>
+                    <label htmlFor="genesis-h264-bitrate">H.264 Bitrate (Mbps)</label>
+                    <input
+                      id="genesis-h264-bitrate"
+                      type="range"
+                      min="0.5"
+                      max="10"
+                      step="0.5"
+                      value={getSetting('genesis', 'h264Bitrate', 3)}
+                      onChange={(e) => handleSliderChange('genesis', 'h264Bitrate', e.target.value, 0.5, 10)}
+                    />
+                    <span className="setting-value">{getSetting('genesis', 'h264Bitrate', 3)} Mbps</span>
+                  </div>
+                  <div className="setting-item">
+                    <label htmlFor="genesis-h264-preset">Encoder Preset</label>
+                    <select
+                      id="genesis-h264-preset"
+                      value={getSetting('genesis', 'h264Preset', 'llhp')}
+                      onChange={(e) => handleChange('genesis', 'h264Preset', e.target.value)}
+                    >
+                      <option value="llhp">Low Latency HP</option>
+                      <option value="ll">Low Latency</option>
+                      <option value="llhq">Low Latency HQ</option>
+                      <option value="hq">High Quality</option>
+                      <option value="hp">High Perf</option>
+                      <option value="default">Default</option>
+                    </select>
+                  </div>
+                  <div className="setting-item">
+                    <label htmlFor="genesis-jpeg-quality">Quality (JPEG fallback)</label>
                     <input
                       id="genesis-jpeg-quality"
                       type="range"

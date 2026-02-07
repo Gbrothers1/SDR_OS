@@ -84,6 +84,8 @@ const defaultSettings = {
     activeEnvIdx: 0,
     streamFps: 60,
     jpegQuality: 80,
+    h264Bitrate: 3,
+    h264Preset: 'llhp',
     cameraRes: '1280x720',
     trainingMetricsRate: 5,
     showSimOverlay: true,
