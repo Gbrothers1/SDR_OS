@@ -5,7 +5,7 @@ mod nats;
 mod shm;
 mod transport;
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -27,6 +27,13 @@ use crate::nats::subscriber::{telemetry_relay, TelemetryMsg};
 use crate::shm::reader::{ReadResult, ShmReader};
 use crate::transport::websocket::{encode_video_frame, MSG_TYPE_COMMAND};
 
+/// Video gate state shared between SHM reader and WS handlers.
+struct VideoGateState {
+    gate_active: AtomicBool,
+    estop_active: AtomicBool,
+    last_shm_frame_time: std::sync::Mutex<Instant>,
+}
+
 /// Shared application state passed to axum handlers.
 #[derive(Clone)]
 struct AppState {
@@ -35,6 +42,9 @@ struct AppState {
     health: HealthState,
     idr_timeout_ms: u64,
     nats_client: Option<async_nats::Client>,
+    video_gate: Arc<VideoGateState>,
+    video_gate_hold_ms: u64,
+    video_gate_estop_ms: u64,
 }
 
 #[tokio::main]
@@ -61,16 +71,6 @@ async fn main() {
         start_time: Instant::now(),
     };
 
-    // Spawn SHM reader loop
-    let shm_health = health_state.clone();
-    let shm_broadcast = Arc::clone(&frame_broadcast);
-    let shm_path = cfg.shm_path.clone();
-    let shm_size = cfg.shm_size;
-    let crc_enabled = cfg.crc_enabled;
-    tokio::spawn(async move {
-        shm_read_loop(shm_path, shm_size, crc_enabled, shm_broadcast, shm_health).await;
-    });
-
     // Connect to NATS (non-fatal if unavailable)
     let nats_client = match async_nats::connect(&cfg.nats_url).await {
         Ok(client) => {
@@ -94,12 +94,33 @@ async fn main() {
         });
     }
 
+    let video_gate = Arc::new(VideoGateState {
+        gate_active: AtomicBool::new(false),
+        estop_active: AtomicBool::new(false),
+        last_shm_frame_time: std::sync::Mutex::new(Instant::now()),
+    });
+
+    // Spawn SHM reader loop
+    let shm_health = health_state.clone();
+    let shm_broadcast = Arc::clone(&frame_broadcast);
+    let shm_path = cfg.shm_path.clone();
+    let shm_size = cfg.shm_size;
+    let crc_enabled = cfg.crc_enabled;
+    let shm_gate = Arc::clone(&video_gate);
+    let shm_nats = nats_client.clone();
+    tokio::spawn(async move {
+        shm_read_loop(shm_path, shm_size, crc_enabled, shm_broadcast, shm_health, shm_gate, shm_nats).await;
+    });
+
     let app_state = AppState {
         frame_broadcast: Arc::clone(&frame_broadcast),
         telemetry_tx: telemetry_tx.clone(),
         health: health_state.clone(),
         idr_timeout_ms: cfg.idr_timeout_ms,
         nats_client,
+        video_gate,
+        video_gate_hold_ms: cfg.video_gate_hold_ms,
+        video_gate_estop_ms: cfg.video_gate_estop_ms,
     };
 
     // Build router
@@ -159,6 +180,9 @@ async fn handle_ws_client(socket: WebSocket, state: AppState) {
         guard,
         state.idr_timeout_ms,
         state.nats_client.clone(),
+        Arc::clone(&state.video_gate),
+        state.video_gate_hold_ms,
+        state.video_gate_estop_ms,
     )
     .await;
 
@@ -184,6 +208,9 @@ async fn unified_send_loop(
     _guard: crate::fanout::broadcast::ClientGuard,
     idr_timeout_ms: u64,
     nats_client: Option<async_nats::Client>,
+    video_gate: Arc<VideoGateState>,
+    video_gate_hold_ms: u64,
+    video_gate_estop_ms: u64,
 ) {
     let mut client_state = ClientState::AwaitingKeyframe {
         since: Instant::now(),
@@ -246,6 +273,37 @@ async fn unified_send_loop(
                             if let Some(ref nc) = nats_client {
                                 if let Ok(cmd) = serde_json::from_slice::<serde_json::Value>(&data[1..]) {
                                     if let Some(action) = cmd.get("action").and_then(|a| a.as_str()) {
+                                        let is_always_allowed = matches!(action, "estop" | "estop_clear" | "pause" | "reset");
+                                        let is_motion = matches!(action, "set_cmd_vel" | "set_alpha");
+
+                                        // Video gate: block motion commands when video stale
+                                        if is_motion && !is_always_allowed {
+                                            let stale_ms = video_gate.last_shm_frame_time
+                                                .lock().unwrap().elapsed().as_millis() as u64;
+
+                                            if stale_ms > video_gate_estop_ms {
+                                                // ESTOP escalation — publish once
+                                                if !video_gate.estop_active.swap(true, Ordering::SeqCst) {
+                                                    let estop = serde_json::json!({"reason": "video_timeout", "_safety": "estop"});
+                                                    let _ = nats::publisher::publish_command(nc, "estop", &serde_json::to_vec(&estop).unwrap()).await;
+                                                    let gate_msg = serde_json::json!({"gated": true, "mode": "ESTOP", "stale_ms": stale_ms});
+                                                    let _ = nc.publish("telemetry.safety.video_gate".to_string(), serde_json::to_vec(&gate_msg).unwrap().into()).await;
+                                                    tracing::warn!(stale_ms, "video gate ESTOP — video stale, blocking all motion");
+                                                }
+                                                continue;
+                                            } else if stale_ms > video_gate_hold_ms {
+                                                // HOLD — latch one zero velocity, then drop
+                                                if !video_gate.gate_active.swap(true, Ordering::SeqCst) {
+                                                    let zero_vel = serde_json::json!({"action": "set_cmd_vel", "data": {"linear_x": 0, "linear_y": 0, "angular_z": 0}, "_safety": "hold"});
+                                                    let _ = nats::publisher::publish_command(nc, "set_cmd_vel", &serde_json::to_vec(&zero_vel).unwrap()).await;
+                                                    let gate_msg = serde_json::json!({"gated": true, "mode": "HOLD", "stale_ms": stale_ms});
+                                                    let _ = nc.publish("telemetry.safety.video_gate".to_string(), serde_json::to_vec(&gate_msg).unwrap().into()).await;
+                                                    tracing::warn!(stale_ms, "video gate HOLD — latched zero velocity");
+                                                }
+                                                continue;
+                                            }
+                                        }
+
                                         let payload = &data[1..];
                                         if let Err(e) = nats::publisher::publish_command(nc, action, payload).await {
                                             tracing::warn!(action, error = %e, "failed to publish command to NATS");
@@ -269,6 +327,8 @@ async fn shm_read_loop(
     crc_enabled: bool,
     broadcast: Arc<FrameBroadcast>,
     health: HealthState,
+    video_gate: Arc<VideoGateState>,
+    nats_client: Option<async_nats::Client>,
 ) {
     // Wait for the SHM file to appear
     loop {
@@ -316,6 +376,7 @@ async fn shm_read_loop(
             if let ReadResult::Frame(_) = reader.try_read_frame() {
                 health.shm_seq.store(reader.last_seq(), Ordering::Relaxed);
                 *health.last_frame_time.lock().unwrap() = Some(Instant::now());
+                *video_gate.last_shm_frame_time.lock().unwrap() = Instant::now();
             }
             continue;
         }
@@ -324,6 +385,18 @@ async fn shm_read_loop(
             ReadResult::Frame(frame) => {
                 health.shm_seq.store(reader.last_seq(), Ordering::Relaxed);
                 *health.last_frame_time.lock().unwrap() = Some(Instant::now());
+                *video_gate.last_shm_frame_time.lock().unwrap() = Instant::now();
+
+                // Clear gate if video recovered
+                if video_gate.gate_active.swap(false, Ordering::SeqCst) {
+                    if let Some(ref nc) = nats_client {
+                        let msg = serde_json::json!({"gated": false});
+                        let _ = nc.publish("telemetry.safety.video_gate".to_string(), serde_json::to_vec(&msg).unwrap().into()).await;
+                        tracing::info!("video gate cleared — video recovered");
+                    }
+                }
+                video_gate.estop_active.store(false, Ordering::SeqCst);
+
                 reader.on_frame_received();
                 broadcast.send_frame(frame);
             }
