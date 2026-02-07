@@ -77,3 +77,62 @@
 .app__test-badge:hover {
   background: rgba(46, 230, 166, 0.25);
 }
+
+/* ===== Overflow panels (policy checkpoint list, etc.) ===== */
+.overflow-panel {
+  position: fixed;
+  top: var(--strip-height);
+  bottom: 0;
+  width: var(--panel-width);
+  background: var(--color-glass-bg);
+  border: var(--border-width) solid var(--color-glass-border);
+  backdrop-filter: blur(var(--backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--backdrop-blur));
+  box-shadow: var(--shadow-lg);
+  z-index: calc(var(--z-overlay) - 2);
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: transform var(--panel-slide-duration);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.overflow-panel--left {
+  left: var(--panel-width);
+  border-left: none;
+  border-top: none;
+  border-bottom: none;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  transform: translateX(-100%);
+}
+
+.overflow-panel--right {
+  right: var(--panel-width);
+  border-right: none;
+  border-top: none;
+  border-bottom: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  transform: translateX(100%);
+}
+
+.overflow-panel--open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (max-width: 768px) {
+  .overflow-panel {
+    width: 100%;
+    left: 0;
+    right: 0;
+    border-radius: 0;
+  }
+  .overflow-panel--left,
+  .overflow-panel--right {
+    transform: translateX(100%);
+  }
+  .overflow-panel--open {
+    transform: translateX(0);
+  }
+}

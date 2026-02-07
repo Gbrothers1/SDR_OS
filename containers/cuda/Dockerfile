@@ -36,10 +36,12 @@ COPY package.json package-lock.json* pnpm-lock.yaml* ./
 # Install Python packages into /opt/venv so host volume mount doesn't shadow them.
 # uv sync creates .venv which gets overwritten by the host mount, so we sync then
 # copy the result into /opt/venv and clean up.
-RUN uv sync --frozen --group cuda \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --group cuda \
     && cp -a /workspace/.venv/lib/python3.10/site-packages/* /opt/venv/lib/python3.10/site-packages/ \
-    && rm -rf /workspace/.venv \
-    && if [ -f package-lock.json ]; then npm ci; fi \
+    && rm -rf /workspace/.venv
+RUN --mount=type=cache,target=/root/.npm \
+    if [ -f package-lock.json ]; then npm ci; fi \
     && if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile; fi
 
 COPY . /workspace

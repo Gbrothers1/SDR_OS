@@ -30,6 +30,21 @@ jobs:
         run: PYTHONPATH=src pytest -v tests/unit/
         env:
           PYTHONPATH: src
+      - name: Cross-language SHM protocol tests
+        run: PYTHONPATH=src pytest -v tests/integration/test_shm_cross_language.py
+        env:
+          PYTHONPATH: src
+
+  rust-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/transport-server
+      - name: Transport server tests
+        run: cargo test --manifest-path services/transport-server/Cargo.toml
 
   ros-jazzy-build:
     runs-on: ubuntu-latest

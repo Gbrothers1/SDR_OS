@@ -1,0 +1,80 @@
+# SDR_OS Genesis-Forge RL Integration — Default Configuration
+
+env:
+  num_envs: 4096
+  num_observations: 48
+  num_actions: 12
+  dt: 0.02               # simulation timestep (seconds)
+  episode_length: 500     # max steps per episode
+
+action_spec:
+  segments:
+    - name: lin_vel
+      start: 0
+      size: 3
+      scale: 1.0
+      clip_min: -1.0
+      clip_max: 1.0
+    - name: ang_vel
+      start: 3
+      size: 3
+      scale: 1.0
+      clip_min: -0.5
+      clip_max: 0.5
+    - name: joint_pos
+      start: 6
+      size: 6
+      scale: 0.25
+      clip_min: -1.0
+      clip_max: 1.0
+
+safety:
+  max_vel: 1.0            # m/s
+  max_accel: 5.0          # m/s^2
+  max_jerk: 50.0          # m/s^3
+
+alpha:
+  init: 0.0               # start with pure teleop
+  max_ramp: 0.1           # max alpha increase per step
+  min: 0.0
+  max: 1.0
+
+rewards:
+  tracking_lin_vel:
+    weight: 1.0
+  tracking_ang_vel:
+    weight: 0.5
+  base_height:
+    weight: -50.0
+  orientation:
+    weight: -5.0
+  joint_acc:
+    weight: -0.0001
+  action_rate:
+    weight: -0.01
+
+logging:
+  dataset_dir: rl/datasets
+  format: npz             # npz or parquet
+
+stream:
+  fps: 30
+  jpeg_quality: 80
+  camera_res: [1280, 720]
+  metrics_rate: 5         # Hz
+
+training:
+  bc:
+    learning_rate: 0.001
+    batch_size: 256
+    epochs: 100
+  ppo:
+    learning_rate: 0.001
+    num_steps_per_env: 24
+    num_mini_batches: 4
+    gamma: 0.99
+    lam: 0.95
+    clip_param: 0.2
+    max_grad_norm: 1.0
+    entropy_coef: 0.01
+    value_loss_coef: 1.0

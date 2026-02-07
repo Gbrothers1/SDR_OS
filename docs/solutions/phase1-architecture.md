@@ -15,52 +15,51 @@ The full SDR_OS backend is 12 services across 7 Docker Compose profiles with net
                          │                  EDGE NETWORK                   │
                          │                                                 │
                          │   ┌─────────┐                                   │
-  Browser ──────────────────▶│  Caddy   │◀── TLS termination               │
-                         │   │ :80/:443│                                   │
+  Browser ──────────────────▶│  Caddy   │  :80 (webserver)                 │
+                         │   │ static  │                                   │
                          │   └────┬────┘                                   │
-                         │        │                                        │
-                         │   ┌────┼─────────────────┬──────────────┐       │
-                         │   │    │                  │              │       │
-                         │   ▼    ▼                  ▼              ▼       │
-                         │ ┌──────────┐  ┌───────────────┐  ┌──────────┐   │
-                         │ │transport │  │  ros-bridge    │  │webserver │   │
-                         │ │ server   │  │  (host net)    │  │ :3000    │   │
-                         │ │ :9001    │  │  :9090         │  │          │   │
-                         │ └────┬─────┘  └───────────────┘  └──────────┘   │
-                         │      │                                          │
-                         └──────┼──────────────────────────────────────────┘
+                         │   ┌────┼──────────┬──────────────┐              │
+                         │   │    │          │              │              │
+                         │   ▼    ▼          ▼              ▼              │
+                         │ ┌──────────┐ ┌──────────┐  ┌───────────────┐   │
+                         │ │transport │ │  node    │  │  ros-bridge   │   │
+                         │ │ server   │ │ :3000   │  │  (host net)   │   │
+                         │ │ :8080    │ │ gamepad │  │  :9090        │   │
+                         │ └────┬─────┘ └─────────┘  └───────────────┘   │
+                         │      │                                         │
+                         └──────┼─────────────────────────────────────────┘
                                 │
-                         ┌──────┼──────────────────────────────────────────┐
-                         │      │          BACKPLANE NETWORK (internal)     │
-                         │      ▼                                          │
-                         │ ┌──────────┐        ┌──────────┐                │
-                         │ │  SHM     │◀──────▶│  NATS    │                │
-                         │ │ tmpfs    │        │ JetStream│                │
-                         │ │ /dev/shm │        │ :4222    │                │
-                         │ └────┬─────┘        └────┬─────┘                │
-                         │      │                    │                     │
-                         │ ┌────▼─────┐        ┌────▼──────┐              │
-                         │ │genesis   │        │ training  │              │
-                         │ │  sim     │        │  runner   │              │
-                         │ │(GPU:0)   │        │ (GPU:0)   │              │
-                         │ └──────────┘        └───────────┘              │
-                         │                                                 │
-                         │ ┌──────────┐  ┌──────────┐                      │
-                         │ │Prometheus│  │ Grafana  │                      │
-                         │ │ :9090    │  │ :3001    │                      │
-                         │ └──────────┘  └──────────┘                      │
-                         └─────────────────────────────────────────────────┘
+                         ┌──────┼─────────────────────────────────────────┐
+                         │      │          BACKPLANE NETWORK (internal)    │
+                         │      ▼                                         │
+                         │ ┌──────────┐        ┌──────────┐               │
+                         │ │  SHM     │◀──────▶│  NATS    │               │
+                         │ │ tmpfs    │        │ JetStream│               │
+                         │ │ /dev/shm │        │ :4222    │               │
+                         │ └────┬─────┘        └────┬─────┘               │
+                         │      │                    │                    │
+                         │ ┌────▼─────┐        ┌────▼──────┐             │
+                         │ │genesis   │        │ training  │             │
+                         │ │  sim     │        │  runner   │             │
+                         │ │(GPU:0)   │        │ (GPU:0)   │             │
+                         │ └──────────┘        └───────────┘             │
+                         │                                                │
+                         │ ┌──────────┐  ┌──────────┐                     │
+                         │ │Prometheus│  │ Grafana  │                     │
+                         │ │ :9090    │  │ :3001    │                     │
+                         │ └──────────┘  └──────────┘                     │
+                         └────────────────────────────────────────────────┘
 ```
 
 ### Service Registry
 
 | Service | Profile | Network | Port | Purpose |
 |---------|---------|---------|------|---------|
-| `caddy` | `sim` | edge | 80, 443 | Reverse proxy, TLS |
-| `webserver` | `dev`, `sim` | edge | 3000 | React frontend + Socket.io |
-| `transport-server` | `sim` | edge + backplane | 9001 | WebSocket frame fanout |
+| `webserver` (Caddy) | `dev`, `sim` | edge + backplane | 80, 443 | Reverse proxy, static files, TLS |
+| `node` | `dev`, `sim` | backplane | 3000 (internal) | Socket.io gamepad relay, /api |
+| `transport-server` | `sim` | edge + backplane | 8080 | SHM→WS fanout, NATS relay, video gate |
 | `ros-bridge` | `dev`, `sim` | host | 9090 | ROS2 rosbridge_server |
-| `genesis-sim` | `sim` | backplane | — | Physics simulation (GPU) |
+| `genesis-sim` | `sim` | host | — | Physics simulation (GPU) |
 | `nats` | `sim`, `train` | backplane | 4222 | Event bus (JetStream) |
 | `training-runner` | `train` | backplane | — | RL training loop (GPU) |
 | `prometheus` | `obs` | backplane | 9090 | Metrics collection |
@@ -80,12 +79,12 @@ Two Docker networks enforce security boundaries:
 │                    EDGE NETWORK                       │
 │              (bridge, internet-facing)                │
 │                                                       │
-│  caddy ◀──▶ webserver ◀──▶ transport-server           │
+│  webserver (Caddy) ◀──▶ node ◀──▶ transport-server   │
 │                                                       │
 │  ros-bridge (host network — bypasses Docker for DDS)  │
 └──────────────────────────────────────────────────────┘
         ▲
-        │ transport-server has dual membership
+        │ webserver + transport-server have dual membership
         ▼
 ┌──────────────────────────────────────────────────────┐
 │              BACKPLANE NETWORK                        │
@@ -102,7 +101,7 @@ Two Docker networks enforce security boundaries:
 └──────────────────────────────────────────────────────┘
 ```
 
-**Key design choice:** `transport-server` is the only service on both networks — it bridges SHM frame data from the backplane to browser clients on the edge.
+**Key design choice:** `webserver` (Caddy) and `transport-server` are on both networks — Caddy routes browser traffic to the appropriate backend, while transport-server bridges SHM frame data from the backplane to browser clients on the edge.
 
 ---
 
@@ -219,21 +218,20 @@ Writer                              Reader
 │  ┌─────────────────── FREE RUNNERS (ubuntu-latest) ────────┐ │
 │  │                                                          │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │ │
-│  │  │  validate-   │  │  lint-and-   │  │ ros-jazzy-   │   │ │
-│  │  │  compose     │  │  unit        │  │ build        │   │ │
-│  │  │              │  │              │  │              │   │ │
-│  │  │ docker       │  │ Python 3.12  │  │ Build ROS2   │   │ │
-│  │  │ compose      │  │ pytest       │  │ container    │   │ │
-│  │  │ config       │  │ 17 tests     │  │ Verify       │   │ │
-│  │  │              │  │              │  │ rosbridge    │   │ │
+│  │  │  validate-   │  │  lint-and-   │  │  rust-unit   │   │ │
+│  │  │  compose     │  │  unit        │  │              │   │ │
+│  │  │              │  │              │  │  cargo test  │   │ │
+│  │  │ docker       │  │ Python 3.12  │  │  transport-  │   │ │
+│  │  │ compose      │  │ pytest unit  │  │  server      │   │ │
+│  │  │ config       │  │ + SHM compat │  │  (7 modules) │   │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘   │ │
 │  │                                                          │ │
-│  │  ┌──────────────┐                                        │ │
-│  │  │  docs-build  │                                        │ │
-│  │  │              │                                        │ │
-│  │  │  mkdocs      │                                        │ │
-│  │  │  build       │                                        │ │
-│  │  └──────────────┘                                        │ │
+│  │  ┌──────────────┐  ┌──────────────┐                      │ │
+│  │  │ ros-jazzy-   │  │  docs-build  │                      │ │
+│  │  │ build        │  │              │                      │ │
+│  │  │ Build ROS2   │  │  mkdocs      │                      │ │
+│  │  │ container    │  │  build       │                      │ │
+│  │  └──────────────┘  └──────────────┘                      │ │
 │  └──────────────────────────────────────────────────────────┘ │
 │                                                              │
 │  ┌────────────── SELF-HOSTED RUNNERS (GPU) ─────────────────┐ │
@@ -268,9 +266,9 @@ Profiles group services for different use cases. Only start what you need:
          │  dev   │ │  sim   │ │ train  │ │  obs   │ │  cuda  │ │  rocm  │ │  mlx   │
          │        │ │        │ │        │ │        │ │        │ │        │ │        │
          │web     │ │web     │ │train   │ │prom    │ │app-    │ │app-    │ │app-    │
-         │ros     │ │ros     │ │nats    │ │grafana │ │cuda    │ │rocm    │ │mlx     │
+         │node    │ │node    │ │nats    │ │grafana │ │cuda    │ │rocm    │ │mlx     │
+         │ros     │ │ros     │ │        │ │        │ │        │ │        │ │        │
          │        │ │genesis │ │        │ │        │ │        │ │        │ │        │
-         │        │ │caddy   │ │        │ │        │ │        │ │        │ │        │
          │        │ │nats    │ │        │ │        │ │        │ │        │ │        │
          │        │ │xport   │ │        │ │        │ │        │ │        │ │        │
          └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘

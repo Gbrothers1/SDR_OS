@@ -45,6 +45,7 @@ export class H264Decoder {
     this.decoder.configure({
       codec,
       hardwareAcceleration: 'prefer-hardware',
+      optimizeForLatency: true,
     });
 
     this.waitingForKeyframe = true;
@@ -139,8 +140,8 @@ export async function detectH264Support() {
     return { supported: false };
   }
 
-  // Try codecs in order of preference
-  const codecs = ['avc1.42E01E', 'avc1.4D401E', 'avc1.64001E'];
+  // Try codecs in order of preference (42C01F = NVENC baseline L3.1)
+  const codecs = ['avc1.42C01F', 'avc1.42E01E', 'avc1.4D401E', 'avc1.64001E'];
 
   for (const codec of codecs) {
     const cfg = { codec, hardwareAcceleration: 'prefer-hardware' };

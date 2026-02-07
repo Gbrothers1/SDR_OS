@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import '../styles/ControlOverlay.css';
 import ROSLIB from 'roslib';
 import soundEffects from '../audio/SoundEffects';
 import { useSettings } from '../contexts/SettingsContext';
 
-const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepadAxes, sendCommand, sendVelocityCommand }) => {
+const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepadAxes, sendCommand, sendVelocityCommand, onExpandChange }) => {
   const gamepadRef = useRef(null);
   const animationFrameRef = useRef();
   const { getSetting, updateSettings } = useSettings();
@@ -14,21 +15,14 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
 
   // Get minimized state from settings
   const initialMinimized = getSetting('ui', 'controllerMinimized', false);
-  console.log('ControlOverlay initializing with minimized state:', initialMinimized);
-  
+
   // Use isHidden for UI state (instead of tracking a separate isVisible state)
   const [isHidden, setIsHidden] = useState(initialMinimized);
-  
-  // Log when isHidden changes
-  useEffect(() => {
-    console.log('ControlOverlay isHidden state changed to:', isHidden);
-  }, [isHidden]);
-  
+
   // Sync with settings when they change
   useEffect(() => {
     const minimizedInSettings = getSetting('ui', 'controllerMinimized', false);
     if (isHidden !== minimizedInSettings) {
-      console.log('Syncing minimized state with settings:', minimizedInSettings);
       setIsHidden(minimizedInSettings);
     }
   }, [getSetting, isHidden]);
@@ -67,6 +61,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
   const [showGamepadPrompt, setShowGamepadPrompt] = useState(false);
   const gamepadMissCount = useRef(0);
   const GAMEPAD_MISS_THRESHOLD = 60; // ~1 second at 60fps before declaring disconnect
+  const portalTarget = document.getElementById('overflow-panel-left');
 
   useEffect(() => {
     buttonStatesRef.current = buttonStates;
@@ -626,6 +621,10 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
     }
   }, [isHidden, updateSettings]);
 
+  useEffect(() => {
+    if (onExpandChange) onExpandChange(showMappings);
+  }, [showMappings, onExpandChange]);
+
   // Use the appropriate control state based on whether this client has a gamepad or not
   const displayControlState = isGamepadConnected ? controlState : localControlState;
   
@@ -841,48 +840,49 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
         )}
             </div>
 
-      <div className={`mapping-section ${showMappings ? 'visible' : ''}`} onClick={(e) => e.stopPropagation()}>
-        <div className="mapping-border"></div>
-              {showMappings && (
+      {showMappings && portalTarget && createPortal(
+        <div className="mapping-section visible" onClick={(e) => e.stopPropagation()}>
+          <div className="mapping-border"></div>
           <div className="mapping-content">
-                  <div className="mapping-title">ROS Mappings</div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Left Stick</div>
-                    <div>{rosMappings.leftStick.x}</div>
-                    <div>{rosMappings.leftStick.y}</div>
-                  </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Right Stick</div>
-                    <div>{rosMappings.rightStick.x}</div>
-                    <div>{rosMappings.rightStick.y}</div>
-                  </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Triggers</div>
-                    <div>{rosMappings.triggers.left}</div>
-                    <div>{rosMappings.triggers.right}</div>
-                  </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">D-pad</div>
-                    <div>{rosMappings.dpad.up}</div>
-                    <div>{rosMappings.dpad.down}</div>
-                    <div>{rosMappings.dpad.left}</div>
-                    <div>{rosMappings.dpad.right}</div>
-                  </div>
-                  
-                  <div className="mapping-info">
-                    <div className="mapping-title">Buttons</div>
-                    <div>{rosMappings.buttons.A}</div>
-                    <div>{rosMappings.buttons.B}</div>
-                    <div>{rosMappings.buttons.X}</div>
-                    <div>{rosMappings.buttons.Y}</div>
+            <div className="mapping-title">ROS Mappings</div>
+
+            <div className="mapping-info">
+              <div className="mapping-title">Left Stick</div>
+              <div>{rosMappings.leftStick.x}</div>
+              <div>{rosMappings.leftStick.y}</div>
+            </div>
+
+            <div className="mapping-info">
+              <div className="mapping-title">Right Stick</div>
+              <div>{rosMappings.rightStick.x}</div>
+              <div>{rosMappings.rightStick.y}</div>
+            </div>
+
+            <div className="mapping-info">
+              <div className="mapping-title">Triggers</div>
+              <div>{rosMappings.triggers.left}</div>
+              <div>{rosMappings.triggers.right}</div>
+            </div>
+
+            <div className="mapping-info">
+              <div className="mapping-title">D-pad</div>
+              <div>{rosMappings.dpad.up}</div>
+              <div>{rosMappings.dpad.down}</div>
+              <div>{rosMappings.dpad.left}</div>
+              <div>{rosMappings.dpad.right}</div>
+            </div>
+
+            <div className="mapping-info">
+              <div className="mapping-title">Buttons</div>
+              <div>{rosMappings.buttons.A}</div>
+              <div>{rosMappings.buttons.B}</div>
+              <div>{rosMappings.buttons.X}</div>
+              <div>{rosMappings.buttons.Y}</div>
             </div>
           </div>
+        </div>,
+        portalTarget
       )}
-      </div>
     </div>
   );
 };

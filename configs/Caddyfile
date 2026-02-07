@@ -2,7 +2,15 @@
 # For Tailscale TLS, replace :80 with your tailscale hostname
 
 :80 {
-    handle /health {
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+
+    @healthcheck path /health
+    handle @healthcheck {
+        skip_log
         respond "OK" 200
     }
 

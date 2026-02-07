@@ -211,6 +211,9 @@ export const GenesisProvider = ({ children, socket }) => {
           // Command acknowledgment — could be used for UI feedback
           if (data.action === 'load_policy') {
             setPolicyLoadStatus(data.status);
+            if (data.status !== 'ok') {
+              setPolicyLoadError(data.detail || 'Policy load failed');
+            }
           } else if (data.action === 'list_policies' && data.status !== 'ok') {
             console.warn('list_policies failed:', data);
           }

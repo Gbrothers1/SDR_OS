@@ -7,8 +7,11 @@ This section contains finalized architecture diagrams, design decisions, and ref
 | Phase | Title | Status | Key Diagrams |
 |-------|-------|--------|-------------|
 | [Phase 1](phase1-architecture.md) | CUDA Docker + Basic Pipeline | Complete | Service topology, SHM ringbuffer, video pipeline, CI pipeline |
-| Phase 2 | Rust Transport Server | Planned | — |
-| Phase 3 | TBD | — | — |
+| [Phase 2](phase2-architecture.md) | NATS Backbone + Safety Stack | Complete | Safety state machine, binary WS protocol, Caddy routing, NATS message flow |
+| Phase 3 | Production Hardening | Planned | — |
+| Phase 4 | WebRTC + Control Path | Planned | — |
+| Phase 5 | Training Integration | Planned | — |
+| Phase 6 | Distribution | Planned | — |
 
 ## How This Section Works
 

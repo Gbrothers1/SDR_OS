@@ -1,5 +1,8 @@
 # SDR_OS Documentation
 
+**v0.2.0** &mdash; Phase 1-2 complete (CUDA Docker, NATS backbone, safety stack, transport server)
+{ .version-badge }
+
 SDR_OS is a multi-backend robotics simulation and control platform for low-latency teleoperation, Genesis physics simulation, and reinforcement learning. It targets **CUDA** (NVIDIA), **ROCm** (AMD), and **MLX** (Apple Silicon) from a single source tree.
 
 ## Quick Start
@@ -23,15 +26,15 @@ docker compose --profile cuda run --rm app-cuda python3 scripts/validate_nvenc.p
 - **Browser-based control** — Gamepad and keyboard input via a React UI, with real-time 3D visualization (Three.js) and telemetry dashboards.
 - **Genesis simulation** — GPU-hosted physics simulation with NVENC video encoding and frame streaming to the browser.
 - **ROS 2 integration** — Full ROS 2 Jazzy support for real robots: sensor pipelines, `/cmd_vel`, joint states, TF.
-- **Multi-service backend** — Caddy reverse proxy, NATS message bus (JetStream), SHM ringbuffer for zero-copy video, Rust transport server (planned).
+- **Multi-service backend** — Caddy reverse proxy, NATS message bus (JetStream), SHM ringbuffer for zero-copy video, Rust transport server, 3-layer safety stack (HOLD/ESTOP).
 - **RL training pipeline** — Genesis-Forge + rsl_rl PPO, teleop recording, behavior cloning, policy evaluation.
 
 ## Tech stack
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React 18, Three.js, Socket.io client, ROSLIB (CDN), WebCodecs H.264 decoder |
-| Backend | Node.js / Express, Socket.io server |
+| Frontend | React 18, Three.js, Socket.io client (gamepad), ROSLIB (CDN), WebCodecs H.264 decoder |
+| Backend | Node.js / Express (gamepad relay), Rust transport-server (SHM→WS, NATS relay) |
 | Simulation | Genesis 0.3.13, Genesis Forge 0.3.0, MuJoCo 3.4.0 |
 | ML | PyTorch 2.10 (CUDA), rsl_rl, NumPy, OpenCV |
 | Infrastructure | Docker Compose (profiles), NATS + JetStream, Caddy 2 |
@@ -55,7 +58,7 @@ docker compose --profile cuda run --rm app-cuda python3 scripts/validate_nvenc.p
 | [Setup](setup.md) | Environment setup (uv, pnpm, Python, PyTorch, Genesis). |
 | [Architecture](architecture.md) | System topology, pipelines, multi-service design, implementation phases. |
 | [Frontend](frontend.md) | React components, contexts, styles, audio, entry points. |
-| [Backend](backend.md) | Express server, Socket.io events, Genesis bridge protocol. |
+| [Backend](backend.md) | Node server (gamepad relay), Rust transport server, Caddy routing. |
 | [Containers](containers.md) | Dockerfiles, Compose profiles, devcontainers. |
 | [CI/CD](ci.md) | Workflows, runners, test split, benchmarks, perf gates. |
 | [Testing](testing.md) | Local verification commands, CI troubleshooting. |
@@ -70,13 +73,15 @@ docker compose --profile cuda run --rm app-cuda python3 scripts/validate_nvenc.p
 SDR_OS/
 ├── src/client/           # React frontend (40+ components, 5 contexts)
 ├── src/sdr_os/           # Python backend (SHM ringbuffer, IPC)
-├── server.js             # Express + Socket.io backend
+├── server.js             # Express + Socket.io (gamepad relay only)
+├── services/transport-server/  # Rust: SHM→WS fanout, NATS relay, video gate
 ├── containers/           # CUDA / ROCm / MLX / ROS2 Jazzy Dockerfiles
 ├── configs/              # Caddyfile, nats.conf, prometheus.yml
 ├── docs/                 # This MkDocs site
 ├── documents/            # Internal architecture and planning docs
 ├── scripts/              # verify.sh, validate_nvenc.py, ROS2 launcher
 ├── tests/unit/           # CPU-only unit tests (SHM ringbuffer)
+├── tests/integration/    # Service integration tests (NATS, WS, safety)
 ├── tests/benchmarks/     # GPU benchmark scripts (CUDA, ROCm, MLX)
 ├── requirements/         # Per-backend pip requirements
 ├── .github/workflows/    # CI, benchmarks, compat-matrix, docs, perf

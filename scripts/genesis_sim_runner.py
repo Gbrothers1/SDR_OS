@@ -309,7 +309,7 @@ class GenesisSimRunner:
                     except Exception:
                         pass
 
-                # Extract step numbers from filenames
+                # Extract step numbers and sort numerically
                 checkpoints = [os.path.basename(f) for f in model_files]
                 steps = []
                 for name in checkpoints:
@@ -317,6 +317,8 @@ class GenesisSimRunner:
                         steps.append(int(name.replace("model_", "").replace(".pt", "")))
                     except ValueError:
                         pass
+                # Sort checkpoints by step number (numeric) instead of alphabetic
+                checkpoints.sort(key=lambda n: int(n.replace("model_", "").replace(".pt", "")) if n.startswith("model_") else 0)
 
                 total_size = sum(os.path.getsize(f) for f in model_files)
                 latest_mtime = max(os.path.getmtime(f) for f in model_files)
@@ -377,7 +379,7 @@ class GenesisSimRunner:
 
     def render_and_write(self):
         """Render camera frame, encode (NVENC or JPEG), write to SHM."""
-        render_result = self.env.camera.render()
+        render_result = self.env.camera.render(rgb=True, depth=False, segmentation=False, normal=False)
         img = render_result[0] if isinstance(render_result, tuple) else render_result
 
         if isinstance(img, torch.Tensor):
@@ -426,7 +428,22 @@ class GenesisSimRunner:
         import nats as nats_client
 
         nats_url = os.environ.get("SDR_NATS_URL", "nats://localhost:4222")
-        self.nc = await nats_client.connect(nats_url)
+
+        async def on_disconnect():
+            logger.warning("NATS disconnected")
+
+        async def on_reconnect():
+            logger.info("NATS reconnected")
+
+        async def on_error(e):
+            logger.error(f"NATS error: {e}")
+
+        self.nc = await nats_client.connect(
+            nats_url,
+            disconnected_cb=on_disconnect,
+            reconnected_cb=on_reconnect,
+            error_cb=on_error,
+        )
         logger.info(f"Connected to NATS at {nats_url}")
 
         # Subscribe to all genesis commands
@@ -445,6 +462,8 @@ class GenesisSimRunner:
                 data = json.loads(msg.data.decode()) if msg.data else {}
                 cmd_data = data.get("data", data)
                 cmd_seq = data.get("cmd_seq", 0)
+                status = "ok"
+                detail = None
 
                 # Out-of-order protection for velocity commands
                 if action == "set_cmd_vel":
@@ -460,80 +479,93 @@ class GenesisSimRunner:
                         self.env.set_velocity_from_gamepad(cmd_data)
                     continue
 
-                if action == "pause":
-                    self.paused = cmd_data.get("paused", True)
-                elif action == "reset":
-                    if self.env:
-                        obs, _ = self.env.reset()
-                        self.current_obs = obs
-                elif action == "estop":
-                    self._safety_mode = "ESTOP"
-                    self._safety_reason = cmd_data.get("reason", "operator")
-                    logger.warning(f"ESTOP triggered: {self._safety_reason}")
-                elif action == "estop_clear":
-                    if not self._video_gate_active:
-                        self._safety_mode = "ARMED"
-                        self._safety_reason = "operator_clear"
-                        self._last_cmd_vel_time = time.monotonic()
-                        logger.info("ESTOP cleared by operator")
-                    else:
-                        logger.warning("ESTOP clear rejected — video gate still active")
-                elif action == "list_policies":
-                    policies = self._scan_checkpoints()
-                    await self.nc.publish(
-                        "telemetry.policy.list",
-                        json.dumps({"policies": policies}).encode(),
-                    )
-                elif action == "load_policy":
-                    checkpoint_dir = cmd_data.get("checkpoint_dir", "")
-                    model_file = cmd_data.get("model_file")
-                    if checkpoint_dir and os.path.exists(checkpoint_dir):
+                try:
+                    if action == "pause":
+                        self.paused = cmd_data.get("paused", True)
+                    elif action == "reset":
+                        if self.env:
+                            obs, _ = self.env.reset()
+                            self.current_obs = obs
+                    elif action == "estop":
+                        self._safety_mode = "ESTOP"
+                        self._safety_reason = cmd_data.get("reason", "operator")
+                        logger.warning(f"ESTOP triggered: {self._safety_reason}")
+                    elif action == "estop_clear":
+                        if not self._video_gate_active:
+                            self._safety_mode = "ARMED"
+                            self._safety_reason = "operator_clear"
+                            self._last_cmd_vel_time = time.monotonic()
+                            logger.info("ESTOP cleared by operator")
+                        else:
+                            logger.warning("ESTOP clear rejected — video gate still active")
+                    elif action == "list_policies":
+                        policies = self._scan_checkpoints()
+                        await self.nc.publish(
+                            "telemetry.policy.list",
+                            json.dumps({"policies": policies}).encode(),
+                        )
+                    elif action == "load_policy":
+                        checkpoint_dir = cmd_data.get("checkpoint_dir", "")
+                        model_file = cmd_data.get("model_file")
+                        if not checkpoint_dir or not os.path.exists(checkpoint_dir):
+                            raise FileNotFoundError(f"Checkpoint dir not found: {checkpoint_dir}")
+                        if model_file:
+                            model_path = os.path.join(checkpoint_dir, model_file)
+                            if not os.path.exists(model_path):
+                                raise FileNotFoundError(f"Model file not found: {model_path}")
                         obs_dim = self.current_obs.shape[-1] if self.current_obs is not None else 310
                         self.policy = load_policy(checkpoint_dir, model_file=model_file, obs_dim=obs_dim)
-                        if self.policy:
-                            self.checkpoint_dir = checkpoint_dir
-                            self._loaded_model_file = model_file or os.path.basename(
-                                sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))[-1]
-                            )
-                elif action == "load_robot":
-                    pass  # TODO: implement robot loading
-                elif action == "set_mode":
-                    pass  # TODO: implement mode switching
-                elif action == "camera":
-                    pass  # TODO: implement camera control
-                elif action == "settings":
-                    if "jpeg_quality" in cmd_data:
-                        self.jpeg_quality = int(cmd_data["jpeg_quality"])
-                        if isinstance(self.encoder, JpegEncoder):
-                            self.encoder.quality = self.jpeg_quality
-                    if "stream_fps" in cmd_data:
-                        self.target_fps = int(cmd_data["stream_fps"])
-                    # Codec switch: h264 ↔ jpeg
-                    if "codec" in cmd_data:
-                        requested = cmd_data["codec"]
-                        if requested == "jpeg" and isinstance(self.encoder, NvencEncoder):
-                            logger.info("Switching encoder to JPEG")
-                            self.encoder.close()
-                            self.encoder = JpegEncoder(quality=self.jpeg_quality)
-                        elif requested == "h264" and isinstance(self.encoder, JpegEncoder):
-                            logger.info("Switching encoder to H.264 (NVENC)")
+                        if not self.policy:
+                            raise RuntimeError("Policy load returned None")
+                        self.checkpoint_dir = checkpoint_dir
+                        self._loaded_model_file = model_file or os.path.basename(
+                            sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))[-1]
+                        )
+                    elif action == "load_robot":
+                        pass  # TODO: implement robot loading
+                    elif action == "set_mode":
+                        pass  # TODO: implement mode switching
+                    elif action == "camera":
+                        pass  # TODO: implement camera control
+                    elif action == "settings":
+                        if "jpeg_quality" in cmd_data:
+                            self.jpeg_quality = int(cmd_data["jpeg_quality"])
+                            if isinstance(self.encoder, JpegEncoder):
+                                self.encoder.quality = self.jpeg_quality
+                        if "stream_fps" in cmd_data:
+                            self.target_fps = int(cmd_data["stream_fps"])
+                        # Codec switch: h264 ↔ jpeg
+                        if "codec" in cmd_data:
+                            requested = cmd_data["codec"]
+                            if requested == "jpeg" and isinstance(self.encoder, NvencEncoder):
+                                logger.info("Switching encoder to JPEG")
+                                self.encoder.close()
+                                self.encoder = JpegEncoder(quality=self.jpeg_quality)
+                            elif requested == "h264" and isinstance(self.encoder, JpegEncoder):
+                                logger.info("Switching encoder to H.264 (NVENC)")
+                                self._recreate_encoder()
+                        recreate = False
+                        if "h264_bitrate" in cmd_data:
+                            new_bitrate = int(float(cmd_data["h264_bitrate"]) * 1_000_000)
+                            if new_bitrate != self.h264_bitrate:
+                                self.h264_bitrate = new_bitrate
+                                recreate = True
+                        if "h264_preset" in cmd_data:
+                            new_preset = str(cmd_data["h264_preset"])
+                            if new_preset != self.h264_preset:
+                                self.h264_preset = new_preset
+                                recreate = True
+                        if recreate and isinstance(self.encoder, NvencEncoder):
                             self._recreate_encoder()
-                    recreate = False
-                    if "h264_bitrate" in cmd_data:
-                        new_bitrate = int(float(cmd_data["h264_bitrate"]) * 1_000_000)
-                        if new_bitrate != self.h264_bitrate:
-                            self.h264_bitrate = new_bitrate
-                            recreate = True
-                    if "h264_preset" in cmd_data:
-                        new_preset = str(cmd_data["h264_preset"])
-                        if new_preset != self.h264_preset:
-                            self.h264_preset = new_preset
-                            recreate = True
-                    if recreate and isinstance(self.encoder, NvencEncoder):
-                        self._recreate_encoder()
+                except Exception as e:
+                    status = "error"
+                    detail = str(e)
+                    logger.error(f"Command handler error ({action}): {e}")
 
                 # Publish ack
-                ack = {"action": action, "cmd_seq": cmd_seq, "status": "ok"}
+                ack = {"action": action, "cmd_seq": cmd_seq, "status": status}
+                if detail:
+                    ack["detail"] = detail
                 await self.nc.publish("telemetry.command.ack", json.dumps(ack).encode())
 
             except Exception as e:
@@ -642,11 +674,10 @@ class GenesisSimRunner:
                     await self.nc.publish("telemetry.safety.state", json.dumps(state).encode())
                     last_safety_time = now
 
-                # Frame pacing
+                # Frame pacing — minimum 1ms yield so NATS keepalives are processed
                 elapsed = time.monotonic() - t0
                 sleep_time = frame_interval - elapsed
-                if sleep_time > 0:
-                    await asyncio.sleep(sleep_time)
+                await asyncio.sleep(max(sleep_time, 0.001))
 
         except KeyboardInterrupt:
             logger.info("Interrupted")

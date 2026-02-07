@@ -14,9 +14,9 @@ const SimPlaceholder = () => (
 
 const ViewerLayer = ({ ros, appSettings, testMode = false, viewerOverride = null, onViewerChange }) => {
   const { rosConnected, genesisConnected } = usePhase();
-  const { currentFrame, mediaStream, streamBackend } = useGenesis();
+  const { currentFrame, mediaStream, streamBackend, streamCodec } = useGenesis();
 
-  const hasGenesis = genesisConnected && (currentFrame || mediaStream);
+  const hasGenesis = genesisConnected && (currentFrame || mediaStream || streamCodec === 'h264');
   const hasRos = rosConnected;
 
   // Primary source: external override > genesis > ros > test fallback

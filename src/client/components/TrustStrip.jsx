@@ -136,17 +136,31 @@ const ConnectionSparkline = ({ history, width = 120, height = 24 }) => {
   );
 };
 
-const SimHoverPopup = ({ streamBackend, bridgeConnected, genesisConnected, visualFps, trainingMetrics, fpsHistory }) => {
+const SimHoverPopup = ({ streamBackend, bridgeConnected, genesisConnected, visualFps, trainingMetrics, frameStats, streamCodec, fpsHistory }) => {
   const streamLabel = streamBackend === 'webrtc' ? 'WebRTC' : 'WS';
   const isConnected = bridgeConnected && genesisConnected;
   const sps = trainingMetrics?.fps != null ? Math.round(trainingMetrics.fps) : 0;
   const reward = trainingMetrics?.total_reward?.toFixed(2) || '0.00';
 
+  const codecLabel = streamCodec === 'h264' ? 'H.264' : streamCodec === 'jpeg' ? 'JPEG' : streamLabel;
+  const bitrateMibps = useMemo(() => {
+    const avg = frameStats?.avg_frame_size;
+    const fps = frameStats?.frame_rate;
+    if (!avg || !fps) return null;
+    return (avg * fps * 8) / (1024 * 1024);
+  }, [frameStats]);
+
   return (
     <div className="sim-hover-popup">
       <div className="sim-hover-popup__row">
         <span className={`sim-hover-popup__dot sim-hover-popup__dot--${isConnected ? 'on' : 'off'}`} />
-        <span className="sim-hover-popup__stream">{streamLabel}</span>
+        <span className="sim-hover-popup__stream">{codecLabel}</span>
+        {bitrateMibps != null && (
+          <>
+            <span className="sim-hover-popup__sep" />
+            <span className="sim-hover-popup__stat">{bitrateMibps.toFixed(1)} Mbps</span>
+          </>
+        )}
       </div>
       <div className="sim-hover-popup__row">
         <span className="sim-hover-popup__stat">FPS {visualFps}</span>
@@ -643,6 +657,7 @@ const TrustStrip = ({ onStageClick, testMode = false, onModeChange, effectiveVie
     trainingMetrics,
     envInfo,
     frameStats,
+    streamCodec,
   } = useGenesis();
   const { isOpen: trainingPanelOpen, togglePanel: toggleTrainingPanel } = useTrainingPanel();
 
@@ -660,9 +675,21 @@ const TrustStrip = ({ onStageClick, testMode = false, onModeChange, effectiveVie
   const [detailOpen, setDetailOpen] = useState(false);
   const [trainDetailOpen, setTrainDetailOpen] = useState(false);
   const [evalDetailOpen, setEvalDetailOpen] = useState(false);
+  const [connAutoShow, setConnAutoShow] = useState(false);
+  const prevConnectedRef = useRef(genesisConnected);
   const teleopCellRef = useRef(null);
   const fpsHistoryRef = useRef([]);
   const [fpsHistory, setFpsHistory] = useState([]);
+
+  // Auto-show popup on connect/disconnect transitions
+  useEffect(() => {
+    if (prevConnectedRef.current !== genesisConnected) {
+      prevConnectedRef.current = genesisConnected;
+      setConnAutoShow(true);
+      const timer = setTimeout(() => setConnAutoShow(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [genesisConnected]);
 
   // Accumulate FPS samples for the sparkline (~1 per second from SimViewer)
   useEffect(() => {
@@ -758,13 +785,15 @@ const TrustStrip = ({ onStageClick, testMode = false, onModeChange, effectiveVie
         onMouseLeave={() => setTeleopHover(false)}
       >
         <StageCell stage="teleop" data={stages.teleop} collapsed={isTeleopCollapsed} onClick={handleTeleopClick} />
-        {(isSim || testMode) && teleopHover && !detailOpen && (
+        {(isSim || testMode) && (teleopHover || connAutoShow) && !detailOpen && (
           <SimHoverPopup
             streamBackend={streamBackend}
             bridgeConnected={bridgeConnected}
             genesisConnected={genesisConnected}
             visualFps={visualFps}
             trainingMetrics={trainingMetrics}
+            frameStats={frameStats}
+            streamCodec={streamCodec}
             fpsHistory={fpsHistory}
           />
         )}

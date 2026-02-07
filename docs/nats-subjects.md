@@ -19,6 +19,7 @@ Binary WS protocol type bytes: `0x01` VIDEO, `0x02` TELEMETRY, `0x03` SIGNALING,
 | `command.genesis.estop` | `{reason?}` |
 | `command.genesis.estop_clear` | `{cmd_seq}` |
 | `command.genesis.camera` | `{position, lookat}` |
+| `command.genesis.list_policies` | `{}` |
 | `command.genesis.settings` | `{codec, jpeg_quality, stream_fps, camera_res, h264_bitrate, h264_preset}` |
 
 ## Telemetry (sim → NATS → transport → browser)
@@ -34,6 +35,7 @@ Relayed as 0x02 WS messages: `[0x02][u16 subject_len][subject][JSON payload]`
 | `telemetry.velocity.command` | 5 Hz | `{linear_x, linear_y, angular_z}` |
 | `telemetry.safety.state` | 2 Hz | `{state_id, mode, reason, since_ms}` |
 | `telemetry.safety.cmd_timeout` | on event | `{mode, decaying, velocity}` |
+| `telemetry.policy.list` | on request | `{policies: [{name, path, type, algorithm, checkpoints, num_checkpoints, latest_step, size_mb, modified_iso, is_loaded, loaded_checkpoint}]}` |
 | `telemetry.command.ack` | on event | `{action, cmd_seq, status, detail}` |
 
 ## Safety (transport → NATS)
