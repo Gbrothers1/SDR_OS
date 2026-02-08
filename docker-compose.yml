@@ -86,6 +86,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,video
       - PYGLET_HEADLESS=true
+      - SDR_NATS_URL=nats://localhost:4222
     deploy:
       resources:
         reservations:
