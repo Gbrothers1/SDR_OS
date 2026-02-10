@@ -187,3 +187,42 @@ docker compose up -d <service>                   # Recreate with new image
 - Genesis sim communication is via NATS (not Socket.io)
 - Transport server binary WS at `/stream/ws` (proxied through node server or Caddy)
 - Genesis-sim uses `network_mode: host` in dev — revert to `[backplane]` for release
+
+## Branching & Merge Workflow
+
+### Branch naming
+```
+feature/<short-name>     # New features (e.g. feature/training-ui)
+fix/<short-name>          # Bug fixes (e.g. fix/nats-reconnect)
+```
+
+### Merge workflow
+1. **Create branch from main:** `git checkout -b feature/foo main`
+2. **Develop** on the feature branch (commits, iterate)
+3. **Sync main before merge:** `git merge main` (from feature branch)
+4. **Resolve** any conflicts
+5. **Merge back to main:** `git checkout main && git merge --no-ff feature/foo`
+6. **Push:** `git push`
+7. **Clean up:** `git branch -d feature/foo && git push origin --delete feature/foo`
+
+Always use `--no-ff` so merge commits group the feature's history for easy identification and revert.
+
+### Worktree usage
+Use git worktrees for parallel development — keep `main` in the primary directory and feature branches in siblings:
+```
+~/Development/SDR_OS/            → main (primary)
+~/Development/SDR_OS-<branch>/   → feature branch worktree
+```
+
+Starting a feature:
+```bash
+git worktree add ../SDR_OS-<feature> -b feature/<name> main
+cd ../SDR_OS-<feature>
+```
+
+After merge, clean up:
+```bash
+git worktree remove ../SDR_OS-<feature>
+git branch -d feature/<name>
+git push origin --delete feature/<name>
+```
