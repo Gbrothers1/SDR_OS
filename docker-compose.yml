@@ -85,6 +85,7 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,video
+      - SDR_GPU_ID=${SDR_GPU_ID:-1}
       - PYGLET_HEADLESS=true
       - SDR_NATS_URL=nats://localhost:4222
     deploy:
@@ -158,7 +159,7 @@ services:
   nats:
     image: nats:2-alpine
     profiles: ["sim", "train"]
-    networks: [backplane]
+    networks: [edge, backplane]
     ports:
       - "4222:4222"
       - "8222:8222"
@@ -185,7 +186,8 @@ services:
       - .:/workspace
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - SDR_GPU_ID=${SDR_GPU_ID:-1}
       - NATS_URL=nats://nats:4222
     deploy:
       resources:

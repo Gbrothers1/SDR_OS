@@ -70,7 +70,7 @@ const CockpitContent = ({ socket }) => {
   const [error, setError] = useState(null);
   const [appSettings, setAppSettings] = useState(null);
   const rosReconnectTimerRef = useRef(null);
-  const { genesisConnected, genesisMode: currentGenesisMode, sendGamepadAxes, sendCommand, sendVelocityCommand, currentFrame, mediaStream } = useGenesis();
+  const { genesisConnected, genesisMode: currentGenesisMode, sendGamepadAxes, sendCommand, sendVelocityCommand, currentFrame, mediaStream, streamCodec } = useGenesis();
 
   // ── Test mode: bypass ROS/Genesis connections for UI development ──
   const [testMode, setTestMode] = useState(() => {
@@ -103,7 +103,7 @@ const CockpitContent = ({ socket }) => {
   const [viewerOverride, setViewerOverride] = useState(null);
 
   // Compute what's actually showing
-  const hasGenesisStream = genesisConnected && (currentFrame || mediaStream);
+  const hasGenesisStream = genesisConnected && (currentFrame || mediaStream || streamCodec === 'h264');
   const hasRos = rosConnected;
   let effectiveViewer = 'idle';
   if (viewerOverride) {

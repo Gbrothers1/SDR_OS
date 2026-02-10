@@ -26,8 +26,18 @@ const StreamStats = ({
     ? 'stream-stats__kf-dot--ok'
     : 'stream-stats__kf-dot--waiting';
 
-  // WS throughput
-  const wsKbps = (wsBytesPerSec / 1024).toFixed(0);
+  // WS throughput — adaptive scale
+  let wsThroughput, wsUnit;
+  if (wsBytesPerSec >= 1024 * 1024) {
+    wsThroughput = (wsBytesPerSec / (1024 * 1024)).toFixed(1);
+    wsUnit = 'MB/s';
+  } else if (wsBytesPerSec >= 1024) {
+    wsThroughput = (wsBytesPerSec / 1024).toFixed(0);
+    wsUnit = 'KB/s';
+  } else {
+    wsThroughput = Math.round(wsBytesPerSec);
+    wsUnit = 'B/s';
+  }
 
   // Mode badge class
   const modeClass = mode === 'rtc'
@@ -82,7 +92,7 @@ const StreamStats = ({
       {/* WS throughput */}
       <div className="stream-stats__cell">
         <span className="stream-stats__label">WS</span>
-        <span className="stream-stats__val">{wsKbps}<span className="stream-stats__unit">KB/s</span></span>
+        <span className="stream-stats__val">{wsThroughput}<span className="stream-stats__unit">{wsUnit}</span></span>
       </div>
 
       {/* RTC stats (only when WebRTC active) */}

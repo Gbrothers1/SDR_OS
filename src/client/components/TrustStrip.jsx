@@ -1,6 +1,7 @@
 import React, { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import { usePhase } from '../contexts/PhaseContext';
 import { useGenesis } from '../contexts/GenesisContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { useTrainingPanel } from '../contexts/TrainingPanelContext';
 import '../styles/TrustStrip.css';
 
@@ -143,11 +144,11 @@ const SimHoverPopup = ({ streamBackend, bridgeConnected, genesisConnected, visua
   const reward = trainingMetrics?.total_reward?.toFixed(2) || '0.00';
 
   const codecLabel = streamCodec === 'h264' ? 'H.264' : streamCodec === 'jpeg' ? 'JPEG' : streamLabel;
-  const bitrateMibps = useMemo(() => {
+  const bitrateBps = useMemo(() => {
     const avg = frameStats?.avg_frame_size;
     const fps = frameStats?.frame_rate;
     if (!avg || !fps) return null;
-    return (avg * fps * 8) / (1024 * 1024);
+    return avg * fps * 8;
   }, [frameStats]);
 
   return (
@@ -155,10 +156,10 @@ const SimHoverPopup = ({ streamBackend, bridgeConnected, genesisConnected, visua
       <div className="sim-hover-popup__row">
         <span className={`sim-hover-popup__dot sim-hover-popup__dot--${isConnected ? 'on' : 'off'}`} />
         <span className="sim-hover-popup__stream">{codecLabel}</span>
-        {bitrateMibps != null && (
+        {bitrateBps != null && (
           <>
             <span className="sim-hover-popup__sep" />
-            <span className="sim-hover-popup__stat">{bitrateMibps.toFixed(1)} Mbps</span>
+            <span className="sim-hover-popup__stat">{formatBitrate(bitrateBps)}</span>
           </>
         )}
       </div>
@@ -180,13 +181,12 @@ const SimDetailPopup = ({ streamBackend, bridgeConnected, genesisConnected, visu
   const sps = trainingMetrics?.fps != null ? Math.round(trainingMetrics.fps) : 0;
   const reward = trainingMetrics?.total_reward?.toFixed(2) || '0.00';
 
-  // Estimate stream bitrate (avg frame size * fps -> bits/sec -> Mibps)
-  const bitrateMibps = useMemo(() => {
+  // Estimate stream bitrate (avg frame size * fps -> bits/sec)
+  const bitrateBps = useMemo(() => {
     const avg = frameStats?.avg_frame_size;
     const fps = frameStats?.frame_rate;
     if (!avg || !fps) return null;
-    const bitsPerSec = avg * fps * 8;
-    return bitsPerSec / (1024 * 1024);
+    return avg * fps * 8;
   }, [frameStats]);
 
   // Compute speed stats from history
@@ -225,10 +225,10 @@ const SimDetailPopup = ({ streamBackend, bridgeConnected, genesisConnected, visu
           <span className="sim-detail-popup__key">Stream</span>
           <span className="sim-detail-popup__val">{streamLabel}</span>
         </div>
-        {bitrateMibps != null && (
+        {bitrateBps != null && (
           <div className="sim-detail-popup__row">
             <span className="sim-detail-popup__key">Bitrate</span>
-            <span className="sim-detail-popup__val">{bitrateMibps.toFixed(1)}Mibps</span>
+            <span className="sim-detail-popup__val">{formatBitrate(bitrateBps)}</span>
           </div>
         )}
         {clients != null && (
@@ -500,6 +500,13 @@ const EvalHoverPopup = ({ trainingMetrics, stages }) => {
   );
 };
 
+// Adaptive bitrate formatting: Mbps → kbps → bps
+const formatBitrate = (bitsPerSec) => {
+  if (bitsPerSec >= 1_000_000) return `${(bitsPerSec / 1_000_000).toFixed(1)} Mbps`;
+  if (bitsPerSec >= 1_000) return `${(bitsPerSec / 1_000).toFixed(0)} kbps`;
+  return `${Math.round(bitsPerSec)} bps`;
+};
+
 const SAFETY_FLAG_LABELS = {
   vel_clamped: 'VEL',
   accel_clamped: 'ACCEL',
@@ -660,6 +667,13 @@ const TrustStrip = ({ onStageClick, testMode = false, onModeChange, effectiveVie
     streamCodec,
   } = useGenesis();
   const { isOpen: trainingPanelOpen, togglePanel: toggleTrainingPanel } = useTrainingPanel();
+  const { getSetting, updateSettings } = useSettings();
+  const currentCodec = getSetting('genesis', 'codec', 'h264');
+
+  const handleCodecToggle = useCallback(() => {
+    const newCodec = currentCodec === 'h264' ? 'jpeg' : 'h264';
+    updateSettings({ genesis: { codec: newCodec } });
+  }, [currentCodec, updateSettings]);
 
   const stripClass = `trust-strip trust-strip--${authority}`;
   const isSim = genesisConnected || testMode;
@@ -883,6 +897,17 @@ const TrustStrip = ({ onStageClick, testMode = false, onModeChange, effectiveVie
             </div>
           )}
         </div>
+      )}
+
+      {/* Codec toggle */}
+      {(genesisConnected || testMode) && (
+        <button
+          className={`trust-strip__codec-btn ${currentCodec === 'h264' ? 'trust-strip__codec-btn--h264' : 'trust-strip__codec-btn--jpeg'}`}
+          onClick={handleCodecToggle}
+          title={`Switch to ${currentCodec === 'h264' ? 'JPEG' : 'H.264'}`}
+        >
+          {currentCodec === 'h264' ? 'H.264' : 'JPEG'}
+        </button>
       )}
 
       {/* Lab Button (training session manager) */}

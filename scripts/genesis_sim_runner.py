@@ -38,6 +38,15 @@ if _bridge_root not in sys.path:
 
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
+# ── GPU device selection (must be set BEFORE importing genesis) ──
+# Force PCI bus ordering so CUDA indices match nvidia-smi output.
+os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+_gpu_id = os.environ.get("SDR_GPU_ID", "")
+if _gpu_id:
+    os.environ["CUDA_VISIBLE_DEVICES"] = _gpu_id
+    os.environ["TI_VISIBLE_DEVICE"] = _gpu_id
+    os.environ["EGL_DEVICE_ID"] = _gpu_id
+
 import numpy as np
 import cv2
 import torch
@@ -464,7 +473,6 @@ class GenesisSimRunner:
                 cmd_seq = data.get("cmd_seq", 0)
                 status = "ok"
                 detail = None
-
                 # Out-of-order protection for velocity commands
                 if action == "set_cmd_vel":
                     if cmd_seq <= self._last_cmd_seq:
@@ -534,6 +542,18 @@ class GenesisSimRunner:
                                 self.encoder.quality = self.jpeg_quality
                         if "stream_fps" in cmd_data:
                             self.target_fps = int(cmd_data["stream_fps"])
+                        # Update H.264 params BEFORE codec switch so _recreate_encoder uses new values
+                        h264_params_changed = False
+                        if "h264_bitrate" in cmd_data:
+                            new_bitrate = int(float(cmd_data["h264_bitrate"]) * 1_000_000)
+                            if new_bitrate != self.h264_bitrate:
+                                self.h264_bitrate = new_bitrate
+                                h264_params_changed = True
+                        if "h264_preset" in cmd_data:
+                            new_preset = str(cmd_data["h264_preset"])
+                            if new_preset != self.h264_preset:
+                                self.h264_preset = new_preset
+                                h264_params_changed = True
                         # Codec switch: h264 ↔ jpeg
                         if "codec" in cmd_data:
                             requested = cmd_data["codec"]
@@ -544,18 +564,9 @@ class GenesisSimRunner:
                             elif requested == "h264" and isinstance(self.encoder, JpegEncoder):
                                 logger.info("Switching encoder to H.264 (NVENC)")
                                 self._recreate_encoder()
-                        recreate = False
-                        if "h264_bitrate" in cmd_data:
-                            new_bitrate = int(float(cmd_data["h264_bitrate"]) * 1_000_000)
-                            if new_bitrate != self.h264_bitrate:
-                                self.h264_bitrate = new_bitrate
-                                recreate = True
-                        if "h264_preset" in cmd_data:
-                            new_preset = str(cmd_data["h264_preset"])
-                            if new_preset != self.h264_preset:
-                                self.h264_preset = new_preset
-                                recreate = True
-                        if recreate and isinstance(self.encoder, NvencEncoder):
+                                h264_params_changed = False  # Already created with new params
+                        # Recreate NVENC only if params changed without a codec switch
+                        if h264_params_changed and isinstance(self.encoder, NvencEncoder):
                             self._recreate_encoder()
                 except Exception as e:
                     status = "error"
@@ -701,7 +712,15 @@ async def main():
     parser.add_argument("--camera-res", type=str, default="1280x720", help="Camera resolution WxH")
     parser.add_argument("--jpeg-quality", type=int, default=80, help="JPEG encode quality (1-100)")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to policy checkpoint directory")
+    parser.add_argument("--gpu", type=str, default=None,
+                        help="GPU device index (e.g. 0, 1). Overrides SDR_GPU_ID env var.")
     args = parser.parse_args()
+
+    # CLI --gpu overrides SDR_GPU_ID env var
+    if args.gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+        os.environ["TI_VISIBLE_DEVICE"] = args.gpu
+        os.environ["EGL_DEVICE_ID"] = args.gpu
 
     w, h = args.camera_res.lower().split("x")
     camera_res = (int(w), int(h))

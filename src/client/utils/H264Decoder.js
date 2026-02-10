@@ -18,6 +18,7 @@ export class H264Decoder {
    * @param {string} codec - AVC codec string (e.g., 'avc1.42E01E')
    */
   init(codec = 'avc1.42E01E') {
+    this._codec = codec; // Store for reconfiguration after reset
     if (this.decoder) {
       this.decoder.close();
     }
@@ -58,7 +59,7 @@ export class H264Decoder {
    * @param {boolean} isKeyframe - Whether this frame is a keyframe (IDR)
    */
   decode(payload, isKeyframe) {
-    if (!this.decoder || this.decoder.state === 'closed') {
+    if (!this.decoder || this.decoder.state !== 'configured') {
       return;
     }
 
@@ -98,6 +99,12 @@ export class H264Decoder {
     if (this.decoder && this.decoder.state !== 'closed') {
       try {
         this.decoder.reset();
+        // reset() transitions to 'unconfigured' — must reconfigure
+        this.decoder.configure({
+          codec: this._codec,
+          hardwareAcceleration: 'prefer-hardware',
+          optimizeForLatency: true,
+        });
       } catch (e) {
         console.warn('H264Decoder reset error:', e);
       }

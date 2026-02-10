@@ -11,13 +11,14 @@ RUN apt-get update \
         python3 \
         python3-venv \
         python3-pip \
-        nodejs \
-        npm \
         libegl1 \
         libgl1 \
         libglib2.0-0 \
         libxrender1 \
         libopengl0 \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && corepack enable \
     && rm -rf /var/lib/apt/lists/*
 
 ENV VIRTUAL_ENV=/opt/venv

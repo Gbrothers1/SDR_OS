@@ -291,9 +291,9 @@ const SimViewer = () => {
     };
   }, [streamBackend, mediaStream]);
 
-  // Initialize H264Decoder when codec is h264
+  // Eagerly initialize H264Decoder when canvas is available (stays alive across codec switches)
   useEffect(() => {
-    if (streamCodec === 'h264' && h264CanvasRef.current && h264Support?.supported) {
+    if (h264CanvasRef.current && h264Support?.supported && !h264DecoderRef.current) {
       const decoder = new H264Decoder(h264CanvasRef.current);
       decoder.init(h264Codec || h264Support.config.codec);
       h264DecoderRef.current = decoder;
@@ -303,7 +303,7 @@ const SimViewer = () => {
         h264DecoderRef.current = null;
       };
     }
-  }, [streamCodec, h264Codec, h264Support, h264DecoderRef]);
+  }, [h264Codec, h264Support, h264DecoderRef]);
 
   // Reset H264 decoder on render mode switch (WS ↔ RTC)
   useEffect(() => {
@@ -350,18 +350,33 @@ const SimViewer = () => {
       return;
     }
     if (!currentFrame) return;
-    
+
     frameCountRef.current++;
-    
+
     const now = Date.now();
     const elapsed = now - lastFpsUpdateRef.current;
-    
+
     if (elapsed >= 1000) {
       setFps(Math.round((frameCountRef.current / elapsed) * 1000));
       frameCountRef.current = 0;
       lastFpsUpdateRef.current = now;
     }
   }, [streamBackend, currentFrame, trainingMetrics?.fps]);
+
+  // H.264 FPS: poll decoder frameCount (WebCodecs renders to canvas, bypasses currentFrame)
+  const h264PrevFrameCountRef = useRef(0);
+  useEffect(() => {
+    if (streamCodec !== 'h264' || streamBackend === 'webrtc') return;
+    const interval = setInterval(() => {
+      const decoder = h264DecoderRef.current;
+      if (!decoder) return;
+      const count = decoder.frameCount;
+      const delta = count - h264PrevFrameCountRef.current;
+      h264PrevFrameCountRef.current = count;
+      setFps(delta);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [streamCodec, streamBackend, h264DecoderRef]);
   
   const hasVideo = streamCodec === 'h264'
     ? (h264Support?.supported && h264DecoderRef?.current)
@@ -392,25 +407,37 @@ const SimViewer = () => {
     <div className={`sim-viewer${containMode ? ' contain-mode' : ''}`} ref={containerRef}>
       {/* Frame display */}
       <div className="sim-viewer-frame">
-        {streamCodec === 'h264' && h264Support?.supported ? (
-          <canvas
-            ref={h264CanvasRef}
-            className="sim-frame-image sim-viewer__canvas"
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: containMode ? 'contain' : 'cover',
-            }}
-          />
-        ) : streamBackend === 'websocket' && currentFrame ? (
+        {/* JPEG layer: persists underneath as fallback during codec transitions */}
+        {streamBackend === 'websocket' && currentFrame && (
           <img
             src={currentFrame}
             alt="Genesis simulation"
             className="sim-frame-image"
             draggable={false}
-            style={{ objectFit: containMode ? 'contain' : 'cover' }}
+            style={{
+              position: 'absolute',
+              width: '100%',
+              height: '100%',
+              objectFit: containMode ? 'contain' : 'cover',
+            }}
           />
-        ) : streamBackend === 'webrtc' && mediaStream ? (
+        )}
+        {/* H.264 canvas layer: overlays JPEG when active */}
+        {h264Support?.supported && (
+          <canvas
+            ref={h264CanvasRef}
+            className="sim-frame-image sim-viewer__canvas"
+            style={{
+              position: 'absolute',
+              width: '100%',
+              height: '100%',
+              objectFit: containMode ? 'contain' : 'cover',
+              display: streamCodec === 'h264' ? 'block' : 'none',
+            }}
+          />
+        )}
+        {/* WebRTC video fallback */}
+        {streamBackend === 'webrtc' && mediaStream && (
           <video
             ref={videoRef}
             className="sim-frame-image"
@@ -419,7 +446,9 @@ const SimViewer = () => {
             muted
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
-        ) : (
+        )}
+        {/* No-frame placeholder (only when nothing is rendering) */}
+        {!hasVideo && (
           <div className="sim-no-frame">
             <div className="sim-no-frame-message">
               {!bridgeConnected && (

@@ -52,6 +52,7 @@ export const PhaseProvider = ({ children, ros, rosConnected }) => {
     currentFrame,
     frameStats,
     commandSource,
+    videoHealthy,
   } = useGenesis();
 
   // Reward history for trend computation
@@ -77,13 +78,15 @@ export const PhaseProvider = ({ children, ros, rosConnected }) => {
     }
   }, [rosConnected]);
 
-  // Track Genesis frame timestamps
+  // Track Genesis frame timestamps (covers both JPEG and H.264)
   useEffect(() => {
     if (currentFrame) {
       genesisLastFrameRef.current = Date.now();
+    }
+    if (videoHealthy && genesisConnected) {
       setGenesisHealth('ok');
     }
-  }, [currentFrame]);
+  }, [currentFrame, videoHealthy, genesisConnected]);
 
   // Track training metrics timestamps + reward history
   useEffect(() => {
@@ -115,10 +118,10 @@ export const PhaseProvider = ({ children, ros, rosConnected }) => {
         setRosHealth('ok');
       }
 
-      // Genesis health
+      // Genesis health — videoHealthy covers both JPEG and H.264 frames
       if (!genesisConnected && !bridgeConnected) {
         setGenesisHealth('dead');
-      } else if (genesisConnected && now - genesisLastFrameRef.current > 3000) {
+      } else if (genesisConnected && !videoHealthy) {
         setGenesisHealth('degraded');
       } else if (genesisConnected) {
         setGenesisHealth('ok');
@@ -135,7 +138,7 @@ export const PhaseProvider = ({ children, ros, rosConnected }) => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [rosConnected, genesisConnected, bridgeConnected, scriptStatus, genesisMode, trainingMetrics]);
+  }, [rosConnected, genesisConnected, bridgeConnected, videoHealthy, scriptStatus, genesisMode, trainingMetrics]);
 
   // Compute authority
   let authority = 'human';
