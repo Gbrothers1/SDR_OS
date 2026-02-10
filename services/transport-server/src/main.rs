@@ -72,6 +72,10 @@ async fn main() {
         shm_seq: Arc::new(AtomicU64::new(0)),
         last_frame_time: Arc::new(std::sync::Mutex::new(None)),
         start_time: Instant::now(),
+        frames_broadcast: Arc::new(AtomicU64::new(0)),
+        client_lag_total: Arc::new(AtomicU64::new(0)),
+        frame_size_acc: Arc::new(AtomicU64::new(0)),
+        frame_size_count: Arc::new(AtomicU64::new(0)),
     };
 
     // Connect to NATS (non-fatal if unavailable)
@@ -113,8 +117,9 @@ async fn main() {
     let crc_enabled = cfg.crc_enabled;
     let shm_gate = Arc::clone(&video_gate);
     let shm_nats = nats_client.clone();
+    let shm_keyframe_gating = cfg.shm_keyframe_gating;
     tokio::spawn(async move {
-        shm_read_loop(shm_path, shm_size, crc_enabled, shm_broadcast, shm_health, shm_gate, shm_nats).await;
+        shm_read_loop(shm_path, shm_size, crc_enabled, shm_keyframe_gating, shm_broadcast, shm_health, shm_gate, shm_nats).await;
     });
 
     let app_state = AppState {
@@ -138,7 +143,10 @@ async fn main() {
     let addr: std::net::SocketAddr = cfg.listen_addr.parse().expect("invalid SDR_LISTEN_ADDR");
     tracing::info!("transport-server listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .tcp_nodelay(true)
+        .await
+        .unwrap();
 }
 
 /// Health endpoint that extracts HealthState from AppState.
@@ -150,12 +158,22 @@ async fn app_health_handler(State(state): State<AppState>) -> Json<HealthRespons
         .ok()
         .and_then(|guard| guard.map(|t| t.elapsed().as_millis() as u64));
 
+    let count = state.health.frame_size_count.load(Ordering::Relaxed);
+    let avg_frame_size = if count > 0 {
+        state.health.frame_size_acc.load(Ordering::Relaxed) / count
+    } else {
+        0
+    };
+
     Json(HealthResponse {
         status: "ok",
         clients: state.health.client_count.load(Ordering::Relaxed),
         shm_seq: state.health.shm_seq.load(Ordering::Relaxed),
         last_frame_age_ms,
         uptime_s: state.health.start_time.elapsed().as_secs(),
+        frames_broadcast: state.health.frames_broadcast.load(Ordering::Relaxed),
+        client_lag_total: state.health.client_lag_total.load(Ordering::Relaxed),
+        avg_frame_size_bytes: avg_frame_size,
     })
 }
 
@@ -172,6 +190,18 @@ async fn handle_ws_client(socket: WebSocket, state: AppState) {
 
     let (video_rx, guard) = state.frame_broadcast.subscribe();
     let telemetry_rx = state.telemetry_tx.subscribe();
+
+    // Request IDR frame so new client gets video immediately
+    if let Some(ref nc) = state.nats_client {
+        let payload = serde_json::json!({"cmd_seq": 0}).to_string();
+        let _ = nc
+            .publish(
+                "command.genesis.force_idr".to_string(),
+                payload.into(),
+            )
+            .await;
+        tracing::info!("requested IDR for new client");
+    }
 
     tracing::info!(
         clients = state.frame_broadcast.client_count(),
@@ -190,6 +220,7 @@ async fn handle_ws_client(socket: WebSocket, state: AppState) {
         state.video_gate_hold_ms,
         state.video_gate_estop_ms,
         state.video_gate_codec_change_grace_ms,
+        state.health.clone(),
     )
     .await;
 
@@ -219,6 +250,7 @@ async fn unified_send_loop(
     video_gate_hold_ms: u64,
     video_gate_estop_ms: u64,
     video_gate_codec_change_grace_ms: u64,
+    health: HealthState,
 ) {
     let mut client_state = ClientState::AwaitingKeyframe {
         since: Instant::now(),
@@ -253,6 +285,7 @@ async fn unified_send_loop(
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!(lagged = n, "client lagged, awaiting keyframe");
+                        health.client_lag_total.fetch_add(1, Ordering::Relaxed);
                         client_state = ClientState::AwaitingKeyframe {
                             since: Instant::now(),
                         };
@@ -342,6 +375,7 @@ async fn shm_read_loop(
     shm_path: String,
     shm_size: usize,
     crc_enabled: bool,
+    keyframe_gating: bool,
     broadcast: Arc<FrameBroadcast>,
     health: HealthState,
     video_gate: Arc<VideoGateState>,
@@ -381,7 +415,7 @@ async fn shm_read_loop(
         );
     }
 
-    let mut reader = ShmReader::new(mmap, crc_enabled);
+    let mut reader = ShmReader::new(mmap, crc_enabled, keyframe_gating);
     tracing::info!(path = %shm_path, "SHM reader started");
 
     loop {
@@ -404,6 +438,11 @@ async fn shm_read_loop(
                 *health.last_frame_time.lock().unwrap() = Some(Instant::now());
                 *video_gate.last_shm_frame_time.lock().unwrap() = Instant::now();
                 update_codec_change_tracking(&video_gate, frame.header.codec);
+
+                // Track frame size for health endpoint
+                health.frame_size_acc.fetch_add(frame.payload.len() as u64, Ordering::Relaxed);
+                health.frame_size_count.fetch_add(1, Ordering::Relaxed);
+                health.frames_broadcast.fetch_add(1, Ordering::Relaxed);
 
                 // Clear gate if video recovered
                 if video_gate.gate_active.swap(false, Ordering::SeqCst) {

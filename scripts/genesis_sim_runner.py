@@ -138,7 +138,7 @@ class JpegEncoder:
         self.quality = quality
         self.codec = Codec.JPEG
 
-    def encode(self, frame_rgb, frame_id):
+    def encode(self, frame_rgb, frame_id, force_idr=False):
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
         ok, buf = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         if not ok:
@@ -155,7 +155,8 @@ class NvencEncoder:
     Uses a standalone codec context (no container/muxer) so that
     encode() returns packets directly with inline SPS/PPS on every IDR.
     """
-    def __init__(self, width, height, fps=30, bitrate=3_000_000, gop=1, preset="llhp"):  # TEMP: GOP=1 until multi-slot SHM ringbuffer lands
+    def __init__(self, width, height, fps=30, bitrate=5_000_000,
+                 gop=30, preset="p1", intra_refresh=True):
         import av
         from fractions import Fraction
 
@@ -171,21 +172,27 @@ class NvencEncoder:
         self.ctx.bit_rate = bitrate
         self.ctx.gop_size = gop
         self.ctx.max_b_frames = 0
-        self.ctx.options = {
+        opts = {
             "preset": preset,
             "tune": "ull",
-            "g": str(gop),
+            "rc": "cbr",
             "bf": "0",
+            "forced-idr": "1",
             "repeat_headers": "1",
             "zerolatency": "1",
         }
+        if intra_refresh:
+            opts["intra-refresh"] = "1"
+        self.ctx.options = opts
         self.ctx.open()
 
-    def encode(self, frame_rgb, frame_id):
+    def encode(self, frame_rgb, frame_id, force_idr=False):
         import av
         frame = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
         frame = frame.reformat(format="yuv420p", width=self.ctx.width, height=self.ctx.height)
         frame.pts = frame_id
+        if force_idr:
+            frame.pict_type = av.video.frame.PictureType.I
         packets = self.ctx.encode(frame)
         if not packets:
             return None, False
@@ -228,8 +235,15 @@ class GenesisSimRunner:
         self.encoder = None
         self.frame_id = 0
         self.running = False
-        self.h264_bitrate = 3_000_000
-        self.h264_preset = "llhp"
+        self.h264_bitrate = 5_000_000
+        self.h264_preset = "p1"
+        self._force_idr = False
+
+        # Encoder instrumentation
+        self._encode_times = []
+        self._frame_sizes = []
+        self._frames_encoded = 0
+        self._last_encode_stats_time = 0
 
         # NATS
         self.nc = None
@@ -378,7 +392,6 @@ class GenesisSimRunner:
                 width, height,
                 fps=self.target_fps,
                 bitrate=self.h264_bitrate,
-                gop=1,
                 preset=self.h264_preset,
             )
             logger.info(f"NVENC encoder recreated: bitrate={self.h264_bitrate}, preset={self.h264_preset}")
@@ -398,9 +411,22 @@ class GenesisSimRunner:
         if frame_np.ndim == 4:
             frame_np = frame_np[0]
 
-        payload, is_keyframe = self.encoder.encode(frame_np, self.frame_id)
+        t_enc = time.monotonic()
+        payload, is_keyframe = self.encoder.encode(
+            frame_np, self.frame_id,
+            force_idr=self._force_idr,
+        )
+        encode_ms = (time.monotonic() - t_enc) * 1000
+        if self._force_idr:
+            self._force_idr = False
+
         if payload is None:
             return
+
+        # Instrumentation
+        self._encode_times.append(encode_ms)
+        self._frame_sizes.append(len(payload))
+        self._frames_encoded += 1
 
         flags = FrameFlags.KEYFRAME if is_keyframe else FrameFlags.NONE
 
@@ -535,6 +561,9 @@ class GenesisSimRunner:
                         pass  # TODO: implement mode switching
                     elif action == "camera":
                         pass  # TODO: implement camera control
+                    elif action == "force_idr":
+                        self._force_idr = True
+                        logger.info("IDR frame requested")
                     elif action == "settings":
                         if "jpeg_quality" in cmd_data:
                             self.jpeg_quality = int(cmd_data["jpeg_quality"])
@@ -673,6 +702,25 @@ class GenesisSimRunner:
 
                     last_metrics_time = now
 
+                # Publish encoder stats every ~1s
+                if now - self._last_encode_stats_time > 1.0 and self.nc and self.nc.is_connected:
+                    if self._encode_times:
+                        enc_stats = {
+                            "encode_time_avg_ms": round(sum(self._encode_times) / len(self._encode_times), 2),
+                            "encode_time_max_ms": round(max(self._encode_times), 2),
+                            "frame_size_avg_bytes": int(sum(self._frame_sizes) / len(self._frame_sizes)) if self._frame_sizes else 0,
+                            "frame_size_max_bytes": max(self._frame_sizes) if self._frame_sizes else 0,
+                            "actual_fps": len(self._encode_times),
+                            "target_fps": self.target_fps,
+                            "codec": "h264" if isinstance(self.encoder, NvencEncoder) else "jpeg",
+                            "bitrate": self.h264_bitrate,
+                            "frames_encoded": self._frames_encoded,
+                        }
+                        await self.nc.publish("telemetry.encoder.stats", json.dumps(enc_stats).encode())
+                        self._encode_times.clear()
+                        self._frame_sizes.clear()
+                    self._last_encode_stats_time = now
+
                 # Publish canonical safety state at 2 Hz
                 if now - last_safety_time > 0.5 and self.nc and self.nc.is_connected:
                     self._safety_state_id += 1
@@ -684,6 +732,9 @@ class GenesisSimRunner:
                     }
                     await self.nc.publish("telemetry.safety.state", json.dumps(state).encode())
                     last_safety_time = now
+
+                # Recompute frame interval each iteration (respect runtime FPS changes)
+                frame_interval = 1.0 / self.target_fps
 
                 # Frame pacing — minimum 1ms yield so NATS keepalives are processed
                 elapsed = time.monotonic() - t0

@@ -36,6 +36,7 @@ pub struct ShmReader {
     awaiting_keyframe: bool,
     state: PollState,
     crc_enabled: bool,
+    keyframe_gating: bool,
 }
 
 /// Result of a single read attempt.
@@ -59,7 +60,11 @@ pub enum ReadResult {
 
 impl ShmReader {
     /// Create a reader from an existing Mmap.
-    pub fn new(mmap: Mmap, crc_enabled: bool) -> Self {
+    ///
+    /// When `keyframe_gating` is false, sequence gaps do not trigger keyframe
+    /// waiting — all frames pass through. This is appropriate when the encoder
+    /// uses intra refresh (the decoder self-heals within one refresh period).
+    pub fn new(mmap: Mmap, crc_enabled: bool, keyframe_gating: bool) -> Self {
         let mmap_len = mmap.len();
         Self {
             mmap,
@@ -69,6 +74,7 @@ impl ShmReader {
             awaiting_keyframe: false,
             state: PollState::Sleeping,
             crc_enabled,
+            keyframe_gating,
         }
     }
 
@@ -132,7 +138,7 @@ impl ShmReader {
         // Single-slot "latest wins" SHM means the reader can legitimately observe gaps in
         // frame_seq (it may miss intermediate frames). Treat forward gaps as dropped frames,
         // not an error. Only treat non-monotonic (<=) as a reset/corruption signal.
-        if self.last_frame_seq > 0 {
+        if self.keyframe_gating && self.last_frame_seq > 0 {
             if header.frame_seq <= self.last_frame_seq {
                 tracing::warn!(
                     last = self.last_frame_seq,
@@ -147,7 +153,7 @@ impl ShmReader {
         }
 
         // Keyframe gating: drop non-IDR frames while awaiting recovery
-        if self.awaiting_keyframe {
+        if self.keyframe_gating && self.awaiting_keyframe {
             if header.is_keyframe() {
                 self.awaiting_keyframe = false;
             } else {
@@ -255,7 +261,7 @@ mod tests {
         };
         let buf = make_shm_buffer(1, &header, payload);
         let mmap = make_mmap(&buf);
-        let mut reader = ShmReader::new(mmap, true);
+        let mut reader = ShmReader::new(mmap, true, true);
 
         match reader.try_read_frame() {
             ReadResult::Frame(f) => {
@@ -279,7 +285,7 @@ mod tests {
         };
         let buf1 = make_shm_buffer(1, &header1, payload);
         let mmap1 = make_mmap(&buf1);
-        let mut reader = ShmReader::new(mmap1, true);
+        let mut reader = ShmReader::new(mmap1, true, true);
         assert!(matches!(reader.try_read_frame(), ReadResult::Frame(_)));
 
         let header2 = FrameHeader {
@@ -289,7 +295,7 @@ mod tests {
         let buf2 = make_shm_buffer(2, &header2, payload);
         // Swap the mmap underneath by constructing a fresh reader; simulate a jump.
         let mmap2 = make_mmap(&buf2);
-        let mut reader2 = ShmReader::new(mmap2, true);
+        let mut reader2 = ShmReader::new(mmap2, true, true);
         reader2.last_frame_seq = reader.last_frame_seq;
 
         assert!(matches!(reader2.try_read_frame(), ReadResult::Frame(_)));
@@ -305,7 +311,7 @@ mod tests {
         };
         let buf = make_shm_buffer(1, &header, payload);
         let mmap = make_mmap(&buf);
-        let mut reader = ShmReader::new(mmap, true);
+        let mut reader = ShmReader::new(mmap, true, true);
 
         assert!(matches!(reader.try_read_frame(), ReadResult::Frame(_)));
         assert!(matches!(reader.try_read_frame(), ReadResult::NoNewFrame));
@@ -321,7 +327,7 @@ mod tests {
         };
         let buf = make_shm_buffer(1, &header, payload);
         let mmap = make_mmap(&buf);
-        let mut reader = ShmReader::new(mmap, true);
+        let mut reader = ShmReader::new(mmap, true, true);
 
         assert!(matches!(reader.try_read_frame(), ReadResult::CrcMismatch));
     }
@@ -336,7 +342,7 @@ mod tests {
         };
         let buf = make_shm_buffer(1, &header, payload);
         let mmap = make_mmap(&buf);
-        let mut reader = ShmReader::new(mmap, false);
+        let mut reader = ShmReader::new(mmap, false, true);
 
         assert!(matches!(reader.try_read_frame(), ReadResult::Frame(_)));
     }
@@ -347,7 +353,7 @@ mod tests {
         buf[META_SEQ_OFFSET..META_SEQ_OFFSET + 8].copy_from_slice(&1u64.to_le_bytes());
         buf[META_WIDX_OFFSET..META_WIDX_OFFSET + 8].copy_from_slice(&0u64.to_le_bytes());
         let mmap = make_mmap(&buf);
-        let mut reader = ShmReader::new(mmap, true);
+        let mut reader = ShmReader::new(mmap, true, true);
 
         assert!(matches!(reader.try_read_frame(), ReadResult::InvalidLength));
     }
@@ -358,7 +364,7 @@ mod tests {
         buf[META_SEQ_OFFSET..META_SEQ_OFFSET + 8].copy_from_slice(&1u64.to_le_bytes());
         buf[META_WIDX_OFFSET..META_WIDX_OFFSET + 8].copy_from_slice(&10000u64.to_le_bytes());
         let mmap = make_mmap(&buf);
-        let mut reader = ShmReader::new(mmap, true);
+        let mut reader = ShmReader::new(mmap, true, true);
 
         assert!(matches!(reader.try_read_frame(), ReadResult::InvalidLength));
     }
@@ -374,7 +380,7 @@ mod tests {
         };
         let buf1 = make_shm_buffer(1, &hdr1, payload1);
         let mmap1 = make_mmap(&buf1);
-        let mut reader = ShmReader::new(mmap1, true);
+        let mut reader = ShmReader::new(mmap1, true, true);
         assert!(matches!(reader.try_read_frame(), ReadResult::Frame(_)));
 
         // Frame 2: seq jumps to 10 (lapped), not a keyframe
@@ -408,7 +414,7 @@ mod tests {
     fn test_seq_zero_returns_no_frame() {
         let buf = vec![0u8; 1024];
         let mmap = make_mmap(&buf);
-        let mut reader = ShmReader::new(mmap, true);
+        let mut reader = ShmReader::new(mmap, true, true);
 
         assert!(matches!(reader.try_read_frame(), ReadResult::NoNewFrame));
     }

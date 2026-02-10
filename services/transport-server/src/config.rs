@@ -15,6 +15,9 @@ pub struct Config {
     pub video_gate_hold_ms: u64,
     pub video_gate_estop_ms: u64,
     pub video_gate_codec_change_grace_ms: u64,
+    /// When false, SHM reader passes all frames through regardless of keyframe
+    /// status on sequence gaps. With intra refresh, the decoder self-heals.
+    pub shm_keyframe_gating: bool,
 }
 
 impl Config {
@@ -66,6 +69,9 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2000),
+            shm_keyframe_gating: env::var("SDR_SHM_KEYFRAME_GATING")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(false),
         }
     }
 }
@@ -84,6 +90,7 @@ mod tests {
             "SDR_BROADCAST_CAPACITY", "SDR_CRC_ENABLED", "SDR_IDR_COALESCE_MS",
             "SDR_IDR_TIMEOUT_MS", "SDR_TELEMETRY_SUBJECTS", "SDR_TELEMETRY_MAX_SIZE",
             "SDR_VIDEO_GATE_HOLD_MS", "SDR_VIDEO_GATE_ESTOP_MS", "SDR_VIDEO_GATE_CODEC_CHANGE_GRACE_MS",
+            "SDR_SHM_KEYFRAME_GATING",
         ] {
             env::remove_var(key);
         }
@@ -102,6 +109,7 @@ mod tests {
         assert_eq!(cfg.video_gate_hold_ms, 1000);
         assert_eq!(cfg.video_gate_estop_ms, 5000);
         assert_eq!(cfg.video_gate_codec_change_grace_ms, 2000);
+        assert!(!cfg.shm_keyframe_gating);
 
         // --- CRC disabled ---
         env::set_var("SDR_CRC_ENABLED", "false");

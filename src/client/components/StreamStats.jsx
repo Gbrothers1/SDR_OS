@@ -10,6 +10,8 @@ const StreamStats = ({
   mode = 'ws',
   decoderQueueSize = 0,
   maxQueueSize = 3,
+  encoderStats = null,
+  dropCount = 0,
 }) => {
   // FPS color class
   const fpsClass = fps >= 50
@@ -105,6 +107,35 @@ const StreamStats = ({
           <span className="stream-stats__val">
             {rtcStats.rtt}<span className="stream-stats__unit">ms</span>
           </span>
+        </div>
+      )}
+
+      {/* Encoder stats (from sim telemetry) */}
+      {encoderStats && (
+        <>
+          <div className="stream-stats__cell">
+            <span className="stream-stats__label">ENC</span>
+            <span className="stream-stats__val">
+              {encoderStats.encode_time_avg_ms?.toFixed(1)}<span className="stream-stats__unit">ms</span>
+            </span>
+          </div>
+          <div className="stream-stats__cell">
+            <span className="stream-stats__label">FSZ</span>
+            <span className="stream-stats__val">
+              {encoderStats.frame_size_avg_bytes
+                ? (encoderStats.frame_size_avg_bytes / 1024).toFixed(0)
+                : 0}
+              <span className="stream-stats__unit">KB</span>
+            </span>
+          </div>
+        </>
+      )}
+
+      {/* Drop counter */}
+      {dropCount > 0 && (
+        <div className="stream-stats__cell">
+          <span className="stream-stats__label">DROP</span>
+          <span className="stream-stats__val stream-stats__val--fps-bad">{dropCount}</span>
         </div>
       )}
 

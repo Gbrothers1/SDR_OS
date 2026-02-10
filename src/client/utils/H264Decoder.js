@@ -11,6 +11,7 @@ export class H264Decoder {
     this.maxQueueSize = 3;
     this.frameCount = 0;
     this.errorCount = 0;
+    this.dropCount = 0;
   }
 
   /**
@@ -75,6 +76,7 @@ export class H264Decoder {
     // Backpressure: drop delta frames if queue is backed up
     if (this.decoder.decodeQueueSize > this.maxQueueSize) {
       if (!isKeyframe) {
+        this.dropCount++;
         return; // Drop non-keyframe when congested
       }
     }
@@ -132,6 +134,7 @@ export class H264Decoder {
     return {
       frameCount: this.frameCount,
       errorCount: this.errorCount,
+      dropCount: this.dropCount,
       queueSize: this.decoder?.decodeQueueSize ?? 0,
       waitingForKeyframe: this.waitingForKeyframe,
     };

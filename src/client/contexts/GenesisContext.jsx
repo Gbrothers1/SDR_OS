@@ -53,6 +53,9 @@ export const GenesisProvider = ({ children, socket }) => {
   const [obsBreakdown, setObsBreakdown] = useState(null);
   const [rewardBreakdown, setRewardBreakdown] = useState(null);
   const [velocityCommand, setVelocityCommand] = useState(null);
+
+  // Encoder stats from sim (telemetry.encoder.stats)
+  const [encoderStats, setEncoderStats] = useState(null);
   
   // H.264 codec state
   const [streamCodec, setStreamCodec] = useState('jpeg');
@@ -235,6 +238,8 @@ export const GenesisProvider = ({ children, socket }) => {
           } else if (data.action === 'list_policies' && data.status !== 'ok') {
             console.warn('list_policies failed:', data);
           }
+        } else if (subject === 'telemetry.encoder.stats') {
+          setEncoderStats(data);
         } else if (subject === 'telemetry.frame.stats') {
           setFrameStats(data);
         } else if (subject === 'telemetry.safety.video_gate') {
@@ -513,8 +518,8 @@ export const GenesisProvider = ({ children, socket }) => {
   const genesisJpegQuality = getSetting('genesis', 'jpegQuality', 80);
   const genesisStreamFps = getSetting('genesis', 'streamFps', 60);
   const genesisCameraRes = getSetting('genesis', 'cameraRes', '1280x720');
-  const genesisH264Bitrate = getSetting('genesis', 'h264Bitrate', 3);
-  const genesisH264Preset = getSetting('genesis', 'h264Preset', 'llhp');
+  const genesisH264Bitrate = getSetting('genesis', 'h264Bitrate', 5);
+  const genesisH264Preset = getSetting('genesis', 'h264Preset', 'p1');
 
   useEffect(() => {
     if (!genesisConnected) return;
@@ -677,6 +682,9 @@ export const GenesisProvider = ({ children, socket }) => {
     currentScriptName,
     scriptError,
     frameStats,
+
+    // Encoder stats
+    encoderStats,
 
     // Memory estimates
     memoryEstimate,

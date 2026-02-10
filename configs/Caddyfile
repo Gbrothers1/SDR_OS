@@ -10,7 +10,7 @@
 
     handle /stream/ws {
         reverse_proxy transport-server:8080 {
-            flush_interval -1
+            flush_interval -1s
             transport http {
                 read_timeout 0
             }

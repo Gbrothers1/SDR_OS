@@ -81,8 +81,8 @@ const defaultSettings = {
     codec: 'h264',
     streamFps: 60,
     jpegQuality: 80,
-    h264Bitrate: 3,
-    h264Preset: 'llhp',
+    h264Bitrate: 5,
+    h264Preset: 'p1',
     cameraRes: '1280x720',
     trainingMetricsRate: 5,
     showSimOverlay: true,
@@ -1152,24 +1152,27 @@ const Settings = ({ isOpen, onClose, onSave, initialSettings }) => {
                           min="0.5"
                           max="10"
                           step="0.5"
-                          value={getSetting('genesis', 'h264Bitrate', 3)}
+                          value={getSetting('genesis', 'h264Bitrate', 5)}
                           onChange={(e) => handleSliderChange('genesis', 'h264Bitrate', e.target.value, 0.5, 10)}
                         />
-                        <span className="setting-value">{getSetting('genesis', 'h264Bitrate', 3)} Mbps</span>
+                        <span className="setting-value">{getSetting('genesis', 'h264Bitrate', 5)} Mbps</span>
                       </div>
                       <div className="setting-item">
                         <label htmlFor="genesis-h264-preset">Encoder Preset</label>
                         <select
                           id="genesis-h264-preset"
-                          value={getSetting('genesis', 'h264Preset', 'llhp')}
+                          value={getSetting('genesis', 'h264Preset', 'p1')}
                           onChange={(e) => handleChange('genesis', 'h264Preset', e.target.value)}
                         >
-                          <option value="llhp">Low Latency HP</option>
-                          <option value="ll">Low Latency</option>
-                          <option value="llhq">Low Latency HQ</option>
-                          <option value="hq">High Quality</option>
-                          <option value="hp">High Perf</option>
-                          <option value="default">Default</option>
+                          <option value="p1">P1 (Fastest)</option>
+                          <option value="p2">P2</option>
+                          <option value="p3">P3</option>
+                          <option value="p4">P4 (Balanced)</option>
+                          <option value="p5">P5</option>
+                          <option value="p6">P6</option>
+                          <option value="p7">P7 (Best Quality)</option>
+                          <option value="llhp">Low Latency HP (legacy)</option>
+                          <option value="ll">Low Latency (legacy)</option>
                         </select>
                       </div>
                     </>

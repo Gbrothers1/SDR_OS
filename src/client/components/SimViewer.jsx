@@ -25,6 +25,7 @@ const SimViewer = () => {
     webrtcPcRef,
     videoHealthy,
     safetyState,
+    encoderStats,
   } = useGenesis();
   const { getSetting } = useSettings();
   const showStats = getSetting('genesis', 'showStats', false);
@@ -554,6 +555,8 @@ const SimViewer = () => {
           mode={streamStats?.mode ?? 'ws'}
           decoderQueueSize={h264DecoderRef?.current?.getStats()?.queueSize ?? 0}
           maxQueueSize={3}
+          encoderStats={encoderStats}
+          dropCount={h264DecoderRef?.current?.getStats()?.dropCount ?? 0}
         />
       )}
     </div>
