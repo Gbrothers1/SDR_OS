@@ -114,12 +114,14 @@ class ShmRingWriter:
         buffer_size: Total mmap region size in bytes (including control region).
     """
 
-    def __init__(self, path: str = DEFAULT_SHM_PATH, buffer_size: int = DEFAULT_BUFFER_SIZE):
+    def __init__(self, path: str = DEFAULT_SHM_PATH, buffer_size: int = DEFAULT_BUFFER_SIZE,
+                 crc_enabled: bool = True):
         self._path = path
         self._buffer_size = buffer_size
         self._data_region_size = buffer_size - CONTROL_REGION_SIZE
         self._sequence: int = 0
         self._frame_seq: int = 0
+        self._crc_enabled = crc_enabled
         self._lock = threading.Lock()
 
         # Ensure parent directory exists
@@ -158,7 +160,7 @@ class ShmRingWriter:
 
         with self._lock:
             self._frame_seq += 1
-            crc = zlib.crc32(payload) & 0xFFFFFFFF
+            crc = zlib.crc32(payload) & 0xFFFFFFFF if self._crc_enabled else 0
 
             header = FrameHeader(
                 frame_id=frame_id,

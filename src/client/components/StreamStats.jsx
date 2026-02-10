@@ -20,13 +20,18 @@ const StreamStats = ({
       ? 'stream-stats__val--fps-warn'
       : 'stream-stats__val--fps-bad';
 
-  // Keyframe age
-  const kfAge = lastKeyframeTime
-    ? ((Date.now() - lastKeyframeTime) / 1000).toFixed(1)
-    : null;
-  const kfDotClass = kfAge !== null && parseFloat(kfAge) < 5
+  // Keyframe age — for H.264 with intra-refresh, show "IR" instead of age timer
+  const isIntraRefresh = encoderStats?.intra_refresh && encoderStats?.codec === 'h264';
+  const kfAge = isIntraRefresh
+    ? null
+    : lastKeyframeTime
+      ? ((Date.now() - lastKeyframeTime) / 1000).toFixed(1)
+      : null;
+  const kfDotClass = isIntraRefresh
     ? 'stream-stats__kf-dot--ok'
-    : 'stream-stats__kf-dot--waiting';
+    : kfAge !== null && parseFloat(kfAge) < 5
+      ? 'stream-stats__kf-dot--ok'
+      : 'stream-stats__kf-dot--waiting';
 
   // WS throughput — adaptive scale
   let wsThroughput, wsUnit;
@@ -86,9 +91,11 @@ const StreamStats = ({
       <div className="stream-stats__cell">
         <span className="stream-stats__label">KF</span>
         <span className={`stream-stats__kf-dot ${kfDotClass}`} />
-        {kfAge !== null && (
+        {isIntraRefresh ? (
+          <span className="stream-stats__val">IR</span>
+        ) : kfAge !== null ? (
           <span className="stream-stats__val">{kfAge}<span className="stream-stats__unit">s</span></span>
-        )}
+        ) : null}
       </div>
 
       {/* WS throughput */}
