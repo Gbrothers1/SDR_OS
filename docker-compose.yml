@@ -45,7 +45,7 @@ services:
       transport-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "--no-check-certificate", "https://localhost:443/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -158,7 +158,7 @@ services:
   nats:
     image: nats:2-alpine
     profiles: ["sim", "train"]
-    networks: [edge, backplane]
+    networks: [backplane]
     ports:
       - "4222:4222"
       - "8222:8222"

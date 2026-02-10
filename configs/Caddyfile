@@ -1,17 +1,10 @@
 # SDR_OS reverse proxy
-# Tailscale HTTPS — required for Safari Gamepad API (secure context)
+# HTTP fallback for local dev; HTTPS via Tailscale certs when available
 
-https://amd-rtx.tail09c99.ts.net {
-    tls /etc/caddy/tls/amd-rtx.tail09c99.ts.net.crt /etc/caddy/tls/amd-rtx.tail09c99.ts.net.key
-    log {
-        output stdout
-        format console
-        level INFO
-    }
-
+(sdr_routes) {
     @healthcheck path /health
     handle @healthcheck {
-        skip_log
+        log_skip
         respond "OK" 200
     }
 
@@ -30,7 +23,7 @@ https://amd-rtx.tail09c99.ts.net {
     }
 
     handle /ros/* {
-        reverse_proxy ros-bridge:9090
+        reverse_proxy host.docker.internal:9090
     }
 
     handle /api/* {
@@ -42,4 +35,25 @@ https://amd-rtx.tail09c99.ts.net {
         try_files {path} /index.html
         file_server
     }
+}
+
+# HTTP — local/dev fallback (no TLS certs required)
+:80 {
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+    import sdr_routes
+}
+
+# HTTPS — Tailscale secure context (for Safari Gamepad API etc.)
+https://amd-rtx.tail09c99.ts.net {
+    tls /etc/caddy/tls/amd-rtx.tail09c99.ts.net.crt /etc/caddy/tls/amd-rtx.tail09c99.ts.net.key
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+    import sdr_routes
 }
