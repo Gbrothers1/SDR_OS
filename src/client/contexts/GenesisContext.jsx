@@ -56,6 +56,7 @@ export const GenesisProvider = ({ children, socket }) => {
   
   // H.264 codec state
   const [streamCodec, setStreamCodec] = useState('jpeg');
+  const streamCodecRef = useRef(streamCodec);
   const [h264Codec, setH264Codec] = useState(null);
   const [h264Support, setH264Support] = useState(null);
   const h264DecoderRef = useRef(null);
@@ -108,6 +109,9 @@ export const GenesisProvider = ({ children, socket }) => {
     });
   }, []);
 
+  // Keep streamCodecRef in sync so WS closure always sees current value
+  useEffect(() => { streamCodecRef.current = streamCodec; }, [streamCodec]);
+
   // Track if we've sent negotiate message for current connection
   const negotiateSentRef = useRef(false);
 
@@ -121,11 +125,12 @@ export const GenesisProvider = ({ children, socket }) => {
 
     // WS bandwidth tracking interval
     const statsInterval = setInterval(() => {
+      const bytes = wsBytesAccRef.current;
+      wsBytesAccRef.current = 0;
       setStreamStats(prev => ({
         ...prev,
-        wsBytesPerSec: wsBytesAccRef.current,
+        wsBytesPerSec: bytes,
       }));
-      wsBytesAccRef.current = 0;
     }, 1000);
     wsStatsIntervalRef.current = statsInterval;
 
@@ -173,8 +178,8 @@ export const GenesisProvider = ({ children, socket }) => {
       if (codec === CodecType.H264) {
         if (h264DecoderRef.current && streamBackend !== 'webrtc') {
           h264DecoderRef.current.decode(payload, isKeyframe);
-          if (streamCodec !== 'h264') setStreamCodec('h264');
-        } else if (streamCodec !== 'h264') {
+          if (streamCodecRef.current !== 'h264') setStreamCodec('h264');
+        } else if (streamCodecRef.current !== 'h264') {
           // Safari fallback: if WebCodecs is missing, keep codec state but avoid hard failure.
           setStreamCodec('h264');
         }
@@ -187,7 +192,7 @@ export const GenesisProvider = ({ children, socket }) => {
         const url = URL.createObjectURL(blob);
         prevFrameUrlRef.current = url;
         setCurrentFrame(url);
-        if (streamCodec !== 'jpeg') setStreamCodec('jpeg');
+        if (streamCodecRef.current !== 'jpeg') setStreamCodec('jpeg');
       }
     };
 
@@ -309,10 +314,10 @@ export const GenesisProvider = ({ children, socket }) => {
       }
     };
 
-    // Video health check (Layer 1: 500ms)
+    // Video health check (Layer 1: 2000ms)
     const videoHealthInterval = setInterval(() => {
       const age = Date.now() - lastFrameTimeRef.current;
-      if (age > 500) {
+      if (age > 2000) {
         setVideoHealthy(false);
       }
     }, 200);
