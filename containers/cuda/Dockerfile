@@ -16,6 +16,7 @@ RUN apt-get update \
         libglib2.0-0 \
         libxrender1 \
         libopengl0 \
+        libturbojpeg0-dev \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && corepack enable \

@@ -16,6 +16,7 @@ dev = []
 cuda = [
     "av>=14.0.0",
     "PyOpenGL-accelerate>=3.1.10",
+    "PyTurboJPEG>=1.7.0",
 ]
 rocm = [
     "mlx[cpu]",

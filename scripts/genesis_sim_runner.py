@@ -11,9 +11,9 @@ Connects to NATS for command reception and telemetry publishing.
 Publishes canonical safety state (ARMED/HOLD/ESTOP) as sim authority.
 
 Architecture:
-  Genesis scene → camera.render() → encode → ShmRingWriter
-  transport-server reads SHM → WebSocket fanout → browser
-  NATS command.genesis.> → sim (this process)
+  Main thread:  step_sim() → render() → push frame to queue
+  Encoder thread: pop frame → encode → ShmRingWriter
+  NATS async:   command.genesis.> → sim state
   sim → NATS telemetry.* → transport-server → browser
 """
 
@@ -26,7 +26,10 @@ import logging
 import asyncio
 import pickle
 import glob
+import threading
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 # Ensure project root on path
 _project_root = str(Path(__file__).resolve().parent.parent)
@@ -57,6 +60,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("genesis_sim_runner")
 
+# ── Optional turbojpeg ────────────────────────────────────────────
+try:
+    from turbojpeg import TurboJPEG, TJPF_RGB
+    _turbojpeg = TurboJPEG()
+    logger.info("turbojpeg available — using for JPEG encoding")
+except ImportError:
+    _turbojpeg = None
+
 # ── SHM ringbuffer writer ─────────────────────────────────────────
 from src.sdr_os.ipc.shm_ringbuffer import ShmRingWriter, FrameFlags, Codec
 
@@ -66,6 +77,52 @@ SHM_SIZE = int(os.environ.get("SDR_SHM_SIZE", 4 * 1024 * 1024))
 # ── Genesis + Forge ────────────────────────────────────────────────
 import genesis as gs
 from genesis_bridge.envs.go2_env import Go2BridgeEnv
+
+
+# ── BT.601 color matrix for GPU-side RGB→YUV ──────────────────────
+# Standard BT.601 limited-range coefficients (Y 16-235, UV 16-240)
+_BT601_MAT = torch.tensor([
+    [ 0.257,  0.504,  0.098],
+    [-0.148, -0.291,  0.439],
+    [ 0.439, -0.368, -0.071],
+], dtype=torch.float32)
+_BT601_OFFSET = torch.tensor([16.0, 128.0, 128.0], dtype=torch.float32)
+
+
+def _rgb_to_yuv420p_gpu(tensor):
+    """Convert an RGB uint8 tensor (H,W,3) to YUV420p planes on GPU.
+
+    Uses BT.601 limited-range conversion:
+      Y  =  0.257*R + 0.504*G + 0.098*B + 16
+      Cb = -0.148*R - 0.291*G + 0.439*B + 128
+      Cr =  0.439*R - 0.368*G - 0.071*B + 128
+
+    Chroma is subsampled 2x2 via simple averaging.
+
+    Returns (Y, U, V) as contiguous uint8 CPU numpy arrays.
+    Transfer is ~1.3 bytes/pixel (YUV420p) vs 3 bytes/pixel (RGB24).
+    """
+    global _BT601_MAT, _BT601_OFFSET
+    device = tensor.device
+    _BT601_MAT = _BT601_MAT.to(device)
+    _BT601_OFFSET = _BT601_OFFSET.to(device)
+
+    # (H, W, 3) float32 matmul
+    rgb_f = tensor.float()
+    yuv = rgb_f @ _BT601_MAT.T + _BT601_OFFSET  # (H, W, 3)
+    yuv = yuv.clamp(0, 255).to(torch.uint8)
+
+    y_plane = yuv[:, :, 0].contiguous()
+    u_full = yuv[:, :, 1]
+    v_full = yuv[:, :, 2]
+
+    # Chroma subsample 2x2 — average four pixels
+    # Reshape to (H/2, 2, W/2, 2), mean over dims 1 and 3
+    h, w = u_full.shape
+    u_sub = u_full.reshape(h // 2, 2, w // 2, 2).float().mean(dim=(1, 3)).to(torch.uint8).contiguous()
+    v_sub = v_full.reshape(h // 2, 2, w // 2, 2).float().mean(dim=(1, 3)).to(torch.uint8).contiguous()
+
+    return y_plane.cpu().numpy(), u_sub.cpu().numpy(), v_sub.cpu().numpy()
 
 
 class ActorMLP(torch.nn.Module):
@@ -133,12 +190,15 @@ def load_policy(checkpoint_dir: str, model_file: str = None, obs_dim: int = 310)
 
 
 class JpegEncoder:
-    """JPEG fallback encoder."""
+    """JPEG encoder — uses turbojpeg if available, else OpenCV fallback."""
     def __init__(self, quality=80):
         self.quality = quality
         self.codec = Codec.JPEG
 
     def encode(self, frame_rgb, frame_id, force_idr=False):
+        if _turbojpeg is not None:
+            buf = _turbojpeg.encode(frame_rgb, quality=self.quality, pixel_format=TJPF_RGB)
+            return bytes(buf), True
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
         ok, buf = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         if not ok:
@@ -154,6 +214,10 @@ class NvencEncoder:
 
     Uses a standalone codec context (no container/muxer) so that
     encode() returns packets directly with inline SPS/PPS on every IDR.
+
+    Accepts either:
+    - frame_rgb (numpy H,W,3 uint8) — legacy path, does from_ndarray + reformat
+    - yuv_planes (Y, U, V) numpy arrays — fast path from GPU conversion
     """
     def __init__(self, width, height, fps=30, bitrate=5_000_000,
                  gop=30, preset="p1", intra_refresh=True):
@@ -162,6 +226,9 @@ class NvencEncoder:
 
         self.codec = Codec.H264
         self.frame_count = 0
+        self._width = width
+        self._height = height
+        self._intra_refresh = intra_refresh
 
         self.ctx = av.CodecContext.create("h264_nvenc", "w")
         self.ctx.width = width
@@ -180,16 +247,30 @@ class NvencEncoder:
             "forced-idr": "1",
             "repeat_headers": "1",
             "zerolatency": "1",
+            "surfaces": "8",
+            "async_depth": "2",
         }
         if intra_refresh:
             opts["intra-refresh"] = "1"
         self.ctx.options = opts
         self.ctx.open()
 
-    def encode(self, frame_rgb, frame_id, force_idr=False):
+        # Pre-allocate a reusable VideoFrame for the fast YUV path
+        self._yuv_frame = av.VideoFrame(width, height, "yuv420p")
+
+    def encode(self, frame_rgb, frame_id, force_idr=False, yuv_planes=None):
         import av
-        frame = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
-        frame = frame.reformat(format="yuv420p", width=self.ctx.width, height=self.ctx.height)
+        if yuv_planes is not None:
+            # Fast path: write pre-converted YUV planes into pre-allocated frame
+            y, u, v = yuv_planes
+            frame = self._yuv_frame
+            frame.planes[0].update(y.tobytes())
+            frame.planes[1].update(u.tobytes())
+            frame.planes[2].update(v.tobytes())
+        else:
+            # Legacy path: RGB numpy → from_ndarray → reformat
+            frame = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
+            frame = frame.reformat(format="yuv420p", width=self.ctx.width, height=self.ctx.height)
         frame.pts = frame_id
         if force_idr:
             frame.pict_type = av.video.frame.PictureType.I
@@ -207,6 +288,149 @@ class NvencEncoder:
             self.ctx.encode(None)
         except Exception:
             pass
+
+
+# ── Threaded encoder pipeline ─────────────────────────────────────
+
+@dataclass
+class EncodeRequest:
+    """Frame data passed from main loop to encoder thread."""
+    frame_np: Optional[np.ndarray]  # RGB numpy (for JPEG or legacy H.264)
+    frame_tensor: Optional[object]  # torch.Tensor on GPU (for GPU YUV path)
+    frame_id: int
+    force_idr: bool
+
+
+class EncoderThread:
+    """Background thread that encodes frames and writes to SHM.
+
+    Uses a single-slot "latest wins" queue — if the encoder is slower
+    than the sim, old frames are dropped (not queued up).
+
+    The encoder and SHM writer are owned exclusively by this thread.
+    """
+    def __init__(self, encoder, shm_writer):
+        self.encoder = encoder
+        self.shm_writer = shm_writer
+        self._request: Optional[EncodeRequest] = None
+        self._pending_close = None  # Old encoder awaiting close by thread
+        self._event = threading.Event()
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(target=self._run, name="encoder", daemon=True)
+
+        # Instrumentation (written by encoder thread, read by main thread)
+        self._encode_times = []
+        self._frame_sizes = []
+        self._frames_encoded = 0
+        self._stats_lock = threading.Lock()
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        self._event.set()  # Wake up if blocked
+        self._thread.join(timeout=2.0)
+        # Close any pending-close encoder that the thread didn't get to
+        if self._pending_close is not None:
+            try:
+                self._pending_close.close()
+            except Exception:
+                pass
+            self._pending_close = None
+
+    def submit(self, request: EncodeRequest):
+        """Submit a frame for encoding (latest-wins, non-blocking)."""
+        with self._lock:
+            self._request = request
+        self._event.set()
+
+    def swap_encoder(self, new_encoder):
+        """Thread-safe encoder swap (for codec switch / param change).
+
+        The old encoder is not closed here — the encoder thread closes
+        it on its next iteration to avoid racing with an in-flight encode.
+        """
+        with self._lock:
+            self._pending_close = self.encoder
+            self.encoder = new_encoder
+            self._request = None  # Discard any pending frame for old encoder
+        self._event.set()  # Wake thread to handle swap
+
+    def snapshot_stats(self):
+        """Read and reset instrumentation counters (called from main thread)."""
+        with self._stats_lock:
+            times = list(self._encode_times)
+            sizes = list(self._frame_sizes)
+            total = self._frames_encoded
+            self._encode_times.clear()
+            self._frame_sizes.clear()
+        return times, sizes, total
+
+    def _run(self):
+        logger.info("Encoder thread started")
+        while not self._stop.is_set():
+            self._event.wait()
+            self._event.clear()
+            if self._stop.is_set():
+                break
+
+            # Grab the latest request and close any swapped-out encoder
+            with self._lock:
+                to_close = self._pending_close
+                self._pending_close = None
+                req = self._request
+                self._request = None
+                encoder = self.encoder
+
+            if to_close is not None:
+                try:
+                    to_close.close()
+                except Exception:
+                    pass
+
+            if req is None:
+                continue
+
+            try:
+                t_enc = time.monotonic()
+
+                # Choose encode path based on encoder type and available data
+                yuv_planes = None
+                if isinstance(encoder, NvencEncoder) and req.frame_tensor is not None:
+                    yuv_planes = _rgb_to_yuv420p_gpu(req.frame_tensor)
+
+                payload, is_keyframe = encoder.encode(
+                    req.frame_np, req.frame_id,
+                    force_idr=req.force_idr,
+                    yuv_planes=yuv_planes,
+                ) if isinstance(encoder, NvencEncoder) else encoder.encode(
+                    req.frame_np, req.frame_id,
+                    force_idr=req.force_idr,
+                )
+
+                encode_ms = (time.monotonic() - t_enc) * 1000
+
+                if payload is None:
+                    continue
+
+                with self._stats_lock:
+                    self._encode_times.append(encode_ms)
+                    self._frame_sizes.append(len(payload))
+                    self._frames_encoded += 1
+
+                flags = FrameFlags.KEYFRAME if is_keyframe else FrameFlags.NONE
+                self.shm_writer.write(
+                    payload=payload,
+                    frame_id=req.frame_id,
+                    flags=flags,
+                    codec=encoder.codec,
+                )
+            except Exception as e:
+                logger.error(f"Encoder thread error: {e}")
+
+        logger.info("Encoder thread stopped")
 
 
 class GenesisSimRunner:
@@ -233,13 +457,14 @@ class GenesisSimRunner:
         self.current_obs = None
         self.shm_writer = None
         self.encoder = None
+        self._encoder_thread: Optional[EncoderThread] = None
         self.frame_id = 0
         self.running = False
         self.h264_bitrate = 5_000_000
         self.h264_preset = "p1"
         self._force_idr = False
 
-        # Encoder instrumentation
+        # Encoder instrumentation (legacy — now in EncoderThread)
         self._encode_times = []
         self._frame_sizes = []
         self._frames_encoded = 0
@@ -300,8 +525,20 @@ class GenesisSimRunner:
 
     def init_shm(self):
         """Initialize SHM ringbuffer writer."""
-        self.shm_writer = ShmRingWriter(path=SHM_PATH, buffer_size=SHM_SIZE)
-        logger.info(f"SHM writer ready at {SHM_PATH} ({SHM_SIZE / 1024 / 1024:.0f}MB)")
+        crc_enabled = os.environ.get("SDR_CRC_ENABLED", "1") != "0"
+        self.shm_writer = ShmRingWriter(path=SHM_PATH, buffer_size=SHM_SIZE, crc_enabled=crc_enabled)
+        logger.info(f"SHM writer ready at {SHM_PATH} ({SHM_SIZE / 1024 / 1024:.0f}MB, crc={'on' if crc_enabled else 'off'})")
+
+    def _start_encoder_thread(self):
+        """Start the background encoder thread."""
+        self._encoder_thread = EncoderThread(self.encoder, self.shm_writer)
+        self._encoder_thread.start()
+
+    def _stop_encoder_thread(self):
+        """Stop the background encoder thread."""
+        if self._encoder_thread:
+            self._encoder_thread.stop()
+            self._encoder_thread = None
 
     def _scan_checkpoints(self):
         """Scan rl/checkpoints/ for policy directories and standalone .pt files."""
@@ -385,10 +622,8 @@ class GenesisSimRunner:
     def _recreate_encoder(self):
         """Recreate H.264 encoder with current params, fallback to JPEG."""
         width, height = self.camera_res
-        if self.encoder:
-            self.encoder.close()
         try:
-            self.encoder = NvencEncoder(
+            new_encoder = NvencEncoder(
                 width, height,
                 fps=self.target_fps,
                 bitrate=self.h264_bitrate,
@@ -397,46 +632,44 @@ class GenesisSimRunner:
             logger.info(f"NVENC encoder recreated: bitrate={self.h264_bitrate}, preset={self.h264_preset}")
         except Exception as e:
             logger.warning(f"NVENC recreation failed ({e}), falling back to JPEG")
-            self.encoder = JpegEncoder(quality=self.jpeg_quality)
+            new_encoder = JpegEncoder(quality=self.jpeg_quality)
 
-    def render_and_write(self):
-        """Render camera frame, encode (NVENC or JPEG), write to SHM."""
+        self.encoder = new_encoder
+        if self._encoder_thread:
+            self._encoder_thread.swap_encoder(new_encoder)
+
+    def render_and_enqueue(self):
+        """Render camera frame and submit to encoder thread."""
         render_result = self.env.camera.render(rgb=True, depth=False, segmentation=False, normal=False)
         img = render_result[0] if isinstance(render_result, tuple) else render_result
 
+        frame_tensor = None
         if isinstance(img, torch.Tensor):
+            if img.ndim == 4:
+                img = img[0]
+            # Keep tensor on GPU for H.264 GPU color conversion path
+            if isinstance(self.encoder, NvencEncoder):
+                frame_tensor = img
             frame_np = img.cpu().numpy()
         else:
             frame_np = np.asarray(img)
-        if frame_np.ndim == 4:
-            frame_np = frame_np[0]
+            if frame_np.ndim == 4:
+                frame_np = frame_np[0]
 
-        t_enc = time.monotonic()
-        payload, is_keyframe = self.encoder.encode(
-            frame_np, self.frame_id,
-            force_idr=self._force_idr,
-        )
-        encode_ms = (time.monotonic() - t_enc) * 1000
+        force_idr = self._force_idr
         if self._force_idr:
             self._force_idr = False
 
-        if payload is None:
-            return
-
-        # Instrumentation
-        self._encode_times.append(encode_ms)
-        self._frame_sizes.append(len(payload))
-        self._frames_encoded += 1
-
-        flags = FrameFlags.KEYFRAME if is_keyframe else FrameFlags.NONE
-
-        self.shm_writer.write(
-            payload=payload,
+        req = EncodeRequest(
+            frame_np=frame_np,
+            frame_tensor=frame_tensor,
             frame_id=self.frame_id,
-            flags=flags,
-            codec=self.encoder.codec,
+            force_idr=force_idr,
         )
         self.frame_id += 1
+
+        if self._encoder_thread:
+            self._encoder_thread.submit(req)
 
     def step_sim(self):
         """Step the simulation with policy or zero actions."""
@@ -588,8 +821,10 @@ class GenesisSimRunner:
                             requested = cmd_data["codec"]
                             if requested == "jpeg" and isinstance(self.encoder, NvencEncoder):
                                 logger.info("Switching encoder to JPEG")
-                                self.encoder.close()
-                                self.encoder = JpegEncoder(quality=self.jpeg_quality)
+                                new_enc = JpegEncoder(quality=self.jpeg_quality)
+                                self.encoder = new_enc
+                                if self._encoder_thread:
+                                    self._encoder_thread.swap_encoder(new_enc)
                             elif requested == "h264" and isinstance(self.encoder, JpegEncoder):
                                 logger.info("Switching encoder to H.264 (NVENC)")
                                 self._recreate_encoder()
@@ -652,8 +887,9 @@ class GenesisSimRunner:
         last_safety_time = 0
 
         await self.connect_nats()
+        self._start_encoder_thread()
 
-        logger.info(f"Starting sim loop at {self.target_fps} FPS")
+        logger.info(f"Starting sim loop at {self.target_fps} FPS (threaded encoder)")
 
         try:
             while self.running:
@@ -667,8 +903,8 @@ class GenesisSimRunner:
                     self.step_sim()
                 step_count += 1
 
-                # Render and write to SHM
-                self.render_and_write()
+                # Render and submit to encoder thread
+                self.render_and_enqueue()
 
                 now = time.monotonic()
 
@@ -702,23 +938,25 @@ class GenesisSimRunner:
 
                     last_metrics_time = now
 
-                # Publish encoder stats every ~1s
+                # Publish encoder stats every ~1s (from encoder thread)
                 if now - self._last_encode_stats_time > 1.0 and self.nc and self.nc.is_connected:
-                    if self._encode_times:
-                        enc_stats = {
-                            "encode_time_avg_ms": round(sum(self._encode_times) / len(self._encode_times), 2),
-                            "encode_time_max_ms": round(max(self._encode_times), 2),
-                            "frame_size_avg_bytes": int(sum(self._frame_sizes) / len(self._frame_sizes)) if self._frame_sizes else 0,
-                            "frame_size_max_bytes": max(self._frame_sizes) if self._frame_sizes else 0,
-                            "actual_fps": len(self._encode_times),
-                            "target_fps": self.target_fps,
-                            "codec": "h264" if isinstance(self.encoder, NvencEncoder) else "jpeg",
-                            "bitrate": self.h264_bitrate,
-                            "frames_encoded": self._frames_encoded,
-                        }
-                        await self.nc.publish("telemetry.encoder.stats", json.dumps(enc_stats).encode())
-                        self._encode_times.clear()
-                        self._frame_sizes.clear()
+                    if self._encoder_thread:
+                        times, sizes, total = self._encoder_thread.snapshot_stats()
+                        if times:
+                            is_h264 = isinstance(self.encoder, NvencEncoder)
+                            enc_stats = {
+                                "encode_time_avg_ms": round(sum(times) / len(times), 2),
+                                "encode_time_max_ms": round(max(times), 2),
+                                "frame_size_avg_bytes": int(sum(sizes) / len(sizes)) if sizes else 0,
+                                "frame_size_max_bytes": max(sizes) if sizes else 0,
+                                "actual_fps": len(times),
+                                "target_fps": self.target_fps,
+                                "codec": "h264" if is_h264 else "jpeg",
+                                "bitrate": self.h264_bitrate,
+                                "frames_encoded": total,
+                                "intra_refresh": is_h264 and getattr(self.encoder, '_intra_refresh', False),
+                            }
+                            await self.nc.publish("telemetry.encoder.stats", json.dumps(enc_stats).encode())
                     self._last_encode_stats_time = now
 
                 # Publish canonical safety state at 2 Hz
@@ -745,6 +983,7 @@ class GenesisSimRunner:
             logger.info("Interrupted")
         finally:
             self.running = False
+            self._stop_encoder_thread()
             if self.shm_writer:
                 self.shm_writer.close()
             if self.nc and self.nc.is_connected:
