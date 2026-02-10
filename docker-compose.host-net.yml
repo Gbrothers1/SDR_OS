@@ -1,0 +1,38 @@
+# Override: host networking for environments without bridge/veth support
+# Usage: docker compose -f docker-compose.yml -f docker-compose.host-net.yml --profile sim up
+#
+# This override switches all services to network_mode: host so Docker Compose
+# works on sandboxed kernels (e.g. 4.4.0) that lack veth/netlink support.
+# Services communicate via localhost ports instead of DNS service names.
+
+services:
+  webserver:
+    network_mode: host
+    networks: !override []
+    environment:
+      - CADDY_ADMIN=off
+
+  node:
+    network_mode: host
+    networks: !override []
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - TRANSPORT_HOST=localhost
+      - TRANSPORT_PORT=8080
+
+  transport-server:
+    network_mode: host
+    networks: !override []
+    ports: !override []
+    environment:
+      - SDR_SHM_PATH=/dev/shm/sdr_os_ipc/frames
+      - SDR_NATS_URL=nats://localhost:4222
+      - RUST_LOG=info
+
+  nats:
+    network_mode: host
+    networks: !override []
+    ports: !override []
+
+  # genesis-sim already uses network_mode: host — no override needed
