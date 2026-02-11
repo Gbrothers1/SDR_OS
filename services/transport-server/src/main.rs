@@ -315,7 +315,7 @@ async fn unified_send_loop(
                                 if let Ok(cmd) = serde_json::from_slice::<serde_json::Value>(&data[1..]) {
                                     if let Some(action) = cmd.get("action").and_then(|a| a.as_str()) {
                                         let is_always_allowed = matches!(action, "estop" | "estop_clear" | "pause" | "reset");
-                                        let is_motion = matches!(action, "set_cmd_vel" | "set_alpha");
+                                        let is_motion = matches!(action, "set_cmd_vel" | "set_alpha" | "set_skill");
 
                                         // Video gate: block motion commands when video stale
                                         if is_motion && !is_always_allowed {

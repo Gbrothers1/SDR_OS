@@ -47,6 +47,7 @@ def main():
 
     env = Go2GaitTrainingEnv(num_envs=1, headless=False)
     env = RslRlWrapper(env)
+    env.cfg = cfg.get("env", {})
     env.build()
 
     print(f"Loading model: {model}")

@@ -4,7 +4,6 @@
 import os
 import sys
 import copy
-import torch
 import shutil
 import pickle
 import argparse
@@ -12,10 +11,7 @@ import argparse
 # Ensure project root is on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-import genesis as gs
-from genesis_forge.wrappers import VideoWrapper, RslRlWrapper
-from rl.envs.go2_gait_training_env import Go2GaitTrainingEnv
-from rsl_rl.runners import OnPolicyRunner
+import torch
 
 EXPERIMENT_NAME = "go2-locomotion"
 
@@ -23,6 +19,7 @@ parser = argparse.ArgumentParser(description="Train Go2 locomotion policy")
 parser.add_argument("-n", "--num_envs", type=int, default=4096)
 parser.add_argument("--max_iterations", type=int, default=2000)
 parser.add_argument("-d", "--device", type=str, default="gpu")
+parser.add_argument("--cuda_device", type=str, default=None, help="CUDA device index (e.g., 1)")
 parser.add_argument("-e", "--exp_name", type=str, default=EXPERIMENT_NAME)
 parser.add_argument("--log_dir", type=str, default="rl/checkpoints")
 args = parser.parse_args()
@@ -46,12 +43,22 @@ def training_cfg(exp_name: str, max_iterations: int, num_envs: int):
             "value_loss_coef": 1.0,
         },
         "init_member_classes": {},
-        "policy": {
+        "actor": {
+            "class_name": "MLPModel",
             "activation": "elu",
-            "actor_hidden_dims": [512, 256, 128],
-            "critic_hidden_dims": [512, 256, 128],
+            "hidden_dims": [512, 256, 128],
+            "stochastic": True,
             "init_noise_std": 1.0,
-            "class_name": "ActorCritic",
+            "noise_std_type": "scalar",
+            "state_dependent_std": False,
+            "obs_normalization": False,
+        },
+        "critic": {
+            "class_name": "MLPModel",
+            "activation": "elu",
+            "hidden_dims": [512, 256, 128],
+            "stochastic": False,
+            "obs_normalization": False,
         },
         "runner": {
             "checkpoint": -1,
@@ -69,11 +76,21 @@ def training_cfg(exp_name: str, max_iterations: int, num_envs: int):
         "num_steps_per_env": round(98_304 / num_envs),
         "save_interval": 100,
         "empirical_normalization": None,
-        "obs_groups": {"policy": ["policy"], "critic": ["policy", "critic"]},
+        "obs_groups": {"actor": ["policy"], "critic": ["policy", "critic"]},
     }
 
 
 def main():
+    if args.cuda_device is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
+        if args.device != "cpu" and torch.cuda.is_available():
+            torch.cuda.set_device(0)
+
+    import genesis as gs
+    from genesis_forge.wrappers import VideoWrapper, RslRlWrapper
+    from rl.envs.go2_gait_training_env import Go2GaitTrainingEnv
+    from rsl_rl.runners import OnPolicyRunner
+
     backend = gs.gpu
     if args.device == "cpu":
         backend = gs.cpu
@@ -97,6 +114,7 @@ def main():
         episode_trigger=lambda episode_id: episode_id % 2 == 0,
     )
     env = RslRlWrapper(env)
+    env.cfg = cfg.get("env", {})
     env.build()
     env.reset()
 

@@ -35,9 +35,6 @@ from typing import Optional
 _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
-_bridge_root = os.path.join(_project_root, "ref", "my_fuck_up", "code")
-if _bridge_root not in sys.path:
-    sys.path.insert(0, _bridge_root)
 
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
@@ -76,7 +73,6 @@ SHM_SIZE = int(os.environ.get("SDR_SHM_SIZE", 4 * 1024 * 1024))
 
 # ── Genesis + Forge ────────────────────────────────────────────────
 import genesis as gs
-from genesis_bridge.envs.go2_env import Go2BridgeEnv
 
 
 # ── BT.601 color matrix for GPU-side RGB→YUV ──────────────────────
@@ -481,13 +477,22 @@ class GenesisSimRunner:
         self._safety_reason = "ok"
         self._last_cmd_seq = 0
         self._last_cmd_vel_time = time.monotonic()
+        self._cmd_vel_received = False  # Don't enforce TTL until first command arrives
         self._video_gate_active = False
+        self._gait_enabled = False  # L2 held = gait walking, released = position hold
+        self._stand_axes = [0.0, 0.0, 0.0, 0.0]  # pitch, roll, yaw, height
         self.paused = False
+        self._step_log_counter = 0  # throttle step_sim logging
+        self._cmd_log_counter = 0   # throttle cmd_vel logging
+        self._gains_mode = "walk"   # "walk" or "stand" — tracks current PD gains
 
     def init_genesis(self):
         """Initialize Genesis scene and Go2 environment."""
         logger.info("Initializing Genesis GPU backend...")
-        gs.init(backend=gs.gpu)
+        gs.init(backend=gs.gpu, performance_mode=True)
+
+        # Import after gs.init() — GaitCommandManager touches genesis.engine at import time
+        from src.sdr_os.envs.go2_env import Go2BridgeEnv
 
         logger.info(f"Creating Go2BridgeEnv (camera: {self.camera_res})...")
         self.env = Go2BridgeEnv(
@@ -501,18 +506,34 @@ class GenesisSimRunner:
 
         obs, _ = self.env.reset()
         self.current_obs = obs
-        logger.info("Go2BridgeEnv initialized and reset")
+        logger.info(
+            f"Go2BridgeEnv initialized and reset — obs shape: {obs.shape if obs is not None else None}, "
+            f"device: {obs.device if obs is not None else None}"
+        )
 
         # Load policy if checkpoint provided
         if self.checkpoint_dir and os.path.exists(self.checkpoint_dir):
+            logger.info(f"Attempting policy load from: {self.checkpoint_dir}")
             obs_dim = obs.shape[-1] if obs is not None else 310
+            logger.info(f"Policy obs_dim={obs_dim} (obs tensor shape: {obs.shape if obs is not None else 'None'})")
             self.policy = load_policy(self.checkpoint_dir, obs_dim=obs_dim)
             if self.policy:
-                logger.info("Policy loaded, robot will be controlled by learned policy")
+                logger.info(f"Policy loaded OK — type={type(self.policy).__name__}, device={next(self.policy.parameters()).device}")
+                # Smoke test: run one inference to verify shapes match
+                try:
+                    with torch.no_grad():
+                        test_actions = self.policy.act_inference(obs)
+                    logger.info(
+                        f"Policy smoke test PASSED — input {obs.shape} → output {test_actions.shape}, "
+                        f"act_mean={test_actions.abs().mean().item():.4f}, act_max={test_actions.abs().max().item():.4f}"
+                    )
+                except Exception as e:
+                    logger.error(f"Policy smoke test FAILED: {e}")
+                    self.policy = None
             else:
-                logger.warning("Policy loading failed, using zero actions")
+                logger.warning("Policy loading returned None, using zero actions")
         else:
-            logger.info("No checkpoint provided, using zero actions")
+            logger.info(f"No checkpoint provided (checkpoint_dir={self.checkpoint_dir!r}), using zero actions")
 
         # Initialize encoder (NVENC with JPEG fallback)
         width, height = self.camera_res
@@ -671,21 +692,65 @@ class GenesisSimRunner:
         if self._encoder_thread:
             self._encoder_thread.submit(req)
 
+    def _switch_gains(self, mode):
+        """Switch PD gains if mode changed. Returns True if switched."""
+        if mode == self._gains_mode or not self.env:
+            return False
+        if mode == "stand":
+            self.env.set_stand_gains()
+        else:
+            self.env.set_walk_gains()
+        logger.info(f"PD gains switched: {self._gains_mode} → {mode}")
+        self._gains_mode = mode
+        return True
+
     def step_sim(self):
         """Step the simulation with policy or zero actions."""
+        branch = None
         if self._safety_mode == "ESTOP":
-            # In ESTOP: zero velocity, no policy
-            actions = torch.zeros(1, 12, device=gs.device)
-        elif self.policy is not None and self.current_obs is not None:
+            # In ESTOP: hold standing pose with high-stiffness PD
+            self._switch_gains("stand")
+            if self.env:
+                self.env.zero_velocity()
+                actions = self.env.compute_stand_actions(0, 0, 0, 0)
+            else:
+                actions = torch.zeros(1, 12, device=gs.device)
+            branch = "ESTOP"
+        elif self._gait_enabled and self.policy is not None and self.current_obs is not None:
+            # L2 held: gait walking via policy (training kp)
+            self._switch_gains("walk")
             with torch.no_grad():
                 actions = self.policy.act_inference(self.current_obs)
+            branch = "WALK"
         else:
-            actions = torch.zeros(1, 12, device=gs.device)
+            # L2 released: IK-style body pose with high-stiffness PD
+            self._switch_gains("stand")
+            if self.env:
+                pitch, roll, yaw, height = self._stand_axes
+                actions = self.env.compute_stand_actions(pitch, roll, yaw, height)
+            else:
+                actions = torch.zeros(1, 12, device=gs.device)
+            branch = "STAND"
+
+        # Log every 50 steps (~1s at 50Hz)
+        self._step_log_counter += 1
+        if self._step_log_counter % 50 == 1:
+            act_abs = actions.abs().mean().item()
+            act_max = actions.abs().max().item()
+            obs_shape = self.current_obs.shape if self.current_obs is not None else None
+            logger.info(
+                f"step_sim: branch={branch} safety={self._safety_mode} "
+                f"gains={self._gains_mode} gait={self._gait_enabled} "
+                f"policy={'YES' if self.policy else 'NO'} "
+                f"obs={obs_shape} act_mean={act_abs:.4f} act_max={act_max:.4f} "
+                f"stand_axes={[round(x, 3) for x in self._stand_axes]}"
+            )
 
         obs, _, dones, _, _ = self.env.step(actions)
         self.current_obs = obs
 
         if dones.any():
+            logger.warning("Episode terminated — resetting environment")
             obs, _ = self.env.reset()
             self.current_obs = obs
 
@@ -734,12 +799,37 @@ class GenesisSimRunner:
                 detail = None
                 # Out-of-order protection for velocity commands
                 if action == "set_cmd_vel":
+                    # Out-of-order protection: drop stale commands, but
+                    # accept a backwards jump (new browser session reset)
                     if cmd_seq <= self._last_cmd_seq:
-                        continue
+                        if cmd_seq > self._last_cmd_seq - 100:
+                            continue  # genuinely out-of-order within same session
+                        # Large backwards jump → new browser session, accept it
+                        logger.info(f"cmd_vel seq reset detected: {self._last_cmd_seq} → {cmd_seq}")
                     self._last_cmd_seq = cmd_seq
                     self._last_cmd_vel_time = time.monotonic()
-                    # Recover from HOLD on fresh command
-                    if self._safety_mode == "HOLD":
+                    self._cmd_vel_received = True
+                    self._gait_enabled = bool(cmd_data.get("gait_enabled", False))
+                    self._stand_axes = [
+                        cmd_data.get("linear_y", 0.0),    # pitch
+                        cmd_data.get("linear_x", 0.0),    # roll
+                        cmd_data.get("angular_z", 0.0),   # yaw
+                        cmd_data.get("angular_y", 0.0),   # height
+                    ]
+                    # Log every 30th cmd_vel (~1/sec at 30Hz send rate)
+                    self._cmd_log_counter += 1
+                    if self._cmd_log_counter % 30 == 1:
+                        logger.info(
+                            f"cmd_vel: seq={cmd_seq} gait={self._gait_enabled} "
+                            f"safety={self._safety_mode} "
+                            f"lx={cmd_data.get('linear_x', 0):.3f} "
+                            f"ly={cmd_data.get('linear_y', 0):.3f} "
+                            f"az={cmd_data.get('angular_z', 0):.3f} "
+                            f"ay={cmd_data.get('angular_y', 0):.3f}"
+                        )
+                    # Recover from HOLD or cmd_timeout ESTOP on fresh command
+                    if self._safety_mode in ("HOLD", "ESTOP") and self._safety_reason == "cmd_timeout":
+                        logger.info(f"Auto-recovering from {self._safety_mode} on fresh cmd_vel")
                         self._safety_mode = "ARMED"
                         self._safety_reason = "ok"
                     if self.env:
@@ -756,6 +846,8 @@ class GenesisSimRunner:
                     elif action == "estop":
                         self._safety_mode = "ESTOP"
                         self._safety_reason = cmd_data.get("reason", "operator")
+                        if self.env:
+                            self.env.zero_velocity()
                         logger.warning(f"ESTOP triggered: {self._safety_reason}")
                     elif action == "estop_clear":
                         if not self._video_gate_active:
@@ -798,6 +890,11 @@ class GenesisSimRunner:
                         self._force_idr = True
                         logger.info("IDR frame requested")
                     elif action == "settings":
+                        if "dt" in cmd_data:
+                            new_dt = float(cmd_data["dt"])
+                            if self.env and 0.001 <= new_dt <= 0.1:
+                                self.env.scene.sim_options.dt = new_dt
+                                logger.info(f"Simulation dt updated to {new_dt}")
                         if "jpeg_quality" in cmd_data:
                             self.jpeg_quality = int(cmd_data["jpeg_quality"])
                             if isinstance(self.encoder, JpegEncoder):
@@ -855,6 +952,8 @@ class GenesisSimRunner:
                 if self._video_gate_active and data.get("mode") == "ESTOP":
                     self._safety_mode = "ESTOP"
                     self._safety_reason = "video_timeout"
+                    if self.env:
+                        self.env.zero_velocity()
             except Exception:
                 pass
 
@@ -864,16 +963,23 @@ class GenesisSimRunner:
         """Layer 3: TTL decay and ESTOP on command timeout."""
         if self._safety_mode == "ESTOP":
             return
+        if not self._cmd_vel_received:
+            return  # Don't enforce TTL until first command arrives
 
         elapsed = time.monotonic() - self._last_cmd_vel_time
         if elapsed > 2.0:
             self._safety_mode = "ESTOP"
             self._safety_reason = "cmd_timeout"
+            self._last_cmd_seq = 0  # Reset so fresh browser sessions are accepted
+            if self.env:
+                self.env.zero_velocity()
             logger.warning("Command timeout >2s — ESTOP")
         elif elapsed > 0.2:
             if self._safety_mode != "HOLD":
                 self._safety_mode = "HOLD"
                 self._safety_reason = "cmd_timeout"
+                if self.env:
+                    self.env.zero_velocity()
                 logger.warning("Command TTL expired — HOLD")
 
     # ── Main loop ─────────────────────────────────────────────────
@@ -889,7 +995,15 @@ class GenesisSimRunner:
         await self.connect_nats()
         self._start_encoder_thread()
 
-        logger.info(f"Starting sim loop at {self.target_fps} FPS (threaded encoder)")
+        # Reset cmd timer after init (GPU init takes seconds, would trigger ESTOP)
+        self._last_cmd_vel_time = time.monotonic()
+
+        logger.info(
+            f"Starting sim loop at {self.target_fps} FPS (threaded encoder) — "
+            f"policy={'LOADED' if self.policy else 'NONE'}, "
+            f"safety={self._safety_mode}, gait={self._gait_enabled}, "
+            f"obs={'OK' if self.current_obs is not None else 'NONE'}"
+        )
 
         try:
             while self.running:
@@ -916,6 +1030,7 @@ class GenesisSimRunner:
                         "policy_loaded": self.policy is not None,
                         "policy_checkpoint": getattr(self, '_loaded_model_file', None),
                         "paused": self.paused,
+                        "dt": self.env.dt if self.env else 0.02,
                     }
                     if self.env:
                         metrics["velocity_command"] = self.env.get_velocity_command()

@@ -9,6 +9,28 @@
   padding: var(--space-3);
 }
 
+/* ── Header ────────────────────────────────────── */
+
+.policy-browser__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.policy-browser__title {
+  font-family: var(--font-primary);
+  font-size: var(--font-size-md);
+  color: var(--color-text-primary);
+}
+
+.policy-browser__subtitle {
+  font-family: var(--font-primary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
 /* ── Filter tabs ────────────────────────────────── */
 
 .policy-browser__tabs {
@@ -43,6 +65,27 @@
   background: rgba(91, 141, 239, 0.12);
   border-color: var(--color-accent-blue);
   color: var(--color-accent-blue);
+}
+
+/* ── Search ────────────────────────────────────── */
+
+.policy-browser__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.policy-browser__input--search {
+  flex: 1;
+  min-width: 140px;
+}
+
+.policy-browser__search-count {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 /* ── Status bar ─────────────────────────────────── */
@@ -198,20 +241,12 @@
 
 /* ── Policy card wrapper ────────────────────────── */
 
-.policy-card-wrap {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-}
-
 /* ── Policy card ────────────────────────────────── */
 
 .policy-card {
-  all: unset;
-  cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   padding: var(--space-3);
   background: var(--color-glass-bg);
   border: var(--border-width) solid var(--color-glass-border);
@@ -220,14 +255,9 @@
   min-height: var(--touch-min);
 }
 
-.policy-card:hover:not(:disabled) {
+.policy-card:hover {
   border-color: var(--color-glass-border-hover);
   background: rgba(22, 25, 34, 0.95);
-}
-
-.policy-card:disabled {
-  cursor: default;
-  opacity: 0.6;
 }
 
 .policy-card--active {
@@ -246,6 +276,12 @@
 .policy-card--ckpt-open {
   border-color: var(--color-accent-blue);
   background: rgba(91, 141, 239, 0.06);
+}
+
+.policy-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 /* ── Card header ────────────────────────────────── */
@@ -338,6 +374,50 @@
   flex-wrap: wrap;
 }
 
+/* ── Card actions ───────────────────────────────── */
+
+.policy-card__actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-1);
+}
+
+.policy-card__action {
+  all: unset;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--color-glass-border);
+  transition: all var(--transition-fast);
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.policy-card__action:hover:not(:disabled) {
+  border-color: var(--color-glass-border-hover);
+  color: var(--color-text-primary);
+}
+
+.policy-card__action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.policy-card__action--primary {
+  border-color: var(--color-accent-blue);
+  background: rgba(91, 141, 239, 0.12);
+  color: var(--color-text-primary);
+}
+
+.policy-card__action--active {
+  border-color: var(--color-accent-blue);
+  color: var(--color-accent-blue);
+}
 .policy-card__stat {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);

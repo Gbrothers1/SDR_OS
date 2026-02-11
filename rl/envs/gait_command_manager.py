@@ -22,12 +22,12 @@ FootName = Literal["FL", "FR", "RL", "RR"]
 # Phase offsets for each foot in different gaits (0.0 = start of cycle, 0.5 = mid-cycle)
 # Each gait defines when each foot contacts the ground relative each other in the gait cycle.
 GAIT_OFFSETS: dict[GaitName, dict[FootName, float]] = {
-    # "walk": {
-    #     "FL": 0.0,
-    #     "FR": 0.5,
-    #     "RL": 0.75,
-    #     "RR": 0.25,
-    # },
+    "walk": {
+        "FL": 0.0,
+        "FR": 0.5,
+        "RL": 0.75,
+        "RR": 0.25,
+    },
     "trot": {
         "FL": 0.0,  # Front-left foot
         "FR": 0.5,
@@ -270,6 +270,24 @@ class GaitCommandManager(CommandManager):
         self._num_gaits = len(GAIT_OFFSETS)
         self._gamepad_gait_idx = 0
         self._gamepad_select_gait(list(GAIT_OFFSETS.keys())[0])
+
+    def set_fixed_gait(
+        self,
+        gait_name: GaitName,
+        period: float,
+        clearance: float,
+        env_ids: torch.Tensor | None = None,
+    ):
+        """
+        Force a fixed gait configuration (used by skill environments).
+        """
+        if env_ids is None:
+            env_ids = torch.arange(self.env.num_envs, device=gs.device)
+        self._num_gaits = 1
+        self._all_gaits_learned = True
+        self._set_gait(gait_name, env_ids)
+        self.foot_height[env_ids, 0] = clearance
+        self.gait_period[env_ids, 0] = period
 
     """
     Rewards

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate a trained Go2 stand skill policy."""
+"""Evaluate a trained Go2 jump skill policy."""
 
 import os
 import sys
@@ -12,9 +12,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 import genesis as gs
 
-EXPERIMENT_NAME = "go2-stand"
+EXPERIMENT_NAME = "go2-jump"
 
-parser = argparse.ArgumentParser(description="Evaluate Go2 stand skill policy")
+parser = argparse.ArgumentParser(description="Evaluate Go2 jump skill policy")
 parser.add_argument("-d", "--device", type=str, default="gpu")
 parser.add_argument("-e", "--exp_name", type=str, default=EXPERIMENT_NAME)
 parser.add_argument("--log_dir", type=str, default="rl/checkpoints")
@@ -40,14 +40,14 @@ def main():
 
     # Import after gs.init() -- genesis requires initialization before entity imports
     from genesis_forge.wrappers import RslRlWrapper
-    from rl.envs.go2_skill_env import Go2StandEnv
+    from rl.envs.go2_skill_env import Go2JumpEnv
     from rsl_rl.runners import OnPolicyRunner
 
     log_path = os.path.join(args.log_dir, args.exp_name)
     [cfg] = pickle.load(open(os.path.join(log_path, "cfgs.pkl"), "rb"))
     model = args.checkpoint or get_latest_model(log_path)
 
-    env = Go2StandEnv(num_envs=1, headless=False)
+    env = Go2JumpEnv(num_envs=1, headless=False)
     env = RslRlWrapper(env)
     env.cfg = cfg.get("env", {})
     env.build()

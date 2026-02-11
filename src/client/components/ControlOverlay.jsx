@@ -4,8 +4,9 @@ import '../styles/ControlOverlay.css';
 import ROSLIB from 'roslib';
 import soundEffects from '../audio/SoundEffects';
 import { useSettings } from '../contexts/SettingsContext';
+import { SKILL_BINDINGS } from '../config/skillBindings';
 
-const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepadAxes, sendCommand, sendVelocityCommand, onExpandChange }) => {
+const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepadAxes, sendCommand, sendVelocityCommand, sendWsCommand, onExpandChange }) => {
   const gamepadRef = useRef(null);
   const animationFrameRef = useRef();
   const { getSetting, updateSettings } = useSettings();
@@ -74,12 +75,55 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
   const isGamepadConnectedRef = useRef(false);
   const lastLocalInputAtRef = useRef(0);
   const lastRemoteInputAtRef = useRef(0);
+  const skillCooldownRef = useRef({});
   const [showGamepadPrompt, setShowGamepadPrompt] = useState(false);
   const [lastSocketButtonAt, setLastSocketButtonAt] = useState(0);
   const [lastSocketJoystickAt, setLastSocketJoystickAt] = useState(0);
   const gamepadMissCount = useRef(0);
   const GAMEPAD_MISS_THRESHOLD = 60; // ~1 second at 60fps before declaring disconnect
   const portalTarget = document.getElementById('overflow-panel-left');
+
+  const skillByButton = useMemo(() => {
+    const map = {};
+    SKILL_BINDINGS.forEach((binding) => {
+      map[binding.button] = binding;
+    });
+    return map;
+  }, []);
+
+  const getSkillTitle = useCallback((button) => {
+    const binding = skillByButton[button];
+    if (!binding) return 'No skill assigned';
+    if (!binding.skill) return `${binding.label || 'Empty slot'}`;
+    return `Skill: ${binding.label}`;
+  }, [skillByButton]);
+
+  const formatSkillSummary = useCallback((buttons) => {
+    return buttons.map((button) => {
+      const binding = skillByButton[button];
+      if (!binding) return `${button}=—`;
+      if (!binding.skill) return `${button}=—`;
+      return `${button}=${binding.shortLabel || binding.label}`;
+    }).join('  ');
+  }, [skillByButton]);
+
+  const triggerSkill = useCallback((button, source) => {
+    const binding = skillByButton[button];
+    if (!binding || !binding.skill || !sendWsCommand) return;
+
+    const now = Date.now();
+    const cooldown = binding.cooldownMs || 0;
+    const last = skillCooldownRef.current[binding.skill] || 0;
+    if (cooldown > 0 && now - last < cooldown) return;
+    skillCooldownRef.current[binding.skill] = now;
+
+    sendWsCommand('set_skill', {
+      skill: binding.skill,
+      trigger: binding.trigger || 'press',
+      source,
+      button,
+    });
+  }, [skillByButton, sendWsCommand]);
 
   useEffect(() => {
     buttonStatesRef.current = buttonStates;
@@ -392,6 +436,13 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             }
           });
 
+          // Trigger skill commands on button press
+          Object.entries(newButtonStates).forEach(([button, isPressed]) => {
+            if (isPressed && !prevButtonStates[button]) {
+              triggerSkill(button, 'gamepad');
+            }
+          });
+
           if (buttonsChanged) {
             setButtonStates(newButtonStates);
           }
@@ -405,9 +456,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
               z: (getButton(6).value - getButton(7).value) * 0.5
             },
             angular: {
-              x: getAxis(2) * 1.0,
+              x: 0,
               y: getAxis(3) * 1.0,
-              z: (getButton(4).value - getButton(5).value) * 1.0
+              z: getAxis(2) * 1.0,  // Right stick X → yaw rotation
             }
           };
 
@@ -463,8 +514,9 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
               }
             }
             // Genesis NATS set_cmd_vel — sim-specific with safety stack
+            // L2 held = gait walking mode, otherwise position hold
             if (sendVelocityCommand) {
-              sendVelocityCommand(newState.linear.x, newState.linear.y, newState.angular.z);
+              sendVelocityCommand(newState.linear.x, newState.linear.y, newState.angular.z, getButton(6).value > 0.1, newState.angular.y);
             }
             if (joystickStatePublisher) {
               joystickStatePublisher.publish(new ROSLIB.Message({
@@ -656,7 +708,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
       ...prev,
       [`Dpad${direction}`]: true
     }));
-  }, []);
+    triggerSkill(`Dpad${direction}`, 'ui');
+  }, [triggerSkill]);
 
   const handleFaceButtonPress = useCallback(async (button) => {
     await soundEffects.playFaceButtonClick().catch(console.error);
@@ -664,7 +717,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
       ...prev,
       [button]: true
     }));
-  }, []);
+    triggerSkill(button, 'ui');
+  }, [triggerSkill]);
 
   const handleTriggerPress = useCallback(async (trigger) => {
     await soundEffects.playButtonClick().catch(console.error);
@@ -672,7 +726,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
       ...prev,
       [trigger]: true
     }));
-  }, []);
+    triggerSkill(trigger, 'ui');
+  }, [triggerSkill]);
 
   const toggleMappings = useCallback(async (e) => {
     e.stopPropagation();
@@ -788,20 +843,27 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
                     <div 
                       className={`dpad-button ${buttonStates.DpadUp ? 'pressed' : ''}`}
                       onClick={() => handleDpadPress('Up')}
+                      title={getSkillTitle('DpadUp')}
                     >↑</div>
                     <div 
                       className={`dpad-button ${buttonStates.DpadRight ? 'pressed' : ''}`}
                       onClick={() => handleDpadPress('Right')}
+                      title={getSkillTitle('DpadRight')}
                     >→</div>
                     <div 
                       className={`dpad-button ${buttonStates.DpadDown ? 'pressed' : ''}`}
                       onClick={() => handleDpadPress('Down')}
+                      title={getSkillTitle('DpadDown')}
                     >↓</div>
                     <div 
                       className={`dpad-button ${buttonStates.DpadLeft ? 'pressed' : ''}`}
                       onClick={() => handleDpadPress('Left')}
+                      title={getSkillTitle('DpadLeft')}
                     >←</div>
                   <div className="dpad-button dpad-center"></div>
+                </div>
+                <div className="value-display">
+                  {formatSkillSummary(['DpadUp', 'DpadRight', 'DpadDown', 'DpadLeft'])}
                 </div>
               </div>
 
@@ -811,19 +873,26 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
                     <div 
                       className={`button ${buttonStates.Y ? 'pressed' : ''}`}
                       onClick={() => handleFaceButtonPress('Y')}
+                      title={getSkillTitle('Y')}
                     ><span>Y</span></div>
                     <div 
                       className={`button ${buttonStates.B ? 'pressed' : ''}`}
                       onClick={() => handleFaceButtonPress('B')}
+                      title={getSkillTitle('B')}
                     ><span>B</span></div>
                     <div 
                       className={`button ${buttonStates.X ? 'pressed' : ''}`}
                       onClick={() => handleFaceButtonPress('X')}
+                      title={getSkillTitle('X')}
                     ><span>X</span></div>
                     <div 
                       className={`button ${buttonStates.A ? 'pressed' : ''}`}
                       onClick={() => handleFaceButtonPress('A')}
+                      title={getSkillTitle('A')}
                     ><span>A</span></div>
+                </div>
+                <div className="value-display">
+                  {formatSkillSummary(['Y', 'X', 'B', 'A'])}
                 </div>
               </div>
 
@@ -856,14 +925,17 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
                     <div 
                       className={`button ${buttonStates.L1 ? 'pressed' : ''}`}
                       onClick={() => handleTriggerPress('L1')}
+                      title={getSkillTitle('L1')}
                     >L1</div>
                     <div 
                       className={`button ${buttonStates.L3 ? 'pressed' : ''}`}
                       onClick={() => handleTriggerPress('L3')}
+                      title={getSkillTitle('L3')}
                     >L3</div>
                     <div 
                       className={`button ${buttonStates.L4 ? 'pressed' : ''}`}
                       onClick={() => handleTriggerPress('L4')}
+                      title={getSkillTitle('L4')}
                     >L4</div>
                 </div>
               </div>
@@ -881,14 +953,17 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
                     <div 
                       className={`button ${buttonStates.R1 ? 'pressed' : ''}`}
                       onClick={() => handleTriggerPress('R1')}
+                      title={getSkillTitle('R1')}
                     >R1</div>
                     <div 
                       className={`button ${buttonStates.R3 ? 'pressed' : ''}`}
                       onClick={() => handleTriggerPress('R3')}
+                      title={getSkillTitle('R3')}
                     >R3</div>
                     <div 
                       className={`button ${buttonStates.R4 ? 'pressed' : ''}`}
                       onClick={() => handleTriggerPress('R4')}
+                      title={getSkillTitle('R4')}
                     >R4</div>
                   </div>
                 </div>
@@ -968,6 +1043,15 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
               <div>{rosMappings.buttons.B}</div>
               <div>{rosMappings.buttons.X}</div>
               <div>{rosMappings.buttons.Y}</div>
+            </div>
+
+            <div className="mapping-info">
+              <div className="mapping-title">Skill Bindings</div>
+              {SKILL_BINDINGS.map((binding) => (
+                <div key={`skill-${binding.button}`}>
+                  {binding.button}: {binding.skill ? binding.label : '—'}
+                </div>
+              ))}
             </div>
           </div>
         </div>,

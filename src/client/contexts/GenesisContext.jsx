@@ -214,6 +214,7 @@ export const GenesisProvider = ({ children, socket }) => {
         if (subject === 'telemetry.training.metrics') {
           setTrainingMetrics(data);
           if (data.velocity_command) setVelocityCommand(data.velocity_command);
+          if (data.dt != null) setEnvInfo(prev => ({ ...prev, dt: data.dt }));
         } else if (subject === 'telemetry.reward.breakdown') {
           setRewardBreakdown(data);
         } else if (subject === 'telemetry.obs.breakdown') {
@@ -231,8 +232,11 @@ export const GenesisProvider = ({ children, socket }) => {
         } else if (subject === 'telemetry.command.ack') {
           // Command acknowledgment — could be used for UI feedback
           if (data.action === 'load_policy') {
-            setPolicyLoadStatus(data.status);
-            if (data.status !== 'ok') {
+            if (data.status === 'ok') {
+              setPolicyLoadStatus('loaded');
+              setPolicyLoadError(null);
+            } else {
+              setPolicyLoadStatus('error');
               setPolicyLoadError(data.detail || 'Policy load failed');
             }
           } else if (data.action === 'list_policies' && data.status !== 'ok') {
@@ -609,9 +613,9 @@ export const GenesisProvider = ({ children, socket }) => {
   }, [sendWsCommand]);
 
   // Action: Send velocity command with TTL
-  const sendVelocityCommand = useCallback((linearX, linearY, angularZ) => {
+  const sendVelocityCommand = useCallback((linearX, linearY, angularZ, gaitEnabled = false, angularY = 0) => {
     // UI updates should not be gated by video health; keep command path live.
-    sendWsCommand('set_cmd_vel', { linear_x: linearX, linear_y: linearY, angular_z: angularZ }, 200);
+    sendWsCommand('set_cmd_vel', { linear_x: linearX, linear_y: linearY, angular_z: angularZ, angular_y: angularY, gait_enabled: gaitEnabled }, 200);
   }, [sendWsCommand]);
   
   // DataChannel: send gamepad axes (binary, unordered)

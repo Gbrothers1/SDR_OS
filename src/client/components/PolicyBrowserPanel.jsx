@@ -49,35 +49,17 @@ const CheckpointList = ({ policy, loadedCheckpoint, onSelect }) => {
 const PolicyCard = ({ policy, isLoading, onLoad, onToggleCheckpoints, checkpointsOpen }) => {
   const isActive = policy.is_loaded;
   const isDir = policy.type === 'directory';
-  const hasMultiple = isDir && policy.checkpoints && policy.checkpoints.length > 1;
-
-  const handleCardClick = () => {
-    if (isLoading) return;
-    if (hasMultiple) {
-      onToggleCheckpoints(policy);
-    } else if (isDir && !isActive) {
-      onLoad(policy);
-    }
-  };
+  const canBrowse = isDir && policy.num_checkpoints > 1;
+  const canLoad = isDir && !isActive && !isLoading;
 
   return (
-    <div className="policy-card-wrap">
-      <button
-        className={`policy-card ${isActive ? 'policy-card--active' : ''} ${isLoading ? 'policy-card--loading' : ''} ${checkpointsOpen ? 'policy-card--ckpt-open' : ''}`}
-        onClick={handleCardClick}
-        disabled={!hasMultiple && (isActive || isLoading || !isDir)}
-        title={!isDir ? 'Standalone .pt files cannot be loaded directly (no cfgs.pkl)' : hasMultiple ? 'Click to browse checkpoints' : ''}
-      >
+    <div className={`policy-card ${isActive ? 'policy-card--active' : ''} ${isLoading ? 'policy-card--loading' : ''} ${checkpointsOpen ? 'policy-card--ckpt-open' : ''}`}>
+      <div className="policy-card__main">
         <div className="policy-card__header">
           <span className="policy-card__algo">{policy.algorithm}</span>
           <span className="policy-card__name">{policy.name}</span>
           {isActive && <span className="policy-card__badge">Active</span>}
           {isLoading && <span className="policy-card__spinner" />}
-          {hasMultiple && (
-            <span className={`policy-card__chevron ${checkpointsOpen ? 'policy-card__chevron--open' : ''}`}>
-              &#9662;
-            </span>
-          )}
         </div>
         <div className="policy-card__meta">
           {policy.loaded_checkpoint ? (
@@ -92,9 +74,29 @@ const PolicyCard = ({ policy, isLoading, onLoad, onToggleCheckpoints, checkpoint
           )}
           <span className="policy-card__stat">{policy.size_mb} MB</span>
           <span className="policy-card__stat">{timeAgo(policy.modified_iso)}</span>
-          {!isDir && <span className="policy-card__stat policy-card__stat--muted">file</span>}
+          {!isDir && <span className="policy-card__stat policy-card__stat--muted">file (no cfgs.pkl)</span>}
         </div>
-      </button>
+      </div>
+      <div className="policy-card__actions">
+        {canBrowse && (
+          <button
+            className={`policy-card__action ${checkpointsOpen ? 'policy-card__action--active' : ''}`}
+            onClick={() => onToggleCheckpoints(policy)}
+            disabled={isLoading}
+            title="Browse checkpoints"
+          >
+            Checkpoints
+          </button>
+        )}
+        <button
+          className="policy-card__action policy-card__action--primary"
+          onClick={() => onLoad(policy)}
+          disabled={!canLoad}
+          title={!isDir ? 'Standalone .pt files cannot be loaded directly (no cfgs.pkl)' : isActive ? 'Already loaded' : 'Load latest checkpoint'}
+        >
+          {isActive ? 'Loaded' : 'Load'}
+        </button>
+      </div>
     </div>
   );
 };
@@ -113,6 +115,7 @@ const PolicyBrowserPanel = ({ onExpandChange }) => {
   } = useGenesis();
 
   const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
   const [loadingPath, setLoadingPath] = useState(null);
   const [expandedPolicy, setExpandedPolicy] = useState(null);
   const [dtInput, setDtInput] = useState(() => (envInfo?.dt ?? 0.02).toFixed(3));
@@ -146,9 +149,15 @@ const PolicyBrowserPanel = ({ onExpandChange }) => {
   }, [expandedPolicy, onExpandChange]);
 
   const filtered = useMemo(() => {
-    if (filter === 'all') return policyList;
-    return policyList.filter((p) => p.algorithm === filter);
-  }, [policyList, filter]);
+    let items = policyList;
+    if (filter !== 'all') items = items.filter((p) => p.algorithm === filter);
+    if (!query.trim()) return items;
+    const q = query.trim().toLowerCase();
+    return items.filter((p) =>
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.path || '').toLowerCase().includes(q)
+    );
+  }, [policyList, filter, query]);
 
   const counts = useMemo(() => {
     const c = { all: policyList.length, PPO: 0, BC: 0 };
@@ -200,6 +209,20 @@ const PolicyBrowserPanel = ({ onExpandChange }) => {
   return (
     <>
       <div className="policy-browser">
+        <div className="policy-browser__header">
+          <div>
+            <div className="policy-browser__title">Policy Library</div>
+            <div className="policy-browser__subtitle">Select a checkpoint directory to load</div>
+          </div>
+          <button
+            className="policy-browser__refresh"
+            onClick={handleRefresh}
+            title="Rescan checkpoints"
+          >
+            Refresh
+          </button>
+        </div>
+
         {/* Filter tabs */}
         <div className="policy-browser__tabs">
           {FILTER_TABS.map((tab) => (
@@ -213,48 +236,54 @@ const PolicyBrowserPanel = ({ onExpandChange }) => {
           ))}
         </div>
 
-        {/* Status bar */}
-      <div className="policy-browser__status">
-        <div className="policy-browser__status-left">
-          {loadedName && (
-            <span className="policy-browser__loaded">
-              <span className="policy-browser__loaded-dot" />
-              {loadedName}
-            </span>
-          )}
-        </div>
-        <div className="policy-browser__status-right">
-          <label className="policy-browser__label" htmlFor="policy-dt">dt</label>
+        <div className="policy-browser__search">
           <input
-            id="policy-dt"
-            className="policy-browser__input"
-            type="number"
-            step="0.001"
-            min="0.001"
-            max="0.1"
-            value={dtInput}
-            onChange={(e) => setDtInput(e.target.value)}
-            onKeyDown={handleDtKey}
-            disabled={!genesisConnected}
-            title="Simulation timestep (seconds)"
+            className="policy-browser__input policy-browser__input--search"
+            type="text"
+            placeholder="Search name or path"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
           />
-          <button
-            className="policy-browser__apply"
-            onClick={applyDt}
-            disabled={!genesisConnected}
-            title="Apply timestep"
-          >
-            Set
-          </button>
-          <button
-            className="policy-browser__refresh"
-            onClick={handleRefresh}
-            title="Rescan checkpoints"
-          >
-            Refresh
-          </button>
+          <div className="policy-browser__search-count">
+            {filtered.length} / {policyList.length}
+          </div>
         </div>
-      </div>
+
+        {/* Status bar */}
+        <div className="policy-browser__status">
+          <div className="policy-browser__status-left">
+            {loadedName && (
+              <span className="policy-browser__loaded">
+                <span className="policy-browser__loaded-dot" />
+                {loadedName}
+              </span>
+            )}
+          </div>
+          <div className="policy-browser__status-right">
+            <label className="policy-browser__label" htmlFor="policy-dt">dt</label>
+            <input
+              id="policy-dt"
+              className="policy-browser__input"
+              type="number"
+              step="0.001"
+              min="0.001"
+              max="0.1"
+              value={dtInput}
+              onChange={(e) => setDtInput(e.target.value)}
+              onKeyDown={handleDtKey}
+              disabled={!genesisConnected}
+              title="Simulation timestep (seconds)"
+            />
+            <button
+              className="policy-browser__apply"
+              onClick={applyDt}
+              disabled={!genesisConnected}
+              title="Apply timestep"
+            >
+              Set
+            </button>
+          </div>
+        </div>
 
         {/* Error banner */}
         {policyLoadError && (

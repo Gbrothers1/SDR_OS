@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train Go2 sit skill policy."""
+"""Train Go2 jump skill policy."""
 
 import os
 import sys
@@ -12,11 +12,11 @@ import argparse
 # Ensure project root is on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-EXPERIMENT_NAME = "go2-sit"
+EXPERIMENT_NAME = "go2-jump"
 
-parser = argparse.ArgumentParser(description="Train Go2 sit skill policy")
+parser = argparse.ArgumentParser(description="Train Go2 jump skill policy")
 parser.add_argument("-n", "--num_envs", type=int, default=2048)
-parser.add_argument("--max_iterations", type=int, default=1000)
+parser.add_argument("--max_iterations", type=int, default=1200)
 parser.add_argument("-d", "--device", type=str, default="gpu")
 parser.add_argument("--cuda_device", type=str, default=None, help="CUDA device index (e.g., 1)")
 parser.add_argument("-e", "--exp_name", type=str, default=EXPERIMENT_NAME)
@@ -77,7 +77,7 @@ def training_cfg(exp_name: str, max_iterations: int, num_envs: int):
         "empirical_normalization": None,
         "obs_groups": {"actor": ["policy"], "critic": ["policy", "critic"]},
         "env": {
-            "env_name": "go2_sit",
+            "env_name": "go2_jump",
         },
     }
 
@@ -98,7 +98,7 @@ def main():
 
     # Import after gs.init() -- genesis requires initialization before entity imports
     from genesis_forge.wrappers import VideoWrapper, RslRlWrapper
-    from rl.envs.go2_skill_env import Go2SitEnv
+    from rl.envs.go2_skill_env import Go2JumpEnv
     from rsl_rl.runners import OnPolicyRunner
 
     log_path = os.path.join(args.log_dir, args.exp_name)
@@ -110,7 +110,7 @@ def main():
     cfg = training_cfg(args.exp_name, args.max_iterations, args.num_envs)
     pickle.dump([cfg], open(os.path.join(log_path, "cfgs.pkl"), "wb"))
 
-    env = Go2SitEnv(num_envs=args.num_envs, headless=True)
+    env = Go2JumpEnv(num_envs=args.num_envs, headless=True)
     env = VideoWrapper(
         env,
         video_length_sec=8,

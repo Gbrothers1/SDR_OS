@@ -60,6 +60,7 @@ def main():
         command_resample_time=args.command_resample_time,
     )
     env = RslRlWrapper(env)
+    env.cfg = cfg.get("env", {})
     env.build()
 
     print(f"Loading model: {model}")

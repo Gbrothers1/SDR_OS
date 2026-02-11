@@ -89,7 +89,7 @@
   backdrop-filter: blur(var(--backdrop-blur));
   -webkit-backdrop-filter: blur(var(--backdrop-blur));
   box-shadow: var(--shadow-lg);
-  z-index: calc(var(--z-overlay) - 2);
+  z-index: calc(var(--z-overlay) - 1);
   overflow-y: auto;
   overflow-x: hidden;
   transition: transform var(--panel-slide-duration);
