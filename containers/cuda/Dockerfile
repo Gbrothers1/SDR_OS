@@ -42,9 +42,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --group cuda \
     && cp -a /workspace/.venv/lib/python3.10/site-packages/* /opt/venv/lib/python3.10/site-packages/ \
     && rm -rf /workspace/.venv
+
 RUN --mount=type=cache,target=/root/.npm \
-    if [ -f package-lock.json ]; then npm ci; fi \
-    && if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile; fi
+    --mount=type=cache,target=/root/.local/share/pnpm/store \
+    if [ -f pnpm-lock.yaml ]; then \
+      corepack enable && pnpm install --frozen-lockfile; \
+    elif [ -f package-lock.json ]; then \
+      npm ci; \
+    fi
 
 COPY . /workspace
 

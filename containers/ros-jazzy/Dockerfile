@@ -18,11 +18,12 @@ WORKDIR /workspace
 
 # Install Python deps (filter out ROS-provided packages).
 COPY requirements/requirements-base.txt /tmp/requirements-base.txt
-RUN if [ -s /tmp/requirements-base.txt ]; then \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if [ -s /tmp/requirements-base.txt ]; then \
       grep -Ev '^(#|rclpy|geometry_msgs|sensor_msgs|python3-opengl)' /tmp/requirements-base.txt \
         | grep -v '^$' > /tmp/requirements.filtered.txt || true; \
       if [ -s /tmp/requirements.filtered.txt ]; then \
-        pip3 install --no-cache-dir -r /tmp/requirements.filtered.txt; \
+        pip3 install -r /tmp/requirements.filtered.txt; \
       fi; \
     fi
 
