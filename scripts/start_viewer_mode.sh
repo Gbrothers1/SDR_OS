@@ -76,7 +76,7 @@ fi
 
 # 2. Launch genesis_sim_runner with --viewer
 echo "[viewer-mode] Starting sim runner (viewer mode, ${RES})..."
-DISPLAY="$DISPLAY_NUM" python "$SCRIPT_DIR/genesis_sim_runner.py" \
+DISPLAY="$DISPLAY_NUM" uv run "$SCRIPT_DIR/genesis_sim_runner.py" \
     --viewer \
     --camera-res "$RES" \
     --fps "$FPS" \
@@ -106,7 +106,7 @@ fi
 
 # 3. Launch capture sidecar
 echo "[viewer-mode] Starting capture (${RES} @ ${FPS}fps, quality=${QUALITY})..."
-python "$SCRIPT_DIR/viewer_capture.py" \
+uv run "$SCRIPT_DIR/viewer_capture.py" \
     --display "$DISPLAY_NUM" \
     --res "$RES" \
     --fps "$FPS" \
