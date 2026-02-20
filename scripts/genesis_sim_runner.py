@@ -442,11 +442,13 @@ class GenesisSimRunner:
         camera_res: tuple = (1280, 720),
         jpeg_quality: int = 80,
         checkpoint_dir: str = None,
+        headless: bool = True,
     ):
         self.target_fps = target_fps
         self.camera_res = camera_res
         self.jpeg_quality = jpeg_quality
         self.checkpoint_dir = checkpoint_dir
+        self.headless = headless
 
         self.env = None
         self.policy = None
@@ -499,7 +501,7 @@ class GenesisSimRunner:
             num_envs=1,
             dt=1 / 50,
             max_episode_length_s=None,
-            headless=True,
+            headless=self.headless,
             camera_res=self.camera_res,
         )
         self.env.build()
@@ -993,7 +995,8 @@ class GenesisSimRunner:
         last_safety_time = 0
 
         await self.connect_nats()
-        self._start_encoder_thread()
+        if self.headless:
+            self._start_encoder_thread()
 
         # Reset cmd timer after init (GPU init takes seconds, would trigger ESTOP)
         self._last_cmd_vel_time = time.monotonic()
@@ -1017,8 +1020,9 @@ class GenesisSimRunner:
                     self.step_sim()
                 step_count += 1
 
-                # Render and submit to encoder thread
-                self.render_and_enqueue()
+                # Render and submit to encoder thread (headless stream only)
+                if self.headless:
+                    self.render_and_enqueue()
 
                 now = time.monotonic()
 
@@ -1054,7 +1058,7 @@ class GenesisSimRunner:
                     last_metrics_time = now
 
                 # Publish encoder stats every ~1s (from encoder thread)
-                if now - self._last_encode_stats_time > 1.0 and self.nc and self.nc.is_connected:
+                if self.headless and now - self._last_encode_stats_time > 1.0 and self.nc and self.nc.is_connected:
                     if self._encoder_thread:
                         times, sizes, total = self._encoder_thread.snapshot_stats()
                         if times:
@@ -1089,10 +1093,18 @@ class GenesisSimRunner:
                 # Recompute frame interval each iteration (respect runtime FPS changes)
                 frame_interval = 1.0 / self.target_fps
 
-                # Frame pacing — minimum 1ms yield so NATS keepalives are processed
-                elapsed = time.monotonic() - t0
-                sleep_time = frame_interval - elapsed
-                await asyncio.sleep(max(sleep_time, 0.001))
+                if self.headless:
+                    # Frame pacing — minimum 1ms yield so NATS keepalives are processed
+                    elapsed = time.monotonic() - t0
+                    sleep_time = frame_interval - elapsed
+                    await asyncio.sleep(max(sleep_time, 0.001))
+                else:
+                    # Viewer mode — viewer thread handles display timing.
+                    # Pace physics at sim dt rate, yield to NATS.
+                    elapsed = time.monotonic() - t0
+                    physics_dt = self.env.dt if self.env else 0.02
+                    sleep_time = physics_dt - elapsed
+                    await asyncio.sleep(max(sleep_time, 0))
 
         except KeyboardInterrupt:
             logger.info("Interrupted")
@@ -1119,6 +1131,8 @@ async def main():
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to policy checkpoint directory")
     parser.add_argument("--gpu", type=str, default=None,
                         help="GPU device index (e.g. 0, 1). Overrides SDR_GPU_ID env var.")
+    parser.add_argument("--viewer", action="store_true",
+                        help="Open Genesis viewer on DISPLAY (skip SHM encode pipeline)")
     args = parser.parse_args()
 
     # CLI --gpu overrides SDR_GPU_ID env var
@@ -1142,6 +1156,7 @@ async def main():
         camera_res=camera_res,
         jpeg_quality=args.jpeg_quality,
         checkpoint_dir=checkpoint,
+        headless=not args.viewer,
     )
 
     # Handle SIGTERM gracefully
@@ -1153,7 +1168,8 @@ async def main():
     signal.signal(signal.SIGINT, on_signal)
 
     runner.init_genesis()
-    runner.init_shm()
+    if not args.viewer:
+        runner.init_shm()
     await runner.run()
 
 
