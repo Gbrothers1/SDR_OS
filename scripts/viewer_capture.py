@@ -2,12 +2,12 @@
 """
 Viewer Capture Sidecar — X11 grab → JPEG → SHM
 
-Captures the Genesis viewer window from a virtual X display using ffmpeg
+Captures the Genesis viewer window from an X display using ffmpeg
 x11grab, parses JPEG frames from the pipe, and writes them to the SHM
 ringbuffer for the transport-server to relay via WebSocket.
 
 Usage:
-    python scripts/viewer_capture.py --display :2 --res 640x360 --fps 30
+    python scripts/viewer_capture.py --display :1 --window-id 12345 --res 640x360 --fps 30
 """
 
 import sys
@@ -40,7 +40,8 @@ SOI = b"\xff\xd8"
 EOI = b"\xff\xd9"
 
 
-def run_capture(display: str, width: int, height: int, fps: int, quality: int):
+def run_capture(display: str, width: int, height: int, fps: int, quality: int,
+                window_id: int = 0):
     """Launch ffmpeg x11grab and pipe JPEG frames to SHM."""
 
     crc_enabled = os.environ.get("SDR_CRC_ENABLED", "1") != "0"
@@ -56,6 +57,13 @@ def run_capture(display: str, width: int, height: int, fps: int, quality: int):
         "-f", "x11grab",
         "-video_size", f"{width}x{height}",
         "-framerate", str(fps),
+    ]
+
+    # Capture a specific window by ID (avoids capturing the whole desktop)
+    if window_id:
+        cmd += ["-window_id", str(window_id)]
+
+    cmd += [
         "-i", display,
         "-c:v", "mjpeg",
         "-q:v", str(ffmpeg_q),
@@ -159,8 +167,10 @@ def run_capture(display: str, width: int, height: int, fps: int, quality: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Viewer Capture Sidecar (X11 grab → SHM)")
-    parser.add_argument("--display", type=str, default=":2",
-                        help="X11 display to capture (default: :2)")
+    parser.add_argument("--display", type=str, default=":1",
+                        help="X11 display to capture (default: :1)")
+    parser.add_argument("--window-id", type=int, default=0,
+                        help="X11 window ID to capture (0 = full display)")
     parser.add_argument("--res", type=str, default="640x360",
                         help="Capture resolution WxH (default: 640x360)")
     parser.add_argument("--fps", type=int, default=30,
@@ -176,6 +186,7 @@ def main():
         height=int(h),
         fps=args.fps,
         quality=args.quality,
+        window_id=args.window_id,
     )
 
 

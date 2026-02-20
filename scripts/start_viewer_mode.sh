@@ -4,10 +4,10 @@
 # Usage: ./scripts/start_viewer_mode.sh [--res 640x360] [--fps 30] [--quality 80]
 #
 # Starts:
-#   1. Xvfb on DISPLAY=:2 (if not already running)
-#   2. genesis_sim_runner.py --viewer on :2
-#   3. viewer_capture.py capturing :2 into SHM
+#   1. genesis_sim_runner.py --viewer on the real display (hardware GL)
+#   2. viewer_capture.py capturing the viewer window into SHM
 #
+# The viewer window is moved offscreen so only the browser is visible.
 # Ctrl-C stops all processes.
 
 set -euo pipefail
@@ -15,7 +15,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Defaults
-DISPLAY_NUM=":2"
 RES="640x360"
 FPS="30"
 QUALITY="80"
@@ -28,14 +27,28 @@ while [[ $# -gt 0 ]]; do
         --res)       RES="$2"; shift 2 ;;
         --fps)       FPS="$2"; shift 2 ;;
         --quality)   QUALITY="$2"; shift 2 ;;
-        --display)   DISPLAY_NUM="$2"; shift 2 ;;
+        --display)   export DISPLAY="$2"; shift 2 ;;
         --checkpoint) CHECKPOINT="--checkpoint $2"; shift 2 ;;
         *)           EXTRA_SIM_ARGS="$EXTRA_SIM_ARGS $1"; shift ;;
     esac
 done
 
-WIDTH="${RES%%x*}"
-HEIGHT="${RES##*x}"
+# Auto-detect a display with hardware GL if DISPLAY is not set
+if [[ -z "${DISPLAY:-}" ]]; then
+    for d in ":1" ":0"; do
+        if DISPLAY="$d" glxinfo >/dev/null 2>&1; then
+            export DISPLAY="$d"
+            echo "[viewer-mode] Auto-detected display $DISPLAY with hardware GL"
+            break
+        fi
+    done
+    if [[ -z "${DISPLAY:-}" ]]; then
+        echo "[viewer-mode] ERROR: No display with hardware GL found. Set DISPLAY or use --display."
+        exit 1
+    fi
+fi
+
+echo "[viewer-mode] Using DISPLAY=$DISPLAY"
 
 # Track child PIDs for cleanup
 PIDS=()
@@ -59,24 +72,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# 1. Start Xvfb if not already running on target display
-if ! xdpyinfo -display "$DISPLAY_NUM" >/dev/null 2>&1; then
-    echo "[viewer-mode] Starting Xvfb on $DISPLAY_NUM (${WIDTH}x${HEIGHT}x24)..."
-    Xvfb "$DISPLAY_NUM" -screen 0 "${WIDTH}x${HEIGHT}x24" &
-    PIDS+=($!)
-    sleep 1
-    if ! xdpyinfo -display "$DISPLAY_NUM" >/dev/null 2>&1; then
-        echo "[viewer-mode] ERROR: Xvfb failed to start on $DISPLAY_NUM"
-        exit 1
-    fi
-    echo "[viewer-mode] Xvfb running on $DISPLAY_NUM"
-else
-    echo "[viewer-mode] Display $DISPLAY_NUM already active"
-fi
-
-# 2. Launch genesis_sim_runner with --viewer
+# 1. Launch genesis_sim_runner with --viewer on the real display
 echo "[viewer-mode] Starting sim runner (viewer mode, ${RES})..."
-DISPLAY="$DISPLAY_NUM" uv run "$SCRIPT_DIR/genesis_sim_runner.py" \
+uv run "$SCRIPT_DIR/genesis_sim_runner.py" \
     --viewer \
     --camera-res "$RES" \
     --fps "$FPS" \
@@ -85,11 +83,13 @@ DISPLAY="$DISPLAY_NUM" uv run "$SCRIPT_DIR/genesis_sim_runner.py" \
 SIM_PID=$!
 PIDS+=($SIM_PID)
 
-# Wait for viewer window to appear (up to 30s)
-echo "[viewer-mode] Waiting for viewer window on $DISPLAY_NUM..."
-for i in $(seq 1 30); do
-    if DISPLAY="$DISPLAY_NUM" xdotool search --name "." >/dev/null 2>&1; then
-        echo "[viewer-mode] Viewer window detected"
+# 2. Wait for viewer window to appear (up to 60s — Genesis init can be slow)
+echo "[viewer-mode] Waiting for viewer window on $DISPLAY..."
+VIEWER_WID=""
+for i in $(seq 1 60); do
+    VIEWER_WID=$(xdotool search --name "." 2>/dev/null | head -1) || true
+    if [[ -n "$VIEWER_WID" ]]; then
+        echo "[viewer-mode] Viewer window detected (WID: $VIEWER_WID)"
         break
     fi
     if ! kill -0 "$SIM_PID" 2>/dev/null; then
@@ -99,15 +99,23 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# Check if window was found (loop may have exhausted without finding one)
-if ! DISPLAY="$DISPLAY_NUM" xdotool search --name "." >/dev/null 2>&1; then
-    echo "[viewer-mode] WARNING: No viewer window detected after 30s, starting capture anyway"
+if [[ -z "$VIEWER_WID" ]]; then
+    echo "[viewer-mode] ERROR: No viewer window detected after 60s"
+    exit 1
 fi
 
-# 3. Launch capture sidecar
-echo "[viewer-mode] Starting capture (${RES} @ ${FPS}fps, quality=${QUALITY})..."
+# 3. Move viewer window offscreen so it doesn't clutter the desktop
+xdotool windowmove "$VIEWER_WID" -9999 -9999 2>/dev/null || true
+echo "[viewer-mode] Viewer window moved offscreen"
+
+# Small delay for the window to settle after move
+sleep 0.5
+
+# 4. Launch capture sidecar targeting the specific window
+echo "[viewer-mode] Starting capture (${RES} @ ${FPS}fps, quality=${QUALITY}, window=$VIEWER_WID)..."
 uv run "$SCRIPT_DIR/viewer_capture.py" \
-    --display "$DISPLAY_NUM" \
+    --display "$DISPLAY" \
+    --window-id "$VIEWER_WID" \
     --res "$RES" \
     --fps "$FPS" \
     --quality "$QUALITY" &
