@@ -3,11 +3,7 @@
 #
 # Usage: ./scripts/start_viewer_mode.sh [--res 640x360] [--fps 30] [--quality 80]
 #
-# Starts:
-#   1. genesis_sim_runner.py --viewer on the real display (hardware GL)
-#   2. viewer_capture.py capturing the viewer window into SHM
-#
-# The viewer window is moved offscreen so only the browser is visible.
+# Starts Xvfb, sim runner with --viewer, and capture sidecar.
 # Ctrl-C stops all processes.
 
 set -euo pipefail
@@ -15,115 +11,85 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Defaults
+VDISPLAY=":99"
 RES="640x360"
 FPS="30"
 QUALITY="80"
-CHECKPOINT=""
-EXTRA_SIM_ARGS=""
+SIM_ARGS=""
 
-# Parse args
+# Parse args — everything not recognized is forwarded to the sim runner
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --res)       RES="$2"; shift 2 ;;
         --fps)       FPS="$2"; shift 2 ;;
         --quality)   QUALITY="$2"; shift 2 ;;
-        --display)   export DISPLAY="$2"; shift 2 ;;
-        --checkpoint) CHECKPOINT="--checkpoint $2"; shift 2 ;;
-        *)           EXTRA_SIM_ARGS="$EXTRA_SIM_ARGS $1"; shift ;;
+        --display)   VDISPLAY="$2"; shift 2 ;;
+        *)           SIM_ARGS="$SIM_ARGS $1"; shift ;;
     esac
 done
 
-# Auto-detect a display with hardware GL if DISPLAY is not set
-if [[ -z "${DISPLAY:-}" ]]; then
-    for d in ":1" ":0"; do
-        if DISPLAY="$d" glxinfo >/dev/null 2>&1; then
-            export DISPLAY="$d"
-            echo "[viewer-mode] Auto-detected display $DISPLAY with hardware GL"
-            break
-        fi
-    done
-    if [[ -z "${DISPLAY:-}" ]]; then
-        echo "[viewer-mode] ERROR: No display with hardware GL found. Set DISPLAY or use --display."
-        exit 1
-    fi
-fi
+WIDTH="${RES%%x*}"
+HEIGHT="${RES##*x}"
 
-echo "[viewer-mode] Using DISPLAY=$DISPLAY"
-
-# Track child PIDs for cleanup
 PIDS=()
-
 cleanup() {
     echo ""
     echo "[viewer-mode] Stopping all processes..."
     for pid in "${PIDS[@]}"; do
-        if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
-        fi
+        kill "$pid" 2>/dev/null || true
     done
-    # Wait briefly then force-kill stragglers
     sleep 1
     for pid in "${PIDS[@]}"; do
-        if kill -0 "$pid" 2>/dev/null; then
-            kill -9 "$pid" 2>/dev/null || true
-        fi
+        kill -9 "$pid" 2>/dev/null || true
     done
     echo "[viewer-mode] Done."
 }
 trap cleanup EXIT INT TERM
 
-# 1. Launch genesis_sim_runner with --viewer on the real display
-echo "[viewer-mode] Starting sim runner (viewer mode, ${RES})..."
-uv run "$SCRIPT_DIR/genesis_sim_runner.py" \
+# 1. Start Xvfb
+if ! xdpyinfo -display "$VDISPLAY" >/dev/null 2>&1; then
+    echo "[viewer-mode] Starting Xvfb on $VDISPLAY (${WIDTH}x${HEIGHT})..."
+    Xvfb "$VDISPLAY" -screen 0 "${WIDTH}x${HEIGHT}x24" &
+    PIDS+=($!)
+    sleep 1
+fi
+
+# 2. Start sim runner with --viewer on the virtual display
+# LIBGL_ALWAYS_SOFTWARE=1 forces Mesa llvmpipe so GL renders into the
+# Xvfb framebuffer (hardware GL bypasses it, causing black capture).
+echo "[viewer-mode] Starting sim runner..."
+DISPLAY="$VDISPLAY" LIBGL_ALWAYS_SOFTWARE=1 \
+    uv run "$SCRIPT_DIR/genesis_sim_runner.py" \
     --viewer \
     --camera-res "$RES" \
     --fps "$FPS" \
-    $CHECKPOINT \
-    $EXTRA_SIM_ARGS &
+    $SIM_ARGS &
 SIM_PID=$!
 PIDS+=($SIM_PID)
 
-# 2. Wait for viewer window to appear (up to 60s — Genesis init can be slow)
-echo "[viewer-mode] Waiting for viewer window on $DISPLAY..."
-VIEWER_WID=""
-for i in $(seq 1 60); do
-    VIEWER_WID=$(xdotool search --name "." 2>/dev/null | head -1) || true
-    if [[ -n "$VIEWER_WID" ]]; then
-        echo "[viewer-mode] Viewer window detected (WID: $VIEWER_WID)"
-        break
-    fi
+# 3. Wait for sim to initialize (viewer window must exist before capture)
+echo "[viewer-mode] Waiting for viewer to initialize..."
+for i in $(seq 1 90); do
     if ! kill -0 "$SIM_PID" 2>/dev/null; then
-        echo "[viewer-mode] ERROR: Sim runner exited before viewer appeared"
+        echo "[viewer-mode] ERROR: Sim runner exited during init"
         exit 1
+    fi
+    # Check if any window exists on the virtual display
+    if xwininfo -display "$VDISPLAY" -root -tree 2>/dev/null | grep -q '0x.*:'; then
+        echo "[viewer-mode] Viewer window detected"
+        break
     fi
     sleep 1
 done
 
-if [[ -z "$VIEWER_WID" ]]; then
-    echo "[viewer-mode] ERROR: No viewer window detected after 60s"
-    exit 1
-fi
-
-# 3. Move viewer window offscreen so it doesn't clutter the desktop
-xdotool windowmove "$VIEWER_WID" -9999 -9999 2>/dev/null || true
-echo "[viewer-mode] Viewer window moved offscreen"
-
-# Small delay for the window to settle after move
-sleep 0.5
-
-# 4. Launch capture sidecar targeting the specific window
-echo "[viewer-mode] Starting capture (${RES} @ ${FPS}fps, quality=${QUALITY}, window=$VIEWER_WID)..."
+# 4. Start capture sidecar (captures full Xvfb display — no window detection needed)
+echo "[viewer-mode] Starting capture (${RES} @ ${FPS}fps, quality=${QUALITY})..."
 uv run "$SCRIPT_DIR/viewer_capture.py" \
-    --display "$DISPLAY" \
-    --window-id "$VIEWER_WID" \
+    --display "$VDISPLAY" \
     --res "$RES" \
     --fps "$FPS" \
     --quality "$QUALITY" &
 PIDS+=($!)
 
-echo "[viewer-mode] All processes running. Press Ctrl-C to stop."
-echo "[viewer-mode]   Sim runner PID: $SIM_PID"
-echo "[viewer-mode]   Capture PID:    ${PIDS[-1]}"
-
-# Wait for sim runner to exit (it's the primary process)
+echo "[viewer-mode] Running. Ctrl-C to stop."
 wait "$SIM_PID"
