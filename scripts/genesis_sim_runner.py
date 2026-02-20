@@ -36,7 +36,9 @@ _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+# EGL for headless offscreen rendering; viewer mode needs GLX for windowed context
+if "--viewer" not in sys.argv:
+    os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
 # ── GPU device selection (must be set BEFORE importing genesis) ──
 # Force PCI bus ordering so CUDA indices match nvidia-smi output.
