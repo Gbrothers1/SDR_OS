@@ -78,7 +78,7 @@ class Go2BridgeEnv(ManagedEnvironment):
             show_viewer=not headless,
             sim_options=gs.options.SimOptions(dt=self.dt, substeps=2),
             viewer_options=gs.options.ViewerOptions(
-                max_FPS=int(0.5 / self.dt),
+                max_FPS=60,
                 camera_pos=(2.0, 0.0, 2.5),
                 camera_lookat=(0.0, 0.0, 0.5),
                 camera_fov=40,
