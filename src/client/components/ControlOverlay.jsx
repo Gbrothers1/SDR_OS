@@ -34,8 +34,8 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
     // D-pad
     DpadUp: false, DpadDown: false, DpadLeft: false, DpadRight: false,
     // Shoulder buttons
-    L1: false, L2: false, L3: false, L4: false,
-    R1: false, R2: false, R3: false, R4: false,
+    L1: false, L2: 0, L3: false, L4: false,
+    R1: false, R2: 0, R3: false, R4: false,
   });
   const [showMappings, setShowMappings] = useState(false);
   const [rawButtons, setRawButtons] = useState([]);
@@ -399,6 +399,17 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
           const getButton = (index) => gamepad.buttons[index] || { pressed: false, value: 0 };
           const getAxis = (index) => gamepad.axes[index] ?? 0;
 
+          // On Linux/Steam Deck, triggers often report as axes 4/5
+          // (range -1=released to +1=pressed) instead of button 6/7 values.
+          // Read both and take whichever has a value.
+          const getTrigger = (buttonIndex, axisIndex) => {
+            const btnVal = getButton(buttonIndex).value;
+            const axisRaw = getAxis(axisIndex);
+            // Axis range is -1..+1; normalize to 0..1
+            const axisVal = (axisRaw + 1) / 2;
+            return Math.max(btnVal, axisVal);
+          };
+
           // Update button states with safe access
           const newButtonStates = {
             A: getButton(0).pressed,
@@ -410,11 +421,11 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             DpadLeft: getButton(14).pressed,
             DpadRight: getButton(15).pressed,
             L1: getButton(4).pressed,
-            L2: getButton(6).pressed,
+            L2: getTrigger(6, 4),
             L3: getButton(10).pressed,
             L4: getButton(8).pressed,
             R1: getButton(5).pressed,
-            R2: getButton(7).pressed,
+            R2: getTrigger(7, 5),
             R3: getButton(11).pressed,
             R4: getButton(9).pressed,
           };
@@ -453,7 +464,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             linear: {
               x: getAxis(0) * 1.0,
               y: getAxis(1) * 1.0,
-              z: (getButton(6).value - getButton(7).value) * 0.5
+              z: (newButtonStates.L2 - newButtonStates.R2) * 0.5
             },
             angular: {
               x: 0,
@@ -516,7 +527,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
             // Genesis NATS set_cmd_vel — sim-specific with safety stack
             // L2 held = gait walking mode, otherwise position hold
             if (sendVelocityCommand) {
-              sendVelocityCommand(newState.linear.x, newState.linear.y, newState.angular.z, getButton(6).value > 0.1, newState.angular.y);
+              sendVelocityCommand(newState.linear.x, newState.linear.y, newState.angular.z, newButtonStates.L2 > 0.1, newState.angular.y);
             }
             if (joystickStatePublisher) {
               joystickStatePublisher.publish(new ROSLIB.Message({
@@ -724,7 +735,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
     await soundEffects.playButtonClick().catch(console.error);
     setButtonStates(prev => ({
       ...prev,
-      [trigger]: true
+      [trigger]: (trigger === 'L2' || trigger === 'R2') ? 1 : true
     }));
     triggerSkill(trigger, 'ui');
   }, [triggerSkill]);
@@ -918,10 +929,10 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
                   <div className="trigger">
                     <div 
                       className="trigger-fill"
-                      style={{ width: `${(buttonStates.L2 ? 1 : 0) * 100}%` }}
+                      style={{ width: `${(buttonStates.L2 * 100)}%` }}
                     />
                   </div>
-                  <div className="value-display">L2: {((buttonStates.L2 ? 1 : 0) * 100).toFixed(0)}%</div>
+                  <div className="value-display">L2: {(buttonStates.L2 * 100).toFixed(0)}%</div>
                     <div 
                       className={`button ${buttonStates.L1 ? 'pressed' : ''}`}
                       onClick={() => handleTriggerPress('L1')}
@@ -946,10 +957,10 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
                   <div className="trigger">
                     <div 
                       className="trigger-fill"
-                      style={{ width: `${(buttonStates.R2 ? 1 : 0) * 100}%` }}
+                      style={{ width: `${(buttonStates.R2 * 100)}%` }}
                     />
                   </div>
-                  <div className="value-display">R2: {((buttonStates.R2 ? 1 : 0) * 100).toFixed(0)}%</div>
+                  <div className="value-display">R2: {(buttonStates.R2 * 100).toFixed(0)}%</div>
                     <div 
                       className={`button ${buttonStates.R1 ? 'pressed' : ''}`}
                       onClick={() => handleTriggerPress('R1')}
