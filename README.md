@@ -168,6 +168,57 @@ node server.js  # http://localhost:3000
 
 See [`docs/setup.md`](docs/setup.md) for full environment setup (PyTorch, Genesis, CUDA drivers, etc.).
 
+### Local Development (Steam Deck / non-CUDA)
+
+For running natively on a Steam Deck or any machine without an NVIDIA GPU, you can skip Docker entirely and run the services bare-metal.
+
+**Prerequisites:**
+
+```bash
+sudo apt install ffmpeg xvfb   # Xvfb for virtual display, ffmpeg for viewer capture
+cargo build --release --manifest-path services/transport-server/Cargo.toml
+npm run build                   # Build frontend bundle
+```
+
+**Start the stack:**
+
+```bash
+# Terminal 1 — NATS (if not already running)
+nats-server
+
+# Terminal 2 — Transport server
+SDR_NATS_URL=nats://localhost:4222 ./services/transport-server/target/release/transport-server
+
+# Terminal 3 — Node server (serves web UI, proxies /stream/ws)
+node server.js
+
+# Terminal 4 — Genesis sim (viewer mode, captures to SHM)
+./scripts/start_viewer_mode.sh --res 640x360 --fps 30
+```
+
+Open `http://localhost:3000` in a browser.
+
+**Viewer mode vs headless mode:**
+
+| Mode | Command | GPU Required | Video Pipeline |
+|------|---------|-------------|----------------|
+| **Headless** (CUDA) | `uv run scripts/genesis_sim_runner.py` | Yes (NVENC) | `camera.render()` &rarr; NVENC H.264 &rarr; SHM |
+| **Viewer** (CPU/APU) | `./scripts/start_viewer_mode.sh` | No | Genesis viewer &rarr; Xvfb &rarr; ffmpeg x11grab &rarr; JPEG &rarr; SHM |
+
+Headless mode uses `camera.render()` + NVENC hardware encoding and is the fastest path on CUDA GPUs. Viewer mode avoids the `glReadPixels` bottleneck by using the Genesis native viewer on a virtual display (Xvfb with software GL), captured by ffmpeg and piped into the same SHM/transport pipeline. This is the recommended path for Steam Deck (AMD APU) and other non-NVIDIA systems.
+
+**`start_viewer_mode.sh` options:**
+
+```
+--res WxH         Capture resolution (default: 640x360)
+--fps N           Capture framerate (default: 30)
+--quality N       JPEG quality 1-100 (default: 80)
+--display :N      Xvfb display number (default: :99)
+--checkpoint DIR  Policy checkpoint directory
+```
+
+Any unrecognized args are forwarded to `genesis_sim_runner.py` (e.g. `--gpu 0`).
+
 ## Repository Layout
 
 ```
