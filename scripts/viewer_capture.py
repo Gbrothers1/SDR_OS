@@ -16,6 +16,7 @@ import signal
 import logging
 import argparse
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -70,6 +71,16 @@ def run_capture(display: str, width: int, height: int, fps: int, quality: int):
         stderr=subprocess.PIPE,
         bufsize=0,
     )
+
+    # Log ffmpeg stderr in a background thread so errors are visible
+    def _log_stderr():
+        for line in proc.stderr:
+            text = line.decode(errors="replace").rstrip()
+            if text:
+                logger.info(f"[ffmpeg] {text}")
+
+    stderr_thread = threading.Thread(target=_log_stderr, daemon=True)
+    stderr_thread.start()
 
     frame_id = 0
     buf = b""
