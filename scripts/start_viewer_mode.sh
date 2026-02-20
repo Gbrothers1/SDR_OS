@@ -13,7 +13,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Defaults
 DISPLAY_NUM=":2"
@@ -99,6 +98,11 @@ for i in $(seq 1 30); do
     fi
     sleep 1
 done
+
+# Check if window was found (loop may have exhausted without finding one)
+if ! DISPLAY="$DISPLAY_NUM" xdotool search --name "." >/dev/null 2>&1; then
+    echo "[viewer-mode] WARNING: No viewer window detected after 30s, starting capture anyway"
+fi
 
 # 3. Launch capture sidecar
 echo "[viewer-mode] Starting capture (${RES} @ ${FPS}fps, quality=${QUALITY})..."
