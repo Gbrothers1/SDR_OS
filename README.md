@@ -178,12 +178,26 @@ For running natively on a Steam Deck or any machine without an NVIDIA GPU, you c
 sudo apt install ffmpeg xvfb   # Xvfb for virtual display, ffmpeg for viewer capture
 cargo build --release --manifest-path services/transport-server/Cargo.toml
 npm run build                   # Build frontend bundle
+
+# Install process-compose (one-time)
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/F1bonacc1/process-compose/main/scripts/get-pc.sh)" -- -d -b ~/.local/bin
 ```
 
-**Start the stack:**
+**Start the stack (single command):**
 
 ```bash
-# Terminal 1 — NATS (if not already running)
+npm run dev:local   # or: process-compose up
+```
+
+This launches all 4 services (NATS, transport-server, Node web server, Genesis sim in viewer mode) in an interactive TUI. Services start in dependency order with health checks.
+
+Open `http://localhost:3000` in a browser. Press `Ctrl-C` in the TUI to stop all services.
+
+<details>
+<summary>Manual startup (without process-compose)</summary>
+
+```bash
+# Terminal 1 — NATS
 nats-server
 
 # Terminal 2 — Transport server
@@ -196,7 +210,7 @@ node server.js
 ./scripts/start_viewer_mode.sh --res 640x360 --fps 30
 ```
 
-Open `http://localhost:3000` in a browser.
+</details>
 
 **Viewer mode vs headless mode:**
 

@@ -181,10 +181,13 @@ impl ShmReader {
 
     /// Get the appropriate delay for the current poll state, advancing state if needed.
     /// Returns None for spin/yield (caller decides), or Some(duration) for sleep.
+    ///
+    /// Tuned for ~30fps JPEG capture: short spin (50μs) then quick transition to
+    /// 2ms sleep to avoid burning CPU between frames (~33ms apart).
     pub fn poll_delay(&mut self) -> Option<std::time::Duration> {
         match &self.state {
             PollState::Spinning { since } => {
-                if since.elapsed() > std::time::Duration::from_micros(100) {
+                if since.elapsed() > std::time::Duration::from_micros(50) {
                     self.state = PollState::Yielding {
                         since: Instant::now(),
                     };
@@ -192,14 +195,14 @@ impl ShmReader {
                 None // spin_loop or yield_now
             }
             PollState::Yielding { since } => {
-                if since.elapsed() > std::time::Duration::from_millis(50) {
+                if since.elapsed() > std::time::Duration::from_millis(2) {
                     self.state = PollState::Sleeping;
-                    Some(std::time::Duration::from_millis(1))
+                    Some(std::time::Duration::from_millis(2))
                 } else {
                     None // yield_now
                 }
             }
-            PollState::Sleeping => Some(std::time::Duration::from_millis(1)),
+            PollState::Sleeping => Some(std::time::Duration::from_millis(2)),
         }
     }
 

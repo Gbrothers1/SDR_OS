@@ -1,0 +1,69 @@
+# process-compose.yml — Local dev stack for Steam Deck / non-CUDA
+#
+# Usage:
+#   process-compose up          # TUI mode (interactive)
+#   process-compose up -t=false # headless (no TUI)
+#
+# Requires: nats-server, transport-server (cargo build --release), uv, node, ffmpeg
+
+version: "0.5"
+
+environment:
+  - "SDR_NATS_URL=nats://localhost:4222"
+
+processes:
+  nats:
+    command: nats-server -m 8222
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: 8222
+        path: /healthz
+      initial_delay_seconds: 1
+      period_seconds: 2
+      failure_threshold: 5
+    availability:
+      restart: on_failure
+      backoff_seconds: 2
+      max_restarts: 5
+
+  transport:
+    command: ./services/transport-server/target/release/transport-server
+    depends_on:
+      nats:
+        condition: process_healthy
+    availability:
+      restart: on_failure
+      backoff_seconds: 2
+      max_restarts: 5
+
+  webserver:
+    command: node server.js
+    depends_on:
+      transport:
+        condition: process_started
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: 3000
+        path: /
+      initial_delay_seconds: 2
+      period_seconds: 3
+      failure_threshold: 5
+    availability:
+      restart: on_failure
+      backoff_seconds: 2
+      max_restarts: 5
+
+  sim:
+    command: ./scripts/start_viewer_mode.sh --res 1280x720 --fps 60
+    environment:
+      - "DISPLAY=:2"
+      - "XAUTHORITY=/run/user/1000/nested_plasma/xauth_PqKNol"
+    depends_on:
+      nats:
+        condition: process_healthy
+    availability:
+      restart: on_failure
+      backoff_seconds: 5
+      max_restarts: 3

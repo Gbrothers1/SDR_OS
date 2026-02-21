@@ -66,7 +66,9 @@ class Go2BridgeEnv(ManagedEnvironment):
         max_episode_length_s: float = 20.0,
         headless: bool = True,
         camera_res: tuple = (1280, 720),
+        training_mode: bool = False,
     ):
+        self.training_mode = training_mode
         super().__init__(
             num_envs=num_envs,
             dt=dt,
@@ -76,7 +78,7 @@ class Go2BridgeEnv(ManagedEnvironment):
 
         self.scene = gs.Scene(
             show_viewer=not headless,
-            sim_options=gs.options.SimOptions(dt=self.dt, substeps=2),
+            sim_options=gs.options.SimOptions(dt=self.dt, substeps=1),
             viewer_options=gs.options.ViewerOptions(
                 res=camera_res if not headless else None,
                 max_FPS=60,
@@ -92,7 +94,7 @@ class Go2BridgeEnv(ManagedEnvironment):
                 constraint_solver=gs.constraint_solver.Newton,
                 enable_collision=True,
                 enable_joint_limit=True,
-                max_collision_pairs=60,
+                max_collision_pairs=8,
             ),
         )
 
@@ -197,55 +199,56 @@ class Go2BridgeEnv(ManagedEnvironment):
             resample_time_sec=4.0,
         )
 
-        # Rewards
-        RewardManager(
-            self,
-            logging_enabled=True,
-            cfg={
-                "base_height_target": {
-                    "weight": -50.0,
-                    "fn": rewards.base_height,
-                    "params": {
-                        "target_height": 0.3,
-                        "entity_attr": "robot",
+        # Rewards — only register for training; bridge mode skips per-step computation
+        if self.training_mode:
+            RewardManager(
+                self,
+                logging_enabled=True,
+                cfg={
+                    "base_height_target": {
+                        "weight": -50.0,
+                        "fn": rewards.base_height,
+                        "params": {
+                            "target_height": 0.3,
+                            "entity_attr": "robot",
+                        },
+                    },
+                    "tracking_lin_vel": {
+                        "weight": 1.0,
+                        "fn": rewards.command_tracking_lin_vel,
+                        "params": {
+                            "command": self.velocity_command.command[:, :2],
+                            "entity_manager": self.robot_manager,
+                        },
+                    },
+                    "tracking_ang_vel": {
+                        "weight": 0.2,
+                        "fn": rewards.command_tracking_ang_vel,
+                        "params": {
+                            "commanded_ang_vel": self.velocity_command.command[:, 2],
+                            "entity_manager": self.robot_manager,
+                        },
+                    },
+                    "lin_vel_z": {
+                        "weight": -1.0,
+                        "fn": rewards.lin_vel_z_l2,
+                        "params": {
+                            "entity_manager": self.robot_manager,
+                        },
+                    },
+                    "action_rate": {
+                        "weight": -0.005,
+                        "fn": rewards.action_rate_l2,
+                    },
+                    "similar_to_default": {
+                        "weight": -0.1,
+                        "fn": rewards.dof_similar_to_default,
+                        "params": {
+                            "action_manager": self.action_manager,
+                        },
                     },
                 },
-                "tracking_lin_vel": {
-                    "weight": 1.0,
-                    "fn": rewards.command_tracking_lin_vel,
-                    "params": {
-                        "command": self.velocity_command.command[:, :2],
-                        "entity_manager": self.robot_manager,
-                    },
-                },
-                "tracking_ang_vel": {
-                    "weight": 0.2,
-                    "fn": rewards.command_tracking_ang_vel,
-                    "params": {
-                        "commanded_ang_vel": self.velocity_command.command[:, 2],
-                        "entity_manager": self.robot_manager,
-                    },
-                },
-                "lin_vel_z": {
-                    "weight": -1.0,
-                    "fn": rewards.lin_vel_z_l2,
-                    "params": {
-                        "entity_manager": self.robot_manager,
-                    },
-                },
-                "action_rate": {
-                    "weight": -0.005,
-                    "fn": rewards.action_rate_l2,
-                },
-                "similar_to_default": {
-                    "weight": -0.1,
-                    "fn": rewards.dof_similar_to_default,
-                    "params": {
-                        "action_manager": self.action_manager,
-                    },
-                },
-            },
-        )
+            )
 
         # Termination — relaxed for live bridge control (not training)
         TerminationManager(
@@ -297,22 +300,23 @@ class Go2BridgeEnv(ManagedEnvironment):
             },
         )
 
-        # Privileged critic observations (16 dim per frame, history_len=5 -> 80 dim)
-        # Combined with policy via obs_groups -> critic total = (62+16)*5 = 390
-        ObservationManager(
-            self,
-            name="critic",
-            history_len=5,
-            cfg={
-                "foot_contact_force": {
-                    "fn": lambda env: torch.zeros(self.num_envs, 4, device=gs.device),
+        # Privileged critic observations — only needed for training
+        # (16 dim per frame, history_len=5 -> 80 dim, placeholder zeros)
+        if self.training_mode:
+            ObservationManager(
+                self,
+                name="critic",
+                history_len=5,
+                cfg={
+                    "foot_contact_force": {
+                        "fn": lambda env: torch.zeros(self.num_envs, 4, device=gs.device),
+                    },
+                    "dof_force": {
+                        "fn": lambda env: torch.zeros(self.num_envs, 12, device=gs.device),
+                        "scale": 0.1,
+                    },
                 },
-                "dof_force": {
-                    "fn": lambda env: torch.zeros(self.num_envs, 12, device=gs.device),
-                    "scale": 0.1,
-                },
-            },
-        )
+            )
 
     def build(self):
         super().build()

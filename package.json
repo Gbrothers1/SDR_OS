@@ -8,7 +8,8 @@
     "start:simple": "node src/server/simple-server.js",
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch",
-    "dev:server": "nodemon server.js"
+    "dev:server": "nodemon server.js",
+    "dev:local": "PC_PORT_NUM=9999 process-compose up"
   },
   "keywords": [
     "ros2",

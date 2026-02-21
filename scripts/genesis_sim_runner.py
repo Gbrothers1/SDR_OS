@@ -489,6 +489,8 @@ class GenesisSimRunner:
         self._step_log_counter = 0  # throttle step_sim logging
         self._cmd_log_counter = 0   # throttle cmd_vel logging
         self._gains_mode = "walk"   # "walk" or "stand" — tracks current PD gains
+        self._last_stand_axes = None  # Cache to skip redundant action manager calls
+        self._actions_dirty = True    # Force action manager update on first step
 
     def init_genesis(self):
         """Initialize Genesis scene and Go2 environment."""
@@ -709,31 +711,42 @@ class GenesisSimRunner:
         return True
 
     def step_sim(self):
-        """Step the simulation with policy or zero actions."""
+        """Step the simulation with policy or zero actions.
+
+        In viewer mode, decouples physics from the visualizer: skips
+        visualizer sync on most steps (letting the viewer thread render
+        independently at max_FPS) and only syncs every Nth step.
+        """
         branch = None
         if self._safety_mode == "ESTOP":
-            # In ESTOP: hold standing pose with high-stiffness PD
             self._switch_gains("stand")
             if self.env:
                 self.env.zero_velocity()
                 actions = self.env.compute_stand_actions(0, 0, 0, 0)
             else:
                 actions = torch.zeros(1, 12, device=gs.device)
+            # Only update actions when entering ESTOP (axes become [0,0,0,0])
+            if self._last_stand_axes != [0, 0, 0, 0]:
+                self._actions_dirty = True
+                self._last_stand_axes = [0, 0, 0, 0]
             branch = "ESTOP"
         elif self._gait_enabled and self.policy is not None and self.current_obs is not None:
-            # L2 held: gait walking via policy (training kp)
             self._switch_gains("walk")
             with torch.no_grad():
                 actions = self.policy.act_inference(self.current_obs)
+            self._actions_dirty = True  # Policy actions change every step
             branch = "WALK"
         else:
-            # L2 released: IK-style body pose with high-stiffness PD
             self._switch_gains("stand")
             if self.env:
                 pitch, roll, yaw, height = self._stand_axes
                 actions = self.env.compute_stand_actions(pitch, roll, yaw, height)
             else:
                 actions = torch.zeros(1, 12, device=gs.device)
+            # Only update when stick axes change
+            if self._last_stand_axes != self._stand_axes:
+                self._actions_dirty = True
+                self._last_stand_axes = list(self._stand_axes)
             branch = "STAND"
 
         # Log every 50 steps (~1s at 50Hz)
@@ -750,7 +763,72 @@ class GenesisSimRunner:
                 f"stand_axes={[round(x, 3) for x in self._stand_axes]}"
             )
 
-        obs, _, dones, _, _ = self.env.step(actions)
+        # In viewer mode, skip the visualizer sync on most steps so the
+        # viewer thread renders independently at 60 FPS.  Physics runs
+        # as fast as it can; we sync the visualizer every 3rd step so it
+        # picks up the latest state.
+        if not self.headless:
+            # Replicate GenesisEnv.step() bookkeeping
+            self.env.step_count += 1
+            self.env.episode_length += 1
+            if self.env._actions is None:
+                self.env._actions = actions.detach().clone()
+                self.env._last_actions = torch.zeros_like(actions, device=gs.device)
+            else:
+                self.env._last_actions[:] = self.env._actions[:]
+                self.env._actions[:] = actions[:]
+            # Apply actions — skip when PD targets unchanged (static stand pose).
+            # The physics solver continues applying PD control with the last target.
+            _t_act = time.monotonic()
+            if self._actions_dirty:
+                if self.env.managers["action"] is not None:
+                    self.env.managers["action"].step(actions)
+                self._actions_dirty = False
+            _act_ms = (time.monotonic() - _t_act) * 1000
+            # Physics — sync visualizer every 6th step (~10Hz at 60 FPS).
+            # The viewer thread renders at max_FPS but needs periodic state
+            # pushes via update_visualizer to show motion.  Each sync costs
+            # ~25ms (lock contention), but catch-up pacing compensates.
+            do_viz = (self._step_log_counter % 6 == 0)
+            _t_phys = time.monotonic()
+            self.env.scene.step(update_visualizer=do_viz)
+            _phys_ms = (time.monotonic() - _t_phys) * 1000
+            # Entity + command + obs managers — only run when needed.
+            # In STAND/ESTOP these trigger GPU readbacks (~25ms sync stalls).
+            # WALK: every step (policy needs fresh state).
+            # STAND/ESTOP: never (no state needed for static pose).
+            need_full_state = (branch == "WALK")
+            _t_mgr = time.monotonic()
+            if need_full_state:
+                for em in self.env.managers["entity"]:
+                    em.step()
+                for cmd in self.env.managers["command"]:
+                    cmd.step()
+            _mgr_ms = (time.monotonic() - _t_mgr) * 1000
+            # Observations: only for policy (WALK branch)
+            _t_obs = time.monotonic()
+            if branch == "WALK":
+                obs = self.env.get_observations()
+            else:
+                obs = self.current_obs
+            _obs_ms = (time.monotonic() - _t_obs) * 1000
+            # Termination check aligned with entity manager (~1s in stand mode)
+            dones = self.env._terminated_buf
+            if need_full_state and self.env.managers["termination"] is not None:
+                dones, _ = self.env.managers["termination"].step()
+            # Record sub-timings for periodic logging
+            if not hasattr(self, '_phys_times'):
+                self._phys_times = []
+                self._obs_times = []
+                self._act_times = []
+                self._mgr_times = []
+            self._phys_times.append(_phys_ms)
+            self._obs_times.append(_obs_ms)
+            self._act_times.append(_act_ms)
+            self._mgr_times.append(_mgr_ms)
+        else:
+            obs, _, dones, _, _ = self.env.step(actions)
+
         self.current_obs = obs
 
         if dones.any():
@@ -994,7 +1072,12 @@ class GenesisSimRunner:
         frame_interval = 1.0 / self.target_fps
         step_count = 0
         last_metrics_time = 0
+        last_metrics_step = 0
         last_safety_time = 0
+        last_timing_log = 0
+        next_frame_time = 0  # absolute timeline for catch-up pacing
+        step_times = []
+        loop_times = []
 
         await self.connect_nats()
         if self.headless:
@@ -1019,7 +1102,10 @@ class GenesisSimRunner:
 
                 # Step physics (unless paused)
                 if not self.paused:
+                    t_step = time.monotonic()
                     self.step_sim()
+                    step_ms = (time.monotonic() - t_step) * 1000
+                    step_times.append(step_ms)
                 step_count += 1
 
                 # Render and submit to encoder thread (headless stream only)
@@ -1028,11 +1114,50 @@ class GenesisSimRunner:
 
                 now = time.monotonic()
 
+                # Log timing every ~5s
+                loop_ms = (now - t0) * 1000
+                loop_times.append(loop_ms)
+                if now - last_timing_log > 5.0 and step_times:
+                    avg_step = sum(step_times) / len(step_times)
+                    max_step = max(step_times)
+                    avg_loop = sum(loop_times) / len(loop_times)
+                    actual_fps = len(loop_times) / (now - last_timing_log) if last_timing_log > 0 else 0
+                    # Sub-component timings (viewer mode only)
+                    phys_str = ""
+                    if hasattr(self, '_phys_times') and self._phys_times:
+                        avg_phys = sum(self._phys_times) / len(self._phys_times)
+                        avg_obs = sum(self._obs_times) / len(self._obs_times)
+                        avg_act = sum(self._act_times) / len(self._act_times) if hasattr(self, '_act_times') and self._act_times else 0
+                        avg_mgr = sum(self._mgr_times) / len(self._mgr_times) if hasattr(self, '_mgr_times') and self._mgr_times else 0
+                        phys_str = f" act={avg_act:.1f}ms phys={avg_phys:.1f}ms mgr={avg_mgr:.1f}ms obs={avg_obs:.1f}ms"
+                        self._phys_times.clear()
+                        self._obs_times.clear()
+                        if hasattr(self, '_act_times'):
+                            self._act_times.clear()
+                        if hasattr(self, '_mgr_times'):
+                            self._mgr_times.clear()
+                    logger.info(
+                        f"TIMING: step_avg={avg_step:.1f}ms step_max={max_step:.1f}ms "
+                        f"loop_avg={avg_loop:.1f}ms actual_fps={actual_fps:.1f}"
+                        f"{phys_str} "
+                        f"({len(step_times)} steps in {now - last_timing_log:.1f}s)"
+                    )
+                    step_times.clear()
+                    loop_times.clear()
+                    last_timing_log = now
+
                 # Publish telemetry every ~1s
                 if now - last_metrics_time > 1.0 and self.nc and self.nc.is_connected:
+                    # Compute actual FPS from step count delta (independent of timing log clears)
+                    elapsed_since_metrics = now - last_metrics_time if last_metrics_time > 0 else 1.0
+                    steps_since_metrics = step_count - last_metrics_step
+                    measured_fps = steps_since_metrics / elapsed_since_metrics if elapsed_since_metrics > 0 else 0
+                    avg_step_ms = sum(step_times) / len(step_times) if step_times else 0
                     metrics = {
                         "step": step_count,
                         "fps": self.target_fps,
+                        "actual_fps": round(measured_fps, 1),
+                        "step_ms": round(avg_step_ms, 2),
                         "policy_loaded": self.policy is not None,
                         "policy_checkpoint": getattr(self, '_loaded_model_file', None),
                         "paused": self.paused,
@@ -1058,6 +1183,7 @@ class GenesisSimRunner:
                             pass
 
                     last_metrics_time = now
+                    last_metrics_step = step_count
 
                 # Publish encoder stats every ~1s (from encoder thread)
                 if self.headless and now - self._last_encode_stats_time > 1.0 and self.nc and self.nc.is_connected:
@@ -1092,21 +1218,38 @@ class GenesisSimRunner:
                     await self.nc.publish("telemetry.safety.state", json.dumps(state).encode())
                     last_safety_time = now
 
-                # Recompute frame interval each iteration (respect runtime FPS changes)
-                frame_interval = 1.0 / self.target_fps
-
                 if self.headless:
                     # Frame pacing — minimum 1ms yield so NATS keepalives are processed
                     elapsed = time.monotonic() - t0
                     sleep_time = frame_interval - elapsed
                     await asyncio.sleep(max(sleep_time, 0.001))
                 else:
-                    # Viewer mode — viewer thread handles display timing.
-                    # Pace physics at sim dt rate, yield to NATS.
-                    elapsed = time.monotonic() - t0
-                    physics_dt = self.env.dt if self.env else 0.02
-                    sleep_time = physics_dt - elapsed
-                    await asyncio.sleep(max(sleep_time, 0))
+                    # Viewer mode — absolute-timeline catch-up pacing.
+                    # After a spike (e.g. 25ms physics), the next frames run
+                    # back-to-back until we're caught up, averaging 60 FPS.
+                    frame_interval = 1.0 / self.target_fps
+                    if next_frame_time == 0:
+                        next_frame_time = t0 + frame_interval
+                    else:
+                        next_frame_time += frame_interval
+                    # Don't accumulate more than 3 frames of debt
+                    now = time.monotonic()
+                    if next_frame_time < now - frame_interval * 3:
+                        next_frame_time = now
+                    remaining = next_frame_time - now
+                    # Use asyncio.sleep for bulk wait — this yields to the
+                    # event loop so NATS can process incoming commands and
+                    # publish telemetry every frame.  asyncio.sleep has ~1-3ms
+                    # jitter; leave 3ms buffer for busy-wait correction.
+                    if remaining > 0.004:
+                        await asyncio.sleep(remaining - 0.003)
+                    elif remaining <= 0:
+                        # Behind schedule (catch-up) — still yield briefly
+                        # so NATS doesn't starve during burst recovery.
+                        await asyncio.sleep(0)
+                    # Busy-wait the last few ms for precise timing
+                    while time.monotonic() < next_frame_time:
+                        pass
 
         except KeyboardInterrupt:
             logger.info("Interrupted")

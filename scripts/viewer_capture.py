@@ -169,8 +169,8 @@ def main():
     parser = argparse.ArgumentParser(description="Viewer Capture Sidecar (X11 grab → SHM)")
     parser.add_argument("--display", type=str, default=":1",
                         help="X11 display to capture (default: :1)")
-    parser.add_argument("--window-id", type=int, default=0,
-                        help="X11 window ID to capture (0 = full display)")
+    parser.add_argument("--window-id", type=lambda x: int(x, 0), default=0,
+                        help="X11 window ID to capture (hex or decimal, 0 = full display)")
     parser.add_argument("--res", type=str, default="640x360",
                         help="Capture resolution WxH (default: 640x360)")
     parser.add_argument("--fps", type=int, default=30,
