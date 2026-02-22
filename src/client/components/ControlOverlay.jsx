@@ -117,6 +117,12 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
     if (cooldown > 0 && now - last < cooldown) return;
     skillCooldownRef.current[binding.skill] = now;
 
+    // Special commands sent directly (not as set_skill)
+    if (binding.skill === 'reset') {
+      sendWsCommand('reset');
+      return;
+    }
+
     sendWsCommand('set_skill', {
       skill: binding.skill,
       trigger: binding.trigger || 'press',

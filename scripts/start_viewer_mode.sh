@@ -30,6 +30,17 @@ done
 WIDTH="${RES%%x*}"
 HEIGHT="${RES##*x}"
 
+# ROCm: map Steam Deck gfx1033 (Van Gogh RDNA2) to supported gfx1030
+export HSA_OVERRIDE_GFX_VERSION="${HSA_OVERRIDE_GFX_VERSION:-10.3.0}"
+# Disable SDMA DMA engine — prevents hipMemcpy deadlock when HIP + Vulkan coexist on APU
+export HSA_ENABLE_SDMA="${HSA_ENABLE_SDMA:-0}"
+# gstaichi AMDGPU async dispatch race fix — sync after every HIP kernel dispatch
+export HIP_LAUNCH_BLOCKING="${HIP_LAUNCH_BLOCKING:-1}"
+# Ensure ROCm 6.3 lld is available for gstaichi LLVM 20 → AMDGPU linking
+mkdir -p /tmp/lld_only
+ln -sf /opt/rocm-6.3.0/llvm/bin/ld.lld /tmp/lld_only/ld.lld 2>/dev/null || true
+export PATH="/tmp/lld_only:$PATH"
+
 # Use the current session display
 if [ -z "${DISPLAY:-}" ]; then
     echo "[viewer-mode] ERROR: No DISPLAY set. Run from a graphical session."

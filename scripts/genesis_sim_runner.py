@@ -19,6 +19,20 @@ Architecture:
 
 import sys
 import os
+
+# Steam Deck AMD APU (gfx1033, Van Gogh RDNA2) — AMDGPU backend setup:
+#   Uses gs.cuda backend remapped to ti.amdgpu via TI_ARCH monkey-patch.
+#   This gives: AMDGPU physics kernels + HIP tensors on GPU (gs.device=cuda:0).
+#   HIP_LAUNCH_BLOCKING=1: Required — gstaichi AMDGPU has async dispatch race where
+#     SNode init isn't flushed before user kernels (nil pointer crash without it).
+#   HSA_ENABLE_SDMA=0: Disables DMA engine to prevent hipMemcpy deadlock when HIP and
+#     AMDGPU coexist on the APU. Set in process-compose.yml.
+#   GS_ENABLE_ZEROCOPY: Default OFF because gstaichi DLPack only whitelists
+#     CPU/Metal/CUDA. Enabled at runtime by _init_genesis_amdgpu() after applying
+#     binary patches (src/sdr_os/amdgpu_dlpack_patch.py).
+os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
+os.environ.setdefault("GS_ENABLE_ZEROCOPY", "0")
+
 import json
 import time
 import signal
@@ -36,9 +50,11 @@ _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-# EGL for headless offscreen rendering; viewer mode needs GLX for windowed context
+# EGL for headless offscreen rendering; viewer mode uses GLX for windowed context
 if "--viewer" not in sys.argv:
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+else:
+    os.environ["PYOPENGL_PLATFORM"] = "x11"
 
 # ── GPU device selection (must be set BEFORE importing genesis) ──
 # Force PCI bus ordering so CUDA indices match nvidia-smi output.
@@ -48,6 +64,31 @@ if _gpu_id:
     os.environ["CUDA_VISIBLE_DEVICES"] = _gpu_id
     os.environ["TI_VISIBLE_DEVICE"] = _gpu_id
     os.environ["EGL_DEVICE_ID"] = _gpu_id
+
+# ── AMDGPU setup (must happen BEFORE importing gstaichi/genesis) ──
+if os.environ.get("HSA_OVERRIDE_GFX_VERSION"):
+    os.environ.setdefault("HSA_ENABLE_SDMA", "0")
+
+_is_amd_gpu = False
+try:
+    import torch as _torch_probe
+    if _torch_probe.cuda.is_available():
+        _dev_name = _torch_probe.cuda.get_device_name(0)
+        _is_amd_gpu = "AMD" in _dev_name or "Radeon" in _dev_name
+    del _torch_probe
+except Exception:
+    pass
+
+if _is_amd_gpu:
+    os.environ.setdefault("HIP_LAUNCH_BLOCKING", "1")
+    _rocm_lld = "/opt/rocm-6.3.0/llvm/bin/ld.lld"
+    if os.path.exists(_rocm_lld):
+        _lld_dir = "/tmp/lld_only"
+        os.makedirs(_lld_dir, exist_ok=True)
+        _lld_link = os.path.join(_lld_dir, "ld.lld")
+        if not os.path.exists(_lld_link):
+            os.symlink(_rocm_lld, _lld_link)
+        os.environ["PATH"] = f"{_lld_dir}:{os.environ['PATH']}"
 
 import numpy as np
 import cv2
@@ -75,6 +116,8 @@ SHM_SIZE = int(os.environ.get("SDR_SHM_SIZE", 4 * 1024 * 1024))
 
 # ── Genesis + Forge ────────────────────────────────────────────────
 import genesis as gs
+from tensordict import TensorDict
+from genesis.utils.geom import inv_quat
 
 
 # ── BT.601 color matrix for GPU-side RGB→YUV ──────────────────────
@@ -288,13 +331,76 @@ class NvencEncoder:
             pass
 
 
+class SoftH264Encoder:
+    """Software H.264 encoder (libx264) producing Annex-B NAL units.
+
+    Same interface as NvencEncoder but uses CPU-based libx264.
+    Tuned for low-latency streaming (zerolatency, no B-frames).
+    """
+    def __init__(self, width, height, fps=30, bitrate=5_000_000,
+                 gop=30, preset="ultrafast"):
+        import av
+        from fractions import Fraction
+
+        self.codec = Codec.H264
+        self.frame_count = 0
+        self._width = width
+        self._height = height
+
+        self.ctx = av.CodecContext.create("libx264", "w")
+        self.ctx.width = width
+        self.ctx.height = height
+        self.ctx.pix_fmt = "yuv420p"
+        self.ctx.framerate = Fraction(fps, 1)
+        self.ctx.time_base = Fraction(1, fps)
+        self.ctx.bit_rate = bitrate
+        self.ctx.gop_size = gop
+        self.ctx.max_b_frames = 0
+        self.ctx.options = {
+            "preset": preset,
+            "tune": "zerolatency",
+            "repeat-headers": "1",
+        }
+        self.ctx.open()
+
+        self._yuv_frame = av.VideoFrame(width, height, "yuv420p")
+
+    def encode(self, frame_rgb, frame_id, force_idr=False, yuv_planes=None):
+        import av
+        if yuv_planes is not None:
+            y, u, v = yuv_planes
+            frame = self._yuv_frame
+            frame.planes[0].update(y.tobytes())
+            frame.planes[1].update(u.tobytes())
+            frame.planes[2].update(v.tobytes())
+        else:
+            frame = av.VideoFrame.from_ndarray(frame_rgb, format="rgb24")
+            frame = frame.reformat(format="yuv420p", width=self.ctx.width, height=self.ctx.height)
+        frame.pts = frame_id
+        if force_idr:
+            frame.pict_type = av.video.frame.PictureType.I
+        packets = self.ctx.encode(frame)
+        if not packets:
+            return None, False
+
+        payload = b"".join(bytes(p) for p in packets)
+        is_keyframe = any(p.is_keyframe for p in packets)
+        self.frame_count += 1
+        return payload, is_keyframe
+
+    def close(self):
+        try:
+            self.ctx.encode(None)
+        except Exception:
+            pass
+
+
 # ── Threaded encoder pipeline ─────────────────────────────────────
 
 @dataclass
 class EncodeRequest:
     """Frame data passed from main loop to encoder thread."""
-    frame_np: Optional[np.ndarray]  # RGB numpy (for JPEG or legacy H.264)
-    frame_tensor: Optional[object]  # torch.Tensor on GPU (for GPU YUV path)
+    frame_np: Optional[np.ndarray]  # RGB numpy for JPEG encoding
     frame_id: int
     force_idr: bool
 
@@ -394,16 +500,7 @@ class EncoderThread:
             try:
                 t_enc = time.monotonic()
 
-                # Choose encode path based on encoder type and available data
-                yuv_planes = None
-                if isinstance(encoder, NvencEncoder) and req.frame_tensor is not None:
-                    yuv_planes = _rgb_to_yuv420p_gpu(req.frame_tensor)
-
                 payload, is_keyframe = encoder.encode(
-                    req.frame_np, req.frame_id,
-                    force_idr=req.force_idr,
-                    yuv_planes=yuv_planes,
-                ) if isinstance(encoder, NvencEncoder) else encoder.encode(
                     req.frame_np, req.frame_id,
                     force_idr=req.force_idr,
                 )
@@ -460,8 +557,6 @@ class GenesisSimRunner:
         self._encoder_thread: Optional[EncoderThread] = None
         self.frame_id = 0
         self.running = False
-        self.h264_bitrate = 5_000_000
-        self.h264_preset = "p1"
         self._force_idr = False
 
         # Encoder instrumentation (legacy — now in EncoderThread)
@@ -493,9 +588,18 @@ class GenesisSimRunner:
         self._actions_dirty = True    # Force action manager update on first step
 
     def init_genesis(self):
-        """Initialize Genesis scene and Go2 environment."""
-        logger.info("Initializing Genesis GPU backend...")
-        gs.init(backend=gs.gpu, performance_mode=True)
+        """Initialize Genesis scene and Go2 environment.
+
+        On AMD GPUs: remaps gs.cuda → ti.amdgpu so Genesis enables the cuda
+        code path (gs.device=cuda:0, HIP tensors on GPU) while Taichi compiles
+        AMDGPU kernels for gfx1033.  Applies DLPack binary patches to enable
+        zero-copy between gstaichi fields and PyTorch HIP tensors.
+        """
+        if _is_amd_gpu:
+            self._init_genesis_amdgpu()
+        else:
+            logger.info("Initializing Genesis GPU backend...")
+            gs.init(backend=gs.gpu, performance_mode=True)
 
         # Import after gs.init() — GaitCommandManager touches genesis.engine at import time
         from src.sdr_os.envs.go2_env import Go2BridgeEnv
@@ -510,45 +614,78 @@ class GenesisSimRunner:
         )
         self.env.build()
 
+        # gs.device is already cuda:0 (HIP) — no separate inference device needed
+        self._infer_device = gs.device
+        logger.info(
+            f"Inference device: {self._infer_device} "
+            f"({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu'})"
+        )
+
         obs, _ = self.env.reset()
         self.current_obs = obs
         logger.info(
-            f"Go2BridgeEnv initialized and reset — obs shape: {obs.shape if obs is not None else None}, "
-            f"device: {obs.device if obs is not None else None}"
+            f"Go2BridgeEnv initialized — obs: {obs.shape if obs is not None else None}, "
+            f"device: {obs.device if obs is not None else None}, infer: {self._infer_device}"
         )
 
-        # Load policy if checkpoint provided
+        # Load policy and move to HIP (if available)
         if self.checkpoint_dir and os.path.exists(self.checkpoint_dir):
-            logger.info(f"Attempting policy load from: {self.checkpoint_dir}")
+            logger.info(f"Loading policy from: {self.checkpoint_dir}")
             obs_dim = obs.shape[-1] if obs is not None else 310
-            logger.info(f"Policy obs_dim={obs_dim} (obs tensor shape: {obs.shape if obs is not None else 'None'})")
             self.policy = load_policy(self.checkpoint_dir, obs_dim=obs_dim)
             if self.policy:
-                logger.info(f"Policy loaded OK — type={type(self.policy).__name__}, device={next(self.policy.parameters()).device}")
-                # Smoke test: run one inference to verify shapes match
+                if self._infer_device != gs.device:
+                    self.policy = self.policy.to(self._infer_device)
+                    torch.cuda.synchronize()
+                    logger.info(f"Policy moved to {self._infer_device}")
+                logger.info(f"Policy loaded — {type(self.policy).__name__}, device={next(self.policy.parameters()).device}")
                 try:
                     with torch.no_grad():
-                        test_actions = self.policy.act_inference(obs)
+                        test_actions = self.policy.act_inference(self.current_obs)
                     logger.info(
-                        f"Policy smoke test PASSED — input {obs.shape} → output {test_actions.shape}, "
-                        f"act_mean={test_actions.abs().mean().item():.4f}, act_max={test_actions.abs().max().item():.4f}"
+                        f"Policy smoke test PASSED — {self.current_obs.shape} → {test_actions.shape}, "
+                        f"act_mean={test_actions.abs().mean().item():.4f}"
                     )
                 except Exception as e:
                     logger.error(f"Policy smoke test FAILED: {e}")
                     self.policy = None
             else:
-                logger.warning("Policy loading returned None, using zero actions")
+                logger.warning("Policy loading returned None")
         else:
-            logger.info(f"No checkpoint provided (checkpoint_dir={self.checkpoint_dir!r}), using zero actions")
+            logger.info(f"No checkpoint (checkpoint_dir={self.checkpoint_dir!r})")
 
-        # Initialize encoder (NVENC with JPEG fallback)
+        # Initialize encoder (JPEG only — H.264 disabled)
         width, height = self.camera_res
+        self.encoder = JpegEncoder(quality=self.jpeg_quality)
+        logger.info(f"JPEG encoder initialized ({width}x{height}, quality={self.jpeg_quality})")
+
+    def _init_genesis_amdgpu(self):
+        """Initialize Genesis with AMDGPU backend + DLPack zero-copy on AMD APU."""
+        import gstaichi as _ti
+        from genesis.constants import backend as gs_backend, TI_ARCH
+
+        logger.info("AMD GPU detected — routing gs.cuda → ti.amdgpu")
+
+        # Route gs.cuda → ti.amdgpu so Genesis enables zero-copy path
+        # (zero-copy requires backend == gs_backend.cuda && device.type == "cuda")
+        TI_ARCH['Linux'][gs_backend.cuda] = _ti.amdgpu
+
+        # Binary-patch gstaichi DLPack for AMDGPU support on APU unified memory
         try:
-            self.encoder = NvencEncoder(width, height, fps=self.target_fps)
-            logger.info(f"NVENC H.264 encoder initialized ({width}x{height})")
-        except Exception as e:
-            logger.warning(f"NVENC unavailable ({e}), falling back to JPEG")
-            self.encoder = JpegEncoder(quality=self.jpeg_quality)
+            from src.sdr_os.amdgpu_dlpack_patch import patch_gstaichi_dlpack
+            if patch_gstaichi_dlpack():
+                os.environ["GS_ENABLE_ZEROCOPY"] = "1"
+                logger.info("DLPack patches applied — enabling zero-copy")
+            else:
+                logger.warning("DLPack patches failed — zero-copy disabled")
+        except ImportError:
+            logger.warning("amdgpu_dlpack_patch not found — zero-copy disabled")
+
+        gs.init(backend=gs.cuda, performance_mode=True)
+        logger.info(
+            f"Genesis AMDGPU init: device={gs.device}, backend={gs.backend}, "
+            f"zerocopy={gs.use_zerocopy}"
+        )
 
     def init_shm(self):
         """Initialize SHM ringbuffer writer."""
@@ -646,37 +783,26 @@ class GenesisSimRunner:
 
         return policies
 
-    def _recreate_encoder(self):
-        """Recreate H.264 encoder with current params, fallback to JPEG."""
-        width, height = self.camera_res
-        try:
-            new_encoder = NvencEncoder(
-                width, height,
-                fps=self.target_fps,
-                bitrate=self.h264_bitrate,
-                preset=self.h264_preset,
-            )
-            logger.info(f"NVENC encoder recreated: bitrate={self.h264_bitrate}, preset={self.h264_preset}")
-        except Exception as e:
-            logger.warning(f"NVENC recreation failed ({e}), falling back to JPEG")
-            new_encoder = JpegEncoder(quality=self.jpeg_quality)
 
-        self.encoder = new_encoder
-        if self._encoder_thread:
-            self._encoder_thread.swap_encoder(new_encoder)
 
     def render_and_enqueue(self):
         """Render camera frame and submit to encoder thread."""
+        # AMDGPU headless: flush Taichi + force camera follow update before
+        # pyrender reads the camera pose matrix. Without this, get_pos() may
+        # return stale/zero data → singular camera transform → LinAlgError.
+        # In viewer mode the viewer thread handles visual state updates, so
+        # we only need a sync fence (no manual update_following).
+        if _is_amd_gpu:
+            import gstaichi as _ti
+            _ti.sync()
+            if self.headless and self.env.camera._followed_entity is not None:
+                self.env.camera.update_following()
         render_result = self.env.camera.render(rgb=True, depth=False, segmentation=False, normal=False)
         img = render_result[0] if isinstance(render_result, tuple) else render_result
 
-        frame_tensor = None
         if isinstance(img, torch.Tensor):
             if img.ndim == 4:
                 img = img[0]
-            # Keep tensor on GPU for H.264 GPU color conversion path
-            if isinstance(self.encoder, NvencEncoder):
-                frame_tensor = img
             frame_np = img.cpu().numpy()
         else:
             frame_np = np.asarray(img)
@@ -689,7 +815,6 @@ class GenesisSimRunner:
 
         req = EncodeRequest(
             frame_np=frame_np,
-            frame_tensor=frame_tensor,
             frame_id=self.frame_id,
             force_idr=force_idr,
         )
@@ -709,6 +834,12 @@ class GenesisSimRunner:
         logger.info(f"PD gains switched: {self._gains_mode} → {mode}")
         self._gains_mode = mode
         return True
+
+    # Policy runs every WALK_POLICY_INTERVAL physics steps in WALK mode.
+    # Each policy step costs ~45ms (GPU readbacks) while physics alone costs ~5ms.
+    # With interval=4: avg = (45 + 5*3)/4 = 15ms → 66 FPS.
+    # PD control maintains joint targets between policy updates.
+    WALK_POLICY_INTERVAL = 4
 
     def step_sim(self):
         """Step the simulation with policy or zero actions.
@@ -732,9 +863,21 @@ class GenesisSimRunner:
             branch = "ESTOP"
         elif self._gait_enabled and self.policy is not None and self.current_obs is not None:
             self._switch_gains("walk")
-            with torch.no_grad():
-                actions = self.policy.act_inference(self.current_obs)
-            self._actions_dirty = True  # Policy actions change every step
+            # Policy decimation: only run inference + obs readback every
+            # Nth step.  Between updates, PD controllers hold joint targets.
+            # At 50Hz physics with N=4, policy runs at 12.5Hz — well within
+            # the Go2 gait policy's stability margin.
+            self._policy_update = (self._step_log_counter % self.WALK_POLICY_INTERVAL == 0)
+            if self._policy_update:
+                with torch.no_grad():
+                    actions = self.policy.act_inference(self.current_obs)
+                # Policy runs on _infer_device (HIP); Genesis needs CPU tensors
+                if actions.device != gs.device:
+                    actions = actions.to(gs.device)
+                self._actions_dirty = True
+            else:
+                # Reuse last actions — PD controller maintains targets
+                actions = self.env._actions if self.env._actions is not None else torch.zeros(1, 12, device=gs.device)
             branch = "WALK"
         else:
             self._switch_gains("stand")
@@ -768,7 +911,11 @@ class GenesisSimRunner:
         # as fast as it can; we sync the visualizer every 3rd step so it
         # picks up the latest state.
         if not self.headless:
-            # Replicate GenesisEnv.step() bookkeeping
+            # Replicate GenesisEnv.step() bookkeeping — clear extras so
+            # get_observations() computes fresh obs instead of returning cache.
+            self.env._extras = {}
+            self.env._extras[self.env.extras_logging_key] = {}
+            self.env.extras["observations"] = TensorDict({}, device=gs.device)
             self.env.step_count += 1
             self.env.episode_length += 1
             if self.env._actions is None:
@@ -785,37 +932,63 @@ class GenesisSimRunner:
                     self.env.managers["action"].step(actions)
                 self._actions_dirty = False
             _act_ms = (time.monotonic() - _t_act) * 1000
-            # Physics — sync visualizer every 6th step (~10Hz at 60 FPS).
-            # The viewer thread renders at max_FPS but needs periodic state
-            # pushes via update_visualizer to show motion.  Each sync costs
-            # ~25ms (lock contention), but catch-up pacing compensates.
-            do_viz = (self._step_log_counter % 6 == 0)
+            # Physics — sync visualizer every Nth step.  The viewer thread
+            # renders at max_FPS independently; we push state updates at a
+            # lower rate.  Each sync costs ~25ms (lock contention) so we
+            # offset by 2 to avoid overlapping with policy readback steps
+            # (which fire at step % INTERVAL == 0).
+            _viz_period = self.WALK_POLICY_INTERVAL * 3  # every 12th step
+            do_viz = (self._step_log_counter % _viz_period == 2)
             _t_phys = time.monotonic()
             self.env.scene.step(update_visualizer=do_viz)
             _phys_ms = (time.monotonic() - _t_phys) * 1000
             # Entity + command + obs managers — only run when needed.
-            # In STAND/ESTOP these trigger GPU readbacks (~25ms sync stalls).
-            # WALK: every step (policy needs fresh state).
+            # WALK: every Nth step to amortize GPU→CPU readback cost.
+            #   The readback (mgr ~13ms + obs ~30ms) dominates step time.
+            #   PD controllers hold joint targets between policy updates,
+            #   so skipping obs on intermediate steps is safe.
             # STAND/ESTOP: never (no state needed for static pose).
-            need_full_state = (branch == "WALK")
+            need_full_state = (branch == "WALK" and
+                               getattr(self, '_policy_update', False))
             _t_mgr = time.monotonic()
             if need_full_state:
-                for em in self.env.managers["entity"]:
-                    em.step()
+                # Flush all pending Vulkan compute before CPU reads —
+                # single fence wait instead of per-field stalls
+                import gstaichi as _ti
+                _ti.sync()
+                # Minimal entity update: only quat → inv_quat (skip pos read)
+                robot_mgr = self.env.robot_manager
+                quat = self.env.robot.get_quat()
+                robot_mgr._base_quat[:] = quat
+                robot_mgr._inv_base_quat = inv_quat(quat)
                 for cmd in self.env.managers["command"]:
                     cmd.step()
             _mgr_ms = (time.monotonic() - _t_mgr) * 1000
-            # Observations: only for policy (WALK branch)
+            # Observations: only on policy-update steps
             _t_obs = time.monotonic()
-            if branch == "WALK":
+            if need_full_state:
                 obs = self.env.get_observations()
+                # Move obs to inference device (HIP) for next policy step.
+                # Dual fence required: Vulkan (Taichi) + HIP must both be
+                # quiesced before crossing GPU compute domains on gfx1033.
+                if obs is not None and obs.device != self._infer_device:
+                    torch.cuda.synchronize()
+                    obs = obs.to(self._infer_device)
             else:
                 obs = self.current_obs
             _obs_ms = (time.monotonic() - _t_obs) * 1000
-            # Termination check aligned with entity manager (~1s in stand mode)
+            # Termination check every 50 steps in ALL modes (STAND/WALK/ESTOP).
+            # Fall detection doesn't need per-step precision, and entity reads
+            # are expensive.  In viewer mode we bypass env.step() so there is
+            # no auto-reset — we must detect and handle it ourselves.
             dones = self.env._terminated_buf
-            if need_full_state and self.env.managers["termination"] is not None:
-                dones, _ = self.env.managers["termination"].step()
+            if self._step_log_counter % 50 == 0:
+                import gstaichi as _ti
+                _ti.sync()
+                for em in self.env.managers["entity"]:
+                    em.step()
+                if self.env.managers["termination"] is not None:
+                    dones, _ = self.env.managers["termination"].step()
             # Record sub-timings for periodic logging
             if not hasattr(self, '_phys_times'):
                 self._phys_times = []
@@ -828,13 +1001,31 @@ class GenesisSimRunner:
             self._mgr_times.append(_mgr_ms)
         else:
             obs, _, dones, _, _ = self.env.step(actions)
+            # Dual fence: Vulkan + HIP must be quiesced before cross-domain transfer
+            if obs is not None and obs.device != self._infer_device:
+                import gstaichi as _ti
+                _ti.sync()
+                torch.cuda.synchronize()
+                obs = obs.to(self._infer_device)
 
         self.current_obs = obs
 
-        if dones.any():
-            logger.warning("Episode terminated — resetting environment")
-            obs, _ = self.env.reset()
-            self.current_obs = obs
+        if dones is not None and dones.any():
+            if self.headless:
+                # Headless: ManagedEnvironment.step() already resets internally.
+                logger.warning("Episode terminated (bad_orientation) — env auto-reset")
+            else:
+                # Viewer mode: we bypass env.step(), so reset manually.
+                logger.warning("Episode terminated (bad_orientation) — manual reset")
+                reset_obs, _ = self.env.reset()
+                if reset_obs is not None:
+                    if reset_obs.device != self._infer_device:
+                        import gstaichi as _ti
+                        _ti.sync()
+                        torch.cuda.synchronize()
+                        reset_obs = reset_obs.to(self._infer_device)
+                    self.current_obs = reset_obs
+                self._actions_dirty = True
 
     # ── NATS ──────────────────────────────────────────────────────
 
@@ -924,6 +1115,11 @@ class GenesisSimRunner:
                     elif action == "reset":
                         if self.env:
                             obs, _ = self.env.reset()
+                            if obs is not None and obs.device != self._infer_device:
+                                import gstaichi as _ti
+                                _ti.sync()
+                                torch.cuda.synchronize()
+                                obs = obs.to(self._infer_device)
                             self.current_obs = obs
                     elif action == "estop":
                         self._safety_mode = "ESTOP"
@@ -958,6 +1154,9 @@ class GenesisSimRunner:
                         self.policy = load_policy(checkpoint_dir, model_file=model_file, obs_dim=obs_dim)
                         if not self.policy:
                             raise RuntimeError("Policy load returned None")
+                        if self._infer_device != gs.device:
+                            self.policy = self.policy.to(self._infer_device)
+                            torch.cuda.synchronize()
                         self.checkpoint_dir = checkpoint_dir
                         self._loaded_model_file = model_file or os.path.basename(
                             sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))[-1]
@@ -983,34 +1182,6 @@ class GenesisSimRunner:
                                 self.encoder.quality = self.jpeg_quality
                         if "stream_fps" in cmd_data:
                             self.target_fps = int(cmd_data["stream_fps"])
-                        # Update H.264 params BEFORE codec switch so _recreate_encoder uses new values
-                        h264_params_changed = False
-                        if "h264_bitrate" in cmd_data:
-                            new_bitrate = int(float(cmd_data["h264_bitrate"]) * 1_000_000)
-                            if new_bitrate != self.h264_bitrate:
-                                self.h264_bitrate = new_bitrate
-                                h264_params_changed = True
-                        if "h264_preset" in cmd_data:
-                            new_preset = str(cmd_data["h264_preset"])
-                            if new_preset != self.h264_preset:
-                                self.h264_preset = new_preset
-                                h264_params_changed = True
-                        # Codec switch: h264 ↔ jpeg
-                        if "codec" in cmd_data:
-                            requested = cmd_data["codec"]
-                            if requested == "jpeg" and isinstance(self.encoder, NvencEncoder):
-                                logger.info("Switching encoder to JPEG")
-                                new_enc = JpegEncoder(quality=self.jpeg_quality)
-                                self.encoder = new_enc
-                                if self._encoder_thread:
-                                    self._encoder_thread.swap_encoder(new_enc)
-                            elif requested == "h264" and isinstance(self.encoder, JpegEncoder):
-                                logger.info("Switching encoder to H.264 (NVENC)")
-                                self._recreate_encoder()
-                                h264_params_changed = False  # Already created with new params
-                        # Recreate NVENC only if params changed without a codec switch
-                        if h264_params_changed and isinstance(self.encoder, NvencEncoder):
-                            self._recreate_encoder()
                 except Exception as e:
                     status = "error"
                     detail = str(e)
@@ -1080,8 +1251,7 @@ class GenesisSimRunner:
         loop_times = []
 
         await self.connect_nats()
-        if self.headless:
-            self._start_encoder_thread()
+        self._start_encoder_thread()
 
         # Reset cmd timer after init (GPU init takes seconds, would trigger ESTOP)
         self._last_cmd_vel_time = time.monotonic()
@@ -1108,9 +1278,17 @@ class GenesisSimRunner:
                     step_times.append(step_ms)
                 step_count += 1
 
-                # Render and submit to encoder thread (headless stream only)
-                if self.headless:
-                    self.render_and_enqueue()
+                # Render and submit to encoder thread for web UI stream.
+                # In viewer mode, the Genesis viewer thread already renders
+                # the 3D scene.  We do a separate offscreen render for the
+                # web UI stream but only every 3rd step (~20 FPS) to avoid
+                # doubling the GPU rendering load.
+                if self.headless or step_count % 3 == 0:
+                    try:
+                        self.render_and_enqueue()
+                    except Exception as e:
+                        if step_count % 100 == 0:
+                            logger.warning(f"render_and_enqueue failed: {e}")
 
                 now = time.monotonic()
 
@@ -1190,7 +1368,6 @@ class GenesisSimRunner:
                     if self._encoder_thread:
                         times, sizes, total = self._encoder_thread.snapshot_stats()
                         if times:
-                            is_h264 = isinstance(self.encoder, NvencEncoder)
                             enc_stats = {
                                 "encode_time_avg_ms": round(sum(times) / len(times), 2),
                                 "encode_time_max_ms": round(max(times), 2),
@@ -1198,10 +1375,8 @@ class GenesisSimRunner:
                                 "frame_size_max_bytes": max(sizes) if sizes else 0,
                                 "actual_fps": len(times),
                                 "target_fps": self.target_fps,
-                                "codec": "h264" if is_h264 else "jpeg",
-                                "bitrate": self.h264_bitrate,
+                                "codec": "jpeg",
                                 "frames_encoded": total,
-                                "intra_refresh": is_h264 and getattr(self.encoder, '_intra_refresh', False),
                             }
                             await self.nc.publish("telemetry.encoder.stats", json.dumps(enc_stats).encode())
                     self._last_encode_stats_time = now
@@ -1313,8 +1488,7 @@ async def main():
     signal.signal(signal.SIGINT, on_signal)
 
     runner.init_genesis()
-    if not args.viewer:
-        runner.init_shm()
+    runner.init_shm()
     await runner.run()
 
 

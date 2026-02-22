@@ -170,7 +170,7 @@ See [`docs/setup.md`](docs/setup.md) for full environment setup (PyTorch, Genesi
 
 ### Local Development (Steam Deck / non-CUDA)
 
-For running natively on a Steam Deck or any machine without an NVIDIA GPU, you can skip Docker entirely and run the services bare-metal.
+For running natively on a Steam Deck or any machine without an NVIDIA GPU, you can skip Docker entirely and run the services bare-metal. The sim uses **Vulkan** for physics and **ROCm/HIP** for PyTorch tensor operations on AMD GPUs.
 
 **Prerequisites:**
 
@@ -181,6 +181,20 @@ npm run build                   # Build frontend bundle
 
 # Install process-compose (one-time)
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/F1bonacc1/process-compose/main/scripts/get-pc.sh)" -- -d -b ~/.local/bin
+```
+
+**PyTorch ROCm setup (AMD GPU):**
+
+```bash
+# Install ROCm PyTorch (required for AMD GPUs — the default pip/uv torch is CUDA-only)
+uv pip install --reinstall --index-url https://download.pytorch.org/whl/rocm7.1 torch
+
+# Steam Deck (Van Gogh / gfx1033) needs this env var:
+export HSA_OVERRIDE_GFX_VERSION=10.3.0
+
+# Verify GPU is detected
+uv run python -c "import torch; print(torch.cuda.get_device_name(0))"
+# Should print: AMD Custom APU 0405
 ```
 
 **Start the stack (single command):**
@@ -207,19 +221,20 @@ SDR_NATS_URL=nats://localhost:4222 ./services/transport-server/target/release/tr
 node server.js
 
 # Terminal 4 — Genesis sim (viewer mode, captures to SHM)
-./scripts/start_viewer_mode.sh --res 640x360 --fps 30
+export HSA_OVERRIDE_GFX_VERSION=10.3.0   # Steam Deck only
+./scripts/start_viewer_mode.sh --res 1280x720 --fps 60
 ```
 
 </details>
 
 **Viewer mode vs headless mode:**
 
-| Mode | Command | GPU Required | Video Pipeline |
+| Mode | Command | GPU Backend | Video Pipeline |
 |------|---------|-------------|----------------|
-| **Headless** (CUDA) | `uv run scripts/genesis_sim_runner.py` | Yes (NVENC) | `camera.render()` &rarr; NVENC H.264 &rarr; SHM |
-| **Viewer** (CPU/APU) | `./scripts/start_viewer_mode.sh` | No | Genesis viewer &rarr; Xvfb &rarr; ffmpeg x11grab &rarr; JPEG &rarr; SHM |
+| **Headless** (CUDA) | `uv run scripts/genesis_sim_runner.py` | CUDA + NVENC | `camera.render()` &rarr; NVENC H.264 &rarr; SHM |
+| **Viewer** (ROCm/Vulkan) | `./scripts/start_viewer_mode.sh` | Vulkan physics + ROCm tensors | Genesis viewer &rarr; ffmpeg x11grab &rarr; JPEG &rarr; SHM |
 
-Headless mode uses `camera.render()` + NVENC hardware encoding and is the fastest path on CUDA GPUs. Viewer mode avoids the `glReadPixels` bottleneck by using the Genesis native viewer on a virtual display (Xvfb with software GL), captured by ffmpeg and piped into the same SHM/transport pipeline. This is the recommended path for Steam Deck (AMD APU) and other non-NVIDIA systems.
+Headless mode uses `camera.render()` + NVENC hardware encoding and is the fastest path on CUDA GPUs. Viewer mode uses the Genesis native viewer with Vulkan GPU physics and ROCm PyTorch for tensor operations. On Steam Deck (AMD APU), both Vulkan and HIP access unified memory, minimizing data transfer overhead.
 
 **`start_viewer_mode.sh` options:**
 

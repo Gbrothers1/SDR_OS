@@ -36,9 +36,11 @@ export const SKILL_BINDINGS = [
   // Reserved slots (leave room for more skills)
   {
     button: 'DpadUp',
-    skill: null,
-    label: 'Skill 5',
-    shortLabel: '—',
+    skill: 'reset',
+    label: 'Reset Env',
+    shortLabel: 'Reset',
+    trigger: 'press',
+    cooldownMs: 1000,
   },
   {
     button: 'DpadRight',

@@ -56,13 +56,26 @@ processes:
       max_restarts: 5
 
   sim:
-    command: ./scripts/start_viewer_mode.sh --res 1280x720 --fps 60
+    command: uv run scripts/genesis_sim_runner.py --camera-res 1280x720 --fps 60
     environment:
-      - "DISPLAY=:2"
-      - "XAUTHORITY=/run/user/1000/nested_plasma/xauth_PqKNol"
+      - "HSA_OVERRIDE_GFX_VERSION=10.3.0"
+      - "HSA_ENABLE_SDMA=0"
+      - "HIP_LAUNCH_BLOCKING=1"
     depends_on:
       nats:
         condition: process_healthy
+    disabled: true
+    availability:
+      restart: on_failure
+      backoff_seconds: 5
+      max_restarts: 3
+
+  sim-viewer:
+    command: ./scripts/run_sim_viewer.sh
+    depends_on:
+      nats:
+        condition: process_healthy
+    disabled: true
     availability:
       restart: on_failure
       backoff_seconds: 5
