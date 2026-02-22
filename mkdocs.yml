@@ -11,6 +11,7 @@ nav:
   - Frontend: frontend.md
   - Backend: backend.md
   - Containers: containers.md
+  - AMDGPU Zero-Copy: amdgpu-zerocopy.md
   - NATS Subjects: nats-subjects.md
   - CI/CD: ci.md
   - Build log: build.md
@@ -35,6 +36,8 @@ nav:
     - "Docs, screenshots & theme": plans/2026-02-06-docs-screenshots-theme-design.md
     - "Gamepad dual cmd_vel": plans/2026-02-07-gamepad-dual-cmd-vel-design.md
     - "Policy panel & environments": plans/2026-02-07-policy-panel-envs-design.md
+    - "Steam Deck native viewer design": plans/2026-02-20-viewer-native-steamdeck-design.md
+    - "Steam Deck native viewer plan": plans/2026-02-20-viewer-native-steamdeck-plan.md
   - Phase 1 Summary: phase1-summary.md
 
 theme:

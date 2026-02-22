@@ -50,12 +50,17 @@ Genesis sim → NATS telemetry.* subjects
 ### Video
 
 ```
-Genesis GPU render → NVENC H.264 (or JPEG fallback)
- → SHM ringbuffer (/dev/shm/sdr_os_ipc/frames)
- → Rust transport-server reads SHM
- → 0x01 WS fanout to browser clients
- → H.264: WebCodecs VideoDecoder → canvas
- → JPEG: Blob → objectURL → <img>
+CUDA path:
+  Genesis GPU render → NVENC H.264 (or JPEG fallback)
+   → SHM ringbuffer → transport-server → 0x01 WS → browser
+
+AMDGPU path (Steam Deck):
+  Genesis GPU render (AMDGPU Taichi) → camera.render() → JPEG (turbojpeg)
+   → SHM ringbuffer → transport-server → 0x01 WS → browser
+
+Browser decoding:
+  H.264: WebCodecs VideoDecoder → canvas
+  JPEG: Blob → objectURL → <img>
 ```
 
 ### Binary WebSocket Protocol
@@ -154,7 +159,7 @@ The [Multi-Service Backend Design](plans/2026-02-05-multi-service-backend-design
 | Caddy (webserver) | Go | Reverse proxy, static files, Tailscale TLS | edge + backplane |
 | node | Node.js | Socket.io gamepad relay, /api routes | backplane |
 | transport-server | Rust | SHM→WS fanout, 0x04→NATS, video gate | edge + backplane |
-| genesis-sim | Python | Genesis simulation, NVENC/JPEG encoding, safety L3 | host network |
+| genesis-sim | Python | Genesis simulation (Vulkan/AMDGPU), NVENC/JPEG encoding, safety L3 | host network |
 | ros-bridge | Python | ROS 2 ↔ rosbridge WebSocket | host network (DDS) |
 | training-runner | Python | genesis-forge RL, rsl_rl PPO | backplane |
 | NATS | NATS | Message bus (command + telemetry) | backplane |
@@ -190,7 +195,7 @@ Zero-copy frame transport between genesis-sim and transport-server:
 - **Lap detection**: reader tracks frame_seq, resyncs to IDR on gaps
 - **Drop policy**: "latest wins" — writer always overwrites with freshest frame
 
-### NVENC Video Pipeline
+### NVENC Video Pipeline (CUDA)
 
 ```
 Genesis Render (CUDA) → NVENC encoder → SHM ringbuffer → transport-server → clients
@@ -199,6 +204,31 @@ Genesis Render (CUDA) → NVENC encoder → SHM ringbuffer → transport-server 
 - H.264/HEVC encoding on RTX 2080 Ti
 - 2 concurrent NVENC sessions max
 - Target: 1080p60 @ 6-12 Mbps CBR
+
+### AMDGPU Video Pipeline (ROCm / Steam Deck)
+
+```
+Genesis Render (AMDGPU Taichi) → camera.render() → JPEG (turbojpeg) → SHM → transport → clients
+```
+
+On AMD APUs (Steam Deck), the sim uses the **AMDGPU Taichi backend** for physics kernels
+and **HIP** (ROCm) for PyTorch tensor operations. A DLPack binary patch to gstaichi enables
+**zero-copy** between Taichi fields and PyTorch HIP tensors — no data copying, just pointer
+sharing on unified APU memory.
+
+Key components:
+
+- `genesis_sim_runner.py` auto-detects AMD GPUs and routes `gs.cuda` → `ti.amdgpu`
+- `src/sdr_os/amdgpu_dlpack_patch.py` patches gstaichi DLPack at runtime
+- Sync fences (`_ti.sync()` + `torch.cuda.synchronize()`) prevent concurrent GPU use
+- JPEG encoding via turbojpeg (no NVENC on AMD)
+
+Performance on Steam Deck (AMD Custom APU 0405, gfx1033):
+
+- Go2 robot: 11.5ms/step (87 FPS) with zero-copy
+- Plane scene: 2.8ms/step (432 FPS) — 5x faster than Vulkan baseline
+
+See [AMDGPU Zero-Copy](amdgpu-zerocopy.md) for full technical details.
 
 ### Containers
 

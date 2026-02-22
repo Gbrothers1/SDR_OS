@@ -32,7 +32,7 @@ It was built for the [Steam Deck](https://store.steampowered.com/steamdeck) form
 ### Key Capabilities
 
 - **Browser-based teleoperation** &mdash; Gamepad and keyboard control with real-time 3D visualization (Three.js), telemetry dashboards, and H.264 video streaming via WebCodecs
-- **Genesis physics simulation** &mdash; GPU-hosted simulation with NVENC hardware encoding and zero-copy SHM frame transport
+- **Genesis physics simulation** &mdash; GPU-hosted simulation with NVENC/JPEG encoding and zero-copy SHM frame transport; AMDGPU backend with DLPack zero-copy on AMD APUs
 - **ROS 2 integration** &mdash; Full ROS 2 Jazzy support for real robots: sensor pipelines, `/cmd_vel`, joint states, transforms
 - **3-layer safety stack** &mdash; Frontend, transport, and sim-level safety with HOLD/ESTOP modes and deadman switch
 - **RL training pipeline** &mdash; Genesis-Forge + rsl_rl PPO with teleop recording, behavior cloning, and live policy blending
@@ -86,7 +86,7 @@ Browser (React + Three.js + WebCodecs)
 | **Caddy** | Go | Reverse proxy, static files, TLS termination |
 | **Node** | Node.js | Socket.io gamepad relay, `/api` routes |
 | **Transport** | Rust | SHM &rarr; WebSocket fanout, NATS relay, video gate |
-| **Genesis Sim** | Python | Physics simulation, NVENC/JPEG encoding, safety layer 3 |
+| **Genesis Sim** | Python | Physics simulation (Vulkan/AMDGPU), NVENC/JPEG encoding, safety layer 3 |
 | **ROS Bridge** | Python | ROS 2 &harr; rosbridge WebSocket |
 | **NATS** | NATS | Message bus for commands and telemetry |
 
@@ -113,8 +113,9 @@ Browser (React + Three.js + WebCodecs)
 |-------|------------|
 | **Frontend** | React 18, Three.js, Socket.io, ROSLIB, WebCodecs H.264 |
 | **Backend** | Node.js / Express, Rust transport-server |
-| **Simulation** | Genesis 0.3.13, Genesis Forge 0.3.0, MuJoCo 3.4 |
+| **Simulation** | Genesis 0.3.14, gstaichi 4.6.0, Genesis Forge 0.3.0, MuJoCo 3.4 |
 | **ML** | PyTorch 2.8+ (CUDA/ROCm/MLX), rsl_rl, NumPy |
+| **AMD GPU** | ROCm 6.3, PyTorch ROCm 7.1, gstaichi AMDGPU backend, DLPack zero-copy |
 | **Infra** | Docker Compose, NATS + JetStream, Caddy 2 |
 | **CI/CD** | GitHub Actions, MkDocs Material, mike |
 | **Packages** | uv (Python), pnpm (Node.js) |
@@ -227,38 +228,38 @@ export HSA_OVERRIDE_GFX_VERSION=10.3.0   # Steam Deck only
 
 </details>
 
-**Viewer mode vs headless mode:**
+**Execution modes:**
 
 | Mode | Command | GPU Backend | Video Pipeline |
 |------|---------|-------------|----------------|
 | **Headless** (CUDA) | `uv run scripts/genesis_sim_runner.py` | CUDA + NVENC | `camera.render()` &rarr; NVENC H.264 &rarr; SHM |
-| **Viewer** (ROCm/Vulkan) | `./scripts/start_viewer_mode.sh` | Vulkan physics + ROCm tensors | Genesis viewer &rarr; ffmpeg x11grab &rarr; JPEG &rarr; SHM |
+| **Headless** (AMDGPU) | `uv run scripts/genesis_sim_runner.py` | AMDGPU + HIP + JPEG | `camera.render()` &rarr; JPEG &rarr; SHM |
+| **Viewer** (AMDGPU) | `./scripts/run_sim_viewer.sh` | AMDGPU + HIP + JPEG | Genesis viewer window + offscreen render &rarr; JPEG &rarr; SHM |
 
-Headless mode uses `camera.render()` + NVENC hardware encoding and is the fastest path on CUDA GPUs. Viewer mode uses the Genesis native viewer with Vulkan GPU physics and ROCm PyTorch for tensor operations. On Steam Deck (AMD APU), both Vulkan and HIP access unified memory, minimizing data transfer overhead.
+On NVIDIA, headless mode uses NVENC hardware H.264 encoding. On AMD, the sim auto-detects the GPU and routes Genesis through the AMDGPU Taichi backend with DLPack zero-copy between Taichi fields and PyTorch HIP tensors. On Steam Deck (AMD APU), both GPU compute (AMDGPU/HIP) and memory share the same physical address space, enabling true zero-copy with no data transfer overhead.
 
-**`start_viewer_mode.sh` options:**
+See [`docs/amdgpu-zerocopy.md`](docs/amdgpu-zerocopy.md) for technical details on the AMDGPU backend.
 
-```
---res WxH         Capture resolution (default: 640x360)
---fps N           Capture framerate (default: 30)
---quality N       JPEG quality 1-100 (default: 80)
---display :N      Xvfb display number (default: :99)
---checkpoint DIR  Policy checkpoint directory
-```
+**Viewer scripts:**
 
-Any unrecognized args are forwarded to `genesis_sim_runner.py` (e.g. `--gpu 0`).
+| Script | Use case |
+|--------|----------|
+| `scripts/run_sim_viewer.sh` | **Recommended for Steam Deck / distrobox.** Auto-detects DISPLAY and XAUTHORITY, sets AMD GPU env vars, launches with `--viewer` flag. |
+| `scripts/start_viewer_mode.sh` | Legacy: uses Xvfb + ffmpeg x11grab for headless capture on systems without a display. |
+
+`run_sim_viewer.sh` forwards extra args to `genesis_sim_runner.py` (e.g. `--checkpoint DIR`).
 
 ## Repository Layout
 
 ```
 SDR_OS/
 ├── src/client/                    # React frontend (40+ components, 5 contexts)
-├── src/sdr_os/                    # Python backend (SHM ringbuffer, IPC)
+├── src/sdr_os/                    # Python backend (SHM ringbuffer, IPC, AMDGPU patches)
 ├── server.js                      # Express + Socket.io (gamepad relay)
 ├── services/transport-server/     # Rust: SHM→WS fanout, NATS relay, video gate
 ├── containers/                    # CUDA / ROCm / MLX / ROS2 Jazzy Dockerfiles
 ├── configs/                       # Caddyfile, nats.conf, prometheus.yml
-├── scripts/                       # verify.sh, validate_nvenc.py, ROS2 launcher
+├── scripts/                       # sim runners, viewer launchers, diagnostics
 ├── tests/                         # unit / integration / benchmarks
 ├── docs/                          # MkDocs documentation site
 ├── assets/images/                 # README and documentation images
@@ -290,6 +291,7 @@ Key internal docs:
 |-------|-------|--------|
 | **1** | CUDA Docker, basic pipeline, SHM ringbuffer, NVENC validation | Done |
 | **2** | NATS backbone, 3-layer safety stack, transport integration, Caddy routing | Done |
+| **2.5** | AMDGPU zero-copy: Taichi AMDGPU backend, DLPack patches, Steam Deck optimization | Done |
 | **3** | Production hardening: healthchecks, host tuning, Prometheus/Grafana, CI | Planned |
 | **4** | WebRTC + control path: signaling, DataChannel, H.264 RTP | Planned |
 | **5** | Training integration: JetStream streams, genesis-forge, episode recording | Planned |

@@ -20,7 +20,7 @@ First-time environment setup for SDR_OS development.
 | Target | Additional requirements |
 |--------|----------------------|
 | CUDA | NVIDIA driver 590+, CUDA 13.1, `nvidia-container-toolkit` |
-| ROCm | ROCm drivers, `/dev/kfd` accessible |
+| ROCm | ROCm 6.3+, `/dev/kfd` accessible, `HSA_OVERRIDE_GFX_VERSION` for unsupported ISAs |
 | MLX | macOS 14+ on Apple Silicon (no extra setup) |
 
 ??? info "CUDA installation (Ubuntu 22.04)"
@@ -63,6 +63,56 @@ First-time environment setup for SDR_OS development.
     ```
 
     **Supported host compilers:** GCC 6.x--15.x, Clang 7.x--21.x (see [system requirements](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/#system-requirements)).
+
+??? info "ROCm installation (Steam Deck / AMD APU)"
+
+    SDR_OS supports AMD GPUs via ROCm/HIP for PyTorch and gstaichi's AMDGPU Taichi backend.
+    This has been tested on the Steam Deck (AMD Custom APU 0405, gfx1033 RDNA2).
+
+    **Install ROCm (system-wide):**
+
+    ```bash
+    # Follow https://rocm.docs.amd.com/projects/install-on-linux/en/latest/
+    # On Arch/SteamOS: install rocm-hip-runtime, rocm-hip-sdk from AUR or official repos
+    # Verify:
+    rocminfo | grep -i "gfx"    # Should show gfx1033 (Van Gogh)
+    ```
+
+    **Install PyTorch with ROCm:**
+
+    ```bash
+    uv pip install --reinstall --index-url https://download.pytorch.org/whl/rocm7.1 torch
+    ```
+
+    **Required environment variables (Steam Deck):**
+
+    | Variable | Value | Purpose |
+    |----------|-------|---------|
+    | `HSA_OVERRIDE_GFX_VERSION` | `10.3.0` | Maps gfx1033 to supported gfx1030 ISA |
+    | `HSA_ENABLE_SDMA` | `0` | Prevents hipMemcpy deadlock when HIP + Vulkan coexist on APU |
+    | `HIP_LAUNCH_BLOCKING` | `1` | Fixes async dispatch race in gstaichi AMDGPU backend |
+
+    **Verify GPU:**
+
+    ```bash
+    export HSA_OVERRIDE_GFX_VERSION=10.3.0
+    uv run python -c "import torch; print(torch.cuda.get_device_name(0))"
+    # Should print: AMD Custom APU 0405
+    ```
+
+    **ROCm `ld.lld` requirement:**
+
+    gstaichi 4.6.0 with LLVM 20 produces ELF v3 objects that require `ld.lld` v18+.
+    The system `ld.lld` (v14 on SteamOS) cannot link them. The sim runner auto-symlinks
+    ROCm's `ld.lld` to `PATH` at startup, but you can also do it manually:
+
+    ```bash
+    ln -sf /opt/rocm-6.3.0/llvm/bin/ld.lld /tmp/ld.lld
+    export PATH="/tmp:$PATH"
+    ```
+
+    See [AMDGPU Zero-Copy](amdgpu-zerocopy.md) for details on the DLPack patches and
+    zero-copy implementation.
 
 ## Known-good versions
 
@@ -142,20 +192,26 @@ uv run python -c "import genesis; print(genesis.__version__)"
 
 === "ROCm (AMD)"
 
-    The recommended way is via the official ROCm wheels:
+    Install the ROCm-compiled PyTorch wheel:
 
     ```bash
-    # ROCm 7.0 (check pytorch.org for latest ROCm version)
-    pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm7.0
+    # ROCm 7.1 (tested on Steam Deck with ROCm 6.3 runtime)
+    uv pip install --reinstall --index-url https://download.pytorch.org/whl/rocm7.1 torch
     ```
 
-    Or use the prebuilt ROCm Docker image (recommended for production):
+    The `pyproject.toml` already configures uv to pull from the `pytorch-rocm` index,
+    so `uv sync` should get the right wheel automatically.
+
+    For Docker-based workflows:
 
     ```bash
     docker pull rocm/pytorch:latest
     docker run -it --device=/dev/kfd --device=/dev/dri --group-add video \
         --ipc=host --shm-size 8G rocm/pytorch:latest
     ```
+
+    **Steam Deck specific:** See the ROCm installation section above for required
+    environment variables (`HSA_OVERRIDE_GFX_VERSION`, `HSA_ENABLE_SDMA`, etc.).
 
     Full guide: [PyTorch on ROCm installation](https://rocm.docs.amd.com/projects/install-on-linux/en/develop/install/3rd-party/pytorch-install.html)
 
@@ -179,7 +235,7 @@ The project uses uv dependency groups in `pyproject.toml`:
 |-------|-----------------|
 | (default) | genesis-forge, genesis-world |
 | `cuda` | mlx[cuda12] |
-| `rocm` | mlx[cpu] |
+| `rocm` | av, PyOpenGL-accelerate, PyTurboJPEG (AMD GPU encoding deps) |
 | `mlx` | mlx (Apple Silicon native) |
 | `mlx_cpu` | mlx[cpu] (Linux CPU parity) |
 | `mlx_cuda12` | mlx[cuda12] |
