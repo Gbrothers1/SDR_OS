@@ -11,6 +11,7 @@ import BlendPanel from './BlendPanel';
 import TrainingPanel from './TrainingPanel';
 import LogViewer from './LogViewer';
 import SettingsModal from './SettingsModal';
+import SettingsIcon from './SettingsIcon';
 import { SettingsProvider, useSettings } from '../contexts/SettingsContext';
 import { GenesisProvider, useGenesis } from '../contexts/GenesisContext';
 import { PhaseProvider } from '../contexts/PhaseContext';
@@ -256,6 +257,12 @@ const CockpitContent = ({ socket }) => {
         e.preventDefault();
         setRightOpen(prev => !prev);
       }
+
+      // Settings: Ctrl+,
+      if (e.ctrlKey && e.key === ',') {
+        e.preventDefault();
+        setSettingsOpen(prev => !prev);
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -428,7 +435,10 @@ const CockpitContent = ({ socket }) => {
           />
         </EdgePanel>
 
-        {/* Settings modal (keeps existing component) */}
+        {/* Settings icon (top-left) */}
+        <SettingsIcon onClick={() => setSettingsOpen(true)} />
+
+        {/* Settings modal */}
         <SettingsModal
           isOpen={settingsOpen}
           onClose={() => setSettingsOpen(false)}

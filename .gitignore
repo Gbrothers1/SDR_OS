@@ -32,3 +32,7 @@ test-results/
 README.html
 configs/tls/
 .ref/
+
+# Heavy training data — stored on private Gitea only, not GitHub
+rl/checkpoints/go2-jump/
+rl/checkpoints/go2-jump-power/

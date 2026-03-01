@@ -97,6 +97,7 @@ class GaitCommandManager(CommandManager):
 
         # Initial ranges - these will be expanded in the curriculum
         self._num_gaits = 1
+        self._fixed_gait_name: GaitName | None = None
         self._gait_period_range = [
             (GAIT_PERIOD_RANGE[0] + GAIT_PERIOD_RANGE[1]) / 2
         ] * 2
@@ -198,8 +199,10 @@ class GaitCommandManager(CommandManager):
         gait_names = list(GAIT_OFFSETS.keys())[: self._num_gaits]
         if self._num_gaits == 1:
             # Only one gait available - set all to the same gait
-            self._set_gait(gait_names[0], env_ids)
-            self._gait_selected[env_ids] = 0
+            gait_name = self._fixed_gait_name or gait_names[0]
+            self._set_gait(gait_name, env_ids)
+            gait_idx = list(GAIT_OFFSETS.keys()).index(gait_name)
+            self._gait_selected[env_ids] = gait_idx
         else:
             # Generate a random list of gait indices
             gait_indices = self._generate_random_gait_indices(len(env_ids))
@@ -268,6 +271,7 @@ class GaitCommandManager(CommandManager):
         """
         self._gamepad = gamepad
         self._num_gaits = len(GAIT_OFFSETS)
+        self._fixed_gait_name = None
         self._gamepad_gait_idx = 0
         self._gamepad_select_gait(list(GAIT_OFFSETS.keys())[0])
 
@@ -284,8 +288,12 @@ class GaitCommandManager(CommandManager):
         if env_ids is None:
             env_ids = torch.arange(self.env.num_envs, device=gs.device)
         self._num_gaits = 1
+        self._fixed_gait_name = gait_name
         self._all_gaits_learned = True
         self._set_gait(gait_name, env_ids)
+        gait_names = list(GAIT_OFFSETS.keys())
+        gait_idx = gait_names.index(gait_name)
+        self._gait_selected[env_ids] = gait_idx
         self.foot_height[env_ids, 0] = clearance
         self.gait_period[env_ids, 0] = period
 

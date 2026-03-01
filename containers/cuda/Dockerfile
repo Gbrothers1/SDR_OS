@@ -42,6 +42,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --group cuda \
     && cp -a /workspace/.venv/lib/python3.10/site-packages/* /opt/venv/lib/python3.10/site-packages/ \
     && rm -rf /workspace/.venv
+# Bake in RL dependency so training containers don't pip-install at runtime.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install git+https://github.com/leggedrobotics/rsl_rl.git
 
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=cache,target=/root/.local/share/pnpm/store \
@@ -56,3 +59,4 @@ COPY . /workspace
 ENV PYOPENGL_PLATFORM=egl
 
 CMD ["sleep", "infinity"]
+# syntax=docker/dockerfile:1.4

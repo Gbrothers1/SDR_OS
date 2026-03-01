@@ -144,20 +144,81 @@ class ActorMLP(torch.nn.Module):
         return self.actor(obs)
 
 
-def load_policy(checkpoint_dir: str, model_file: str = None, obs_dim: int = 310):
-    """Load a trained locomotion policy from checkpoint directory."""
+def _resolve_model_path(checkpoint_dir: str, model_file: str | None = None) -> str | None:
+    if not checkpoint_dir:
+        return None
+    if os.path.isfile(checkpoint_dir):
+        return checkpoint_dir
     if model_file:
-        model_path = os.path.join(checkpoint_dir, model_file)
+        candidate = model_file if os.path.isabs(model_file) else os.path.join(checkpoint_dir, model_file)
+        return candidate if os.path.exists(candidate) else None
+    model_files = sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))
+    if not model_files:
+        return None
+    return model_files[-1]
+
+
+def _extract_actor_state_dict(checkpoint: dict) -> dict:
+    if isinstance(checkpoint, dict) and "actor_state_dict" in checkpoint:
+        state = checkpoint["actor_state_dict"]
+    elif isinstance(checkpoint, dict):
+        state = checkpoint.get("model_state_dict", checkpoint)
     else:
-        model_files = sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))
-        if not model_files:
-            logger.error(f"No model files found in {checkpoint_dir}")
-            return None
-        model_path = model_files[-1]
+        state = checkpoint
+    if not isinstance(state, dict):
+        return {}
+    if any(k.startswith("actor.") for k in state.keys()):
+        return {k: v for k, v in state.items() if k.startswith("actor.") or k == "std"}
+    if any(k.startswith("mlp.") for k in state.keys()) or "log_std" in state:
+        return {k: v for k, v in state.items() if k.startswith("mlp.") or k == "log_std"}
+    return state
+
+
+def _normalize_actor_state(actor_state: dict) -> dict:
+    if any(k.startswith("mlp.") for k in actor_state.keys()):
+        mapped = {}
+        for k, v in actor_state.items():
+            if k.startswith("mlp."):
+                mapped[f"actor.{k[len('mlp.'):]}"] = v
+            elif k == "log_std":
+                mapped["std"] = v.exp()
+        return mapped
+    if "std" not in actor_state and "log_std" in actor_state:
+        mapped = dict(actor_state)
+        mapped["std"] = actor_state["log_std"].exp()
+        return mapped
+    return actor_state
+
+
+def _infer_obs_dim_from_state(actor_state: dict) -> int | None:
+    for key in ("actor.0.weight", "mlp.0.weight"):
+        if key in actor_state and getattr(actor_state[key], "ndim", 0) == 2:
+            return int(actor_state[key].shape[1])
+    for _, value in actor_state.items():
+        if getattr(value, "ndim", 0) == 2:
+            return int(value.shape[1])
+    return None
+
+
+def infer_policy_obs_dim(checkpoint_dir: str, model_file: str | None = None) -> int | None:
+    model_path = _resolve_model_path(checkpoint_dir, model_file)
+    if not model_path or not os.path.exists(model_path):
+        return None
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+    actor_state = _extract_actor_state_dict(checkpoint)
+    return _infer_obs_dim_from_state(actor_state)
+
+
+def load_policy(checkpoint_dir: str, model_file: str | None = None, obs_dim: int | None = None):
+    """Load a trained policy from checkpoint directory or .pt file (old or new format)."""
+    model_path = _resolve_model_path(checkpoint_dir, model_file)
+    if not model_path:
+        logger.error(f"No model files found in {checkpoint_dir}")
+        return None
 
     logger.info(f"Loading policy from {model_path}")
 
-    cfg_path = os.path.join(checkpoint_dir, "cfgs.pkl")
+    cfg_path = os.path.join(os.path.dirname(model_path), "cfgs.pkl")
     policy_cfg = {}
     if os.path.exists(cfg_path):
         with open(cfg_path, "rb") as f:
@@ -171,17 +232,21 @@ def load_policy(checkpoint_dir: str, model_file: str = None, obs_dim: int = 310)
     activation = policy_cfg.get("activation", "elu")
     num_actions = 12  # Go2 has 12 joints
 
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+    actor_state_raw = _extract_actor_state_dict(checkpoint)
+    inferred_obs_dim = _infer_obs_dim_from_state(actor_state_raw)
+    if obs_dim is None:
+        obs_dim = inferred_obs_dim or 310
+    actor_state = _normalize_actor_state(actor_state_raw)
+
     policy = ActorMLP(obs_dim, num_actions, hidden_dims, activation).to(gs.device)
-
-    checkpoint = torch.load(model_path, map_location=gs.device, weights_only=False)
-    state_dict = checkpoint.get("model_state_dict", checkpoint)
-
-    # Load only the actor weights + std (skip critic)
-    actor_state = {k: v for k, v in state_dict.items() if k.startswith("actor.") or k == "std"}
     policy.load_state_dict(actor_state, strict=True)
     policy.eval()
 
-    logger.info(f"Policy loaded: {os.path.basename(model_path)} ({sum(p.numel() for p in policy.parameters())} params)")
+    logger.info(
+        f"Policy loaded: {os.path.basename(model_path)} "
+        f"(obs_dim={obs_dim}, params={sum(p.numel() for p in policy.parameters())})"
+    )
     return policy
 
 
@@ -485,31 +550,18 @@ class GenesisSimRunner:
         self._step_log_counter = 0  # throttle step_sim logging
         self._cmd_log_counter = 0   # throttle cmd_vel logging
         self._gains_mode = "walk"   # "walk" or "stand" — tracks current PD gains
+        self._include_jump_power = False
 
     def init_genesis(self):
         """Initialize Genesis scene and Go2 environment."""
         logger.info("Initializing Genesis GPU backend...")
         gs.init(backend=gs.gpu, performance_mode=True)
 
-        # Import after gs.init() — GaitCommandManager touches genesis.engine at import time
-        from src.sdr_os.envs.go2_env import Go2BridgeEnv
-
-        logger.info(f"Creating Go2BridgeEnv (camera: {self.camera_res})...")
-        self.env = Go2BridgeEnv(
-            num_envs=1,
-            dt=1 / 50,
-            max_episode_length_s=None,
-            headless=True,
-            camera_res=self.camera_res,
-        )
-        self.env.build()
-
-        obs, _ = self.env.reset()
-        self.current_obs = obs
-        logger.info(
-            f"Go2BridgeEnv initialized and reset — obs shape: {obs.shape if obs is not None else None}, "
-            f"device: {obs.device if obs is not None else None}"
-        )
+        expected_obs_dim = None
+        if self.checkpoint_dir and os.path.exists(self.checkpoint_dir):
+            expected_obs_dim = infer_policy_obs_dim(self.checkpoint_dir)
+        self._include_jump_power = expected_obs_dim == 315
+        obs = self._create_env(include_jump_power=self._include_jump_power)
 
         # Load policy if checkpoint provided
         if self.checkpoint_dir and os.path.exists(self.checkpoint_dir):
@@ -544,6 +596,38 @@ class GenesisSimRunner:
             logger.warning(f"NVENC unavailable ({e}), falling back to JPEG")
             self.encoder = JpegEncoder(quality=self.jpeg_quality)
 
+    def _create_env(self, include_jump_power: bool):
+        """Create or recreate Go2BridgeEnv with the desired observation layout."""
+        if self.env is not None:
+            try:
+                self.env.close()
+            except Exception:
+                pass
+
+        # Import after gs.init() — GaitCommandManager touches genesis.engine at import time
+        from src.sdr_os.envs.go2_env import Go2BridgeEnv
+
+        logger.info(
+            f"Creating Go2BridgeEnv (camera: {self.camera_res}, "
+            f"jump_power={'on' if include_jump_power else 'off'})..."
+        )
+        self.env = Go2BridgeEnv(
+            num_envs=1,
+            dt=1 / 50,
+            max_episode_length_s=None,
+            headless=True,
+            camera_res=self.camera_res,
+            include_jump_power=include_jump_power,
+        )
+        self.env.build()
+
+        obs, _ = self.env.reset()
+        self.current_obs = obs
+        logger.info(
+            f"Go2BridgeEnv initialized and reset — obs shape: {obs.shape if obs is not None else None}, "
+            f"device: {obs.device if obs is not None else None}"
+        )
+        return obs
     def init_shm(self):
         """Initialize SHM ringbuffer writer."""
         crc_enabled = os.environ.get("SDR_CRC_ENABLED", "1") != "0"
@@ -872,7 +956,24 @@ class GenesisSimRunner:
                             model_path = os.path.join(checkpoint_dir, model_file)
                             if not os.path.exists(model_path):
                                 raise FileNotFoundError(f"Model file not found: {model_path}")
-                        obs_dim = self.current_obs.shape[-1] if self.current_obs is not None else 310
+                        expected_obs_dim = infer_policy_obs_dim(checkpoint_dir, model_file)
+                        if (
+                            expected_obs_dim is not None
+                            and self.current_obs is not None
+                            and expected_obs_dim != self.current_obs.shape[-1]
+                        ):
+                            include_jump_power = expected_obs_dim == 315
+                            logger.info(
+                                "Policy obs_dim mismatch (current=%s, expected=%s) — recreating env with jump_power=%s",
+                                self.current_obs.shape[-1],
+                                expected_obs_dim,
+                                "on" if include_jump_power else "off",
+                            )
+                            self._include_jump_power = include_jump_power
+                            obs = self._create_env(include_jump_power=include_jump_power)
+                            obs_dim = obs.shape[-1] if obs is not None else expected_obs_dim
+                        else:
+                            obs_dim = self.current_obs.shape[-1] if self.current_obs is not None else 310
                         self.policy = load_policy(checkpoint_dir, model_file=model_file, obs_dim=obs_dim)
                         if not self.policy:
                             raise RuntimeError("Policy load returned None")

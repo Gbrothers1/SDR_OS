@@ -38,8 +38,9 @@ STAND_KV = 2.0
 
 # Observation group names — used by bridge to decompose obs tensor
 # Matches training env order: gait_command, velocity_cmd, then proprioception
-# Note: with history_len=5 the full obs is 62*5=310 dim; this is per-frame layout
-OBS_GROUPS = [
+# Note: with history_len=5 the full obs is 62*5=310 dim (or 63*5=315 with jump_power);
+# this is per-frame layout.
+OBS_GROUPS_BASE = [
     ("gait_command", 14),
     ("velocity_command", 3),
     ("angular_velocity", 3),
@@ -49,6 +50,7 @@ OBS_GROUPS = [
     ("dof_velocity", 12),
     ("actions", 12),
 ]
+OBS_GROUPS_WITH_JUMP_POWER = OBS_GROUPS_BASE + [("jump_power", 1)]
 
 
 class Go2BridgeEnv(ManagedEnvironment):
@@ -66,6 +68,7 @@ class Go2BridgeEnv(ManagedEnvironment):
         max_episode_length_s: float = 20.0,
         headless: bool = True,
         camera_res: tuple = (1280, 720),
+        include_jump_power: bool = False,
     ):
         super().__init__(
             num_envs=num_envs,
@@ -95,6 +98,11 @@ class Go2BridgeEnv(ManagedEnvironment):
             ),
         )
 
+        self.include_jump_power = include_jump_power
+        self.obs_groups = (
+            OBS_GROUPS_WITH_JUMP_POWER if include_jump_power else OBS_GROUPS_BASE
+        )
+
         self.terrain = self.scene.add_entity(gs.morphs.Plane())
 
         self.robot = self.scene.add_entity(
@@ -116,6 +124,12 @@ class Go2BridgeEnv(ManagedEnvironment):
 
         # External velocity command buffer — written by gamepad, read by VelocityCommandManager
         self._cmd_buf = torch.zeros((num_envs, 3), device=gs.device)
+        # Optional jump power command buffer (0..1)
+        self._jump_power_buf = (
+            torch.zeros((num_envs, 1), device=gs.device)
+            if self.include_jump_power
+            else None
+        )
 
         # Will be set in config()
         self.velocity_command = None
@@ -262,38 +276,44 @@ class Go2BridgeEnv(ManagedEnvironment):
         )
 
         # Policy observations (62 dim per frame, history_len=5 -> 310 dim)
-        # Must match training env (Go2GaitTrainingEnv) structure exactly
+        # With jump_power enabled: 63 dim per frame, history_len=5 -> 315 dim
+        # Must match training env structure exactly
+        policy_obs_cfg = {
+            "gait_command": {
+                "fn": self.gait_command_manager.observation,
+            },
+            "velocity_cmd": {
+                "fn": self.velocity_command.observation,
+            },
+            "angle_velocity": {
+                "fn": lambda env: self.robot_manager.get_angular_velocity(),
+            },
+            "linear_velocity": {
+                "fn": lambda env: self.robot_manager.get_linear_velocity(),
+            },
+            "projected_gravity": {
+                "fn": lambda env: self.robot_manager.get_projected_gravity(),
+            },
+            "dof_position": {
+                "fn": lambda env: self.action_manager.get_dofs_position(),
+            },
+            "dof_velocity": {
+                "fn": lambda env: self.action_manager.get_dofs_velocity(),
+                "scale": 0.05,
+            },
+            "actions": {
+                "fn": lambda env: self.action_manager.get_actions(),
+            },
+        }
+        if self.include_jump_power:
+            policy_obs_cfg["jump_power"] = {
+                "fn": lambda env: self._jump_power_buf,
+            }
         ObservationManager(
             self,
             name="policy",
             history_len=5,
-            cfg={
-                "gait_command": {
-                    "fn": self.gait_command_manager.observation,
-                },
-                "velocity_cmd": {
-                    "fn": self.velocity_command.observation,
-                },
-                "angle_velocity": {
-                    "fn": lambda env: self.robot_manager.get_angular_velocity(),
-                },
-                "linear_velocity": {
-                    "fn": lambda env: self.robot_manager.get_linear_velocity(),
-                },
-                "projected_gravity": {
-                    "fn": lambda env: self.robot_manager.get_projected_gravity(),
-                },
-                "dof_position": {
-                    "fn": lambda env: self.action_manager.get_dofs_position(),
-                },
-                "dof_velocity": {
-                    "fn": lambda env: self.action_manager.get_dofs_velocity(),
-                    "scale": 0.05,
-                },
-                "actions": {
-                    "fn": lambda env: self.action_manager.get_actions(),
-                },
-            },
+            cfg=policy_obs_cfg,
         )
 
         # Privileged critic observations (16 dim per frame, history_len=5 -> 80 dim)
@@ -330,13 +350,13 @@ class Go2BridgeEnv(ManagedEnvironment):
         if obs is None:
             return {}
 
-        # With history_len=5, obs is 310 dim (5 * 62). Take last frame.
-        frame_size = sum(size for _, size in OBS_GROUPS)
+        # With history_len=5, obs is 310 dim (5 * 62) or 315 dim (5 * 63). Take last frame.
+        frame_size = sum(size for _, size in self.obs_groups)
         latest_frame = obs[0, -frame_size:]
 
         breakdown = {}
         offset = 0
-        for name, size in OBS_GROUPS:
+        for name, size in self.obs_groups:
             values = latest_frame[offset:offset + size]
             breakdown[name] = values.cpu().tolist()
             offset += size
@@ -362,11 +382,14 @@ class Go2BridgeEnv(ManagedEnvironment):
         if self.velocity_command is None:
             return {}
         cmd = self.velocity_command.command
-        return {
+        data = {
             "lin_vel_x": float(cmd[0, 0]),
             "lin_vel_y": float(cmd[0, 1]),
             "ang_vel_z": float(cmd[0, 2]),
         }
+        if self._jump_power_buf is not None:
+            data["jump_power"] = float(self._jump_power_buf[0, 0])
+        return data
 
     def set_velocity_from_gamepad(self, cmd_data: dict):
         """
@@ -377,6 +400,7 @@ class Go2BridgeEnv(ManagedEnvironment):
             "linear_x": float (-1 to 1),   # left stick X axis
             "linear_y": float (-1 to 1),   # left stick Y axis
             "angular_z": float (-1 to 1),  # shoulder buttons / right stick
+            "jump_power": float (0 to 1),  # optional jump power scalar
         }
 
         Axis mapping:
@@ -396,10 +420,16 @@ class Go2BridgeEnv(ManagedEnvironment):
         self._cmd_buf[0, 0] = self._map_stick(ly, *ranges["lin_vel_x"])
         self._cmd_buf[0, 1] = self._map_stick(lx, *ranges["lin_vel_y"])
         self._cmd_buf[0, 2] = self._map_stick(rz, *ranges["ang_vel_z"])
+        if self._jump_power_buf is not None:
+            jump_power = float(cmd_data.get("jump_power", 0.0))
+            jump_power = max(0.0, min(1.0, jump_power))
+            self._jump_power_buf[0, 0] = jump_power
 
     def zero_velocity(self):
         """Zero the velocity command buffer (for HOLD/ESTOP)."""
         self._cmd_buf.zero_()
+        if self._jump_power_buf is not None:
+            self._jump_power_buf.zero_()
 
     def set_stand_gains(self):
         """Switch to high-stiffness PD gains and widen action scale for standing.

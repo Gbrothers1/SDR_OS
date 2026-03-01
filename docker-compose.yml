@@ -12,6 +12,8 @@ networks:
   backplane:
     driver: bridge
     internal: true
+  train:
+    driver: bridge
 
 volumes:
   sdr_ipc:
@@ -161,10 +163,8 @@ services:
   nats:
     image: nats:2-alpine
     profiles: ["sim", "train"]
-    networks: [edge, backplane]
-    ports:
-      - "4222:4222"
-      - "8222:8222"
+    container_name: sdr_os_training-nats
+    networks: [train]
     volumes:
       - nats_data:/data
       - ./configs/nats.conf:/etc/nats/nats.conf:ro
@@ -182,26 +182,65 @@ services:
     build:
       context: .
       dockerfile: containers/cuda/Dockerfile
-    image: sdr_os-cuda
-    networks: [backplane]
+    image: sdr_os_cuda_train
+    container_name: sdr_os_training-runner
+    networks: [train]
     volumes:
       - .:/workspace
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
+      # Default: isolate training to GPU 0 (set SDR_TRAIN_GPU_ID to override).
+      - NVIDIA_VISIBLE_DEVICES=${SDR_TRAIN_GPU_ID:-0}
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
-      - SDR_GPU_ID=${SDR_GPU_ID:-1}
+      - SDR_GPU_ID=${SDR_TRAIN_GPU_ID:-0}
+      - TRAIN_NUM_ENVS=${TRAIN_NUM_ENVS:-8192}
+      - TRAIN_CUDA_DEVICE=${TRAIN_CUDA_DEVICE:-0}
+      - TRAIN_EXP_NAME=${TRAIN_EXP_NAME:-go2-jump-power}
       - NATS_URL=nats://nats:4222
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              device_ids: ["0"]
               capabilities: [gpu]
     shm_size: "2gb"
     depends_on:
       nats:
         condition: service_healthy
+    command:
+      - bash
+      - -lc
+      - >
+        cd /workspace &&
+        python3 -c "import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec('rsl_rl') else sys.exit(subprocess.call([sys.executable,'-m','pip','install','git+https://github.com/leggedrobotics/rsl_rl.git']))" &&
+        stdbuf -oL -eL python3 rl/scripts/train_go2_jump.py
+        --cuda_device ${TRAIN_CUDA_DEVICE:-0}
+        --num_envs ${TRAIN_NUM_ENVS:-8192}
+        --exp_name ${TRAIN_EXP_NAME:-go2-jump-power}
+        | tee -a rl/checkpoints/${TRAIN_EXP_NAME:-go2-jump-power}_train.log
+
+  tensorboard:
+    profiles: ["train", "tools"]
+    build:
+      context: .
+      dockerfile: containers/cuda/Dockerfile
+    image: sdr_os_cuda_train
+    container_name: sdr_os_training-tensorboard
+    networks: [train]
+    ports:
+      - "6006:6006"
+    volumes:
+      - .:/workspace:ro
+    command:
+      - python3
+      - -m
+      - tensorboard.main
+      - --logdir
+      - /workspace/rl/checkpoints
+      - --host
+      - 0.0.0.0
+      - --port
+      - "6006"
 
   # ──────────────── OBSERVABILITY ────────────────
 
