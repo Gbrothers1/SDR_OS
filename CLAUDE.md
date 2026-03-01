@@ -233,7 +233,7 @@ This repo has two remotes:
 | Remote | URL | Purpose |
 |--------|-----|---------|
 | `origin` | `https://github.com/Gbrothers1/SDR_OS.git` | Public/code-only mirror |
-| `gitea` | `git@git.ethangordon.io:h1ght0w3r/elko_scanner.git` | Private full mirror (includes heavy training data) |
+| `gitea` | `git@git.ethangordon.io:h1ght0w3r/SDR_OS.git` | Private full mirror (includes heavy training data) |
 
 **What lives where:**
 - `origin` (GitHub): code only — checkpoint dirs are excluded via `.gitignore`
