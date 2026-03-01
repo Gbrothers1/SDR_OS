@@ -226,3 +226,31 @@ git worktree remove ../SDR_OS-<feature>
 git branch -d feature/<name>
 git push origin --delete feature/<name>
 ```
+
+### Dual-remote setup (GitHub + Gitea)
+
+This repo has two remotes:
+| Remote | URL | Purpose |
+|--------|-----|---------|
+| `origin` | `https://github.com/Gbrothers1/SDR_OS.git` | Public/code-only mirror |
+| `gitea` | `git@git.ethangordon.io:h1ght0w3r/elko_scanner.git` | Private full mirror (includes heavy training data) |
+
+**What lives where:**
+- `origin` (GitHub): code only — checkpoint dirs are excluded via `.gitignore`
+- `gitea` (Gitea): full mirror including model checkpoints and training videos
+
+**Checkpoint dirs (gitignored from GitHub, stored on Gitea):**
+- `rl/checkpoints/go2-jump/` — ~1.1 GB
+- `rl/checkpoints/go2-jump-power/` — ~128 MB
+
+The full checkpoint commit is preserved as the `gitea/checkpoints` branch on Gitea. To restore checkpoints after a fresh clone from Gitea:
+```bash
+git fetch gitea && git checkout gitea/checkpoints -- rl/checkpoints/
+```
+
+**Push workflow:**
+```bash
+git push origin main        # GitHub (code only — safe, respects .gitignore)
+git push --all gitea        # Gitea (full mirror, push all branches)
+git push --tags gitea       # Also push tags to Gitea
+```
