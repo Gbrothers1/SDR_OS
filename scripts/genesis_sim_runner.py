@@ -1275,7 +1275,7 @@ class GenesisSimRunner:
                     self.env.actuator_manager.dofs_idx
                 ).flatten().tolist()
                 logger.info(
-                    f"DJ dbg: tgt_rear={[round(v, 2) for v in self._joint_targets[6:8]]} "
+                    f"DJ dbg: env_id={id(self.env)} tgt_rear={[round(v, 2) for v in self._joint_targets[6:8]]} "
                     f"cur_rear={[round(v, 2) for v in _dbg_cur[6:8]]}"
                 )
                 try:
@@ -1979,6 +1979,13 @@ class GenesisSimRunner:
                             await self.nc.publish(
                                 "telemetry.robot.state", json.dumps(state).encode()
                             )
+                            self._pub_dbg_counter = getattr(self, "_pub_dbg_counter", 0) + 1
+                            if self._pub_dbg_counter % 20 == 1:
+                                _shape = self.env.robot.get_links_pos().shape
+                                logger.info(
+                                    f"PUB dbg: sent_z={state['pos'][2]:.3f} "
+                                    f"links_shape={list(_shape)} env_id={id(self.env)}"
+                                )
                     except Exception as e:
                         if self._step_log_counter % 100 == 1:
                             logger.warning(f"robot state publish failed: {e}")
