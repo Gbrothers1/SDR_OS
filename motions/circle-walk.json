@@ -1,0 +1,16 @@
+{
+  "name": "circle-walk",
+  "description": "Gait-policy walk in a closed circle: forward 0.4 + yaw 0.45 stick for 10s, then stop.",
+  "status": "validated",
+  "validated_by": "ethan",
+  "validated_on": "2026-06-12",
+  "topic": "/sim/cmd_vel",
+  "msg_type": "geometry_msgs/msg/Twist",
+  "rate_hz": 20,
+  "durations": [10, 0.5],
+  "messages": [
+    {"linear": {"x": 0.4, "y": 0, "z": 0}, "angular": {"x": 0, "y": 0, "z": 0.45}},
+    {"linear": {"x": 0, "y": 0, "z": 0}, "angular": {"x": 0, "y": 0, "z": 0}}
+  ],
+  "notes": "Stick units, not m/s — env maps onto active gait envelope. Larger yaw = tighter circle; flip yaw sign for the other direction. Runs through the RL gait policy (WALK branch), not DIRECT_JOINT."
+}
