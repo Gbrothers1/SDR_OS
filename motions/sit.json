@@ -1,0 +1,19 @@
+{
+  "name": "sit",
+  "description": "Fold hind legs onto haunches, chest propped on extended front legs, hold 6s, return to stand.",
+  "status": "validated",
+  "validated_by": "ethan",
+  "validated_on": "2026-06-12",
+  "topic": "/sim/joint_cmd",
+  "msg_type": "sensor_msgs/msg/JointState",
+  "rate_hz": 10,
+  "durations": [1, 1.2, 6, 1, 2],
+  "messages": [
+    {"name": ["FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint", "FL_thigh_joint", "FR_thigh_joint", "RL_thigh_joint", "RR_thigh_joint", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"], "position": [0, 0, 0, 0, 0.8, 0.8, 1, 1, -1.6, -1.6, -1.6, -1.6]},
+    {"name": ["RL_thigh_joint", "RR_thigh_joint", "RL_calf_joint", "RR_calf_joint", "FL_thigh_joint", "FR_thigh_joint", "FL_calf_joint", "FR_calf_joint"], "position": [1.7, 1.7, -2.3, -2.3, 0.55, 0.55, -1.2, -1.2]},
+    {"name": ["RL_thigh_joint", "RR_thigh_joint", "RL_calf_joint", "RR_calf_joint", "FL_thigh_joint", "FR_thigh_joint", "FL_calf_joint", "FR_calf_joint"], "position": [2.3, 2.3, -2.65, -2.65, 0.35, 0.35, -1, -1]},
+    {"name": ["RL_thigh_joint", "RR_thigh_joint", "RL_calf_joint", "RR_calf_joint", "FL_thigh_joint", "FR_thigh_joint", "FL_calf_joint", "FR_calf_joint"], "position": [1.7, 1.7, -2.1, -2.1, 0.6, 0.6, -1.3, -1.3]},
+    {"name": ["FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint", "FL_thigh_joint", "FR_thigh_joint", "RL_thigh_joint", "RR_thigh_joint", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"], "position": [0, 0, 0, 0, 0.8, 0.8, 1, 1, -1.6, -1.6, -1.6, -1.6]}
+  ],
+  "notes": "Hold keyframe (index 2) is the seated pose; extend its duration to sit longer. Rear thighs 2.3 verified stable (3.2 caused backward slip)."
+}
