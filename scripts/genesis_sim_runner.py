@@ -21,6 +21,7 @@ import sys
 import os
 import re
 import json
+import math
 import time
 import signal
 import logging
@@ -748,6 +749,18 @@ class GenesisSimRunner:
         self._joint_kd: list | None = None  # per-joint kd override (velocity[])
         self._last_joint_cmd_time = 0.0
         self._joint_cmd_count = 0
+        # Closed-loop rear-up balance (inverted-pendulum correction on rear
+        # thighs from trunk pitch). Armed via a set_balance command; engages
+        # automatically once the trunk crosses near-vertical (event-triggered,
+        # per dynamics analysis), then corrects each physics step.
+        self._balance_armed = False
+        self._balance_engaged = False
+        self._balance_kp = 0.0
+        self._balance_kd = 0.0
+        self._balance_engage_pitch = 1.3  # |rad| threshold to capture ref
+        self._balance_ref_pitch = None
+        self._balance_base = 0.82         # nominal balanced rear thigh
+        self._balance_max_delta = 0.6     # rad clamp on rear-thigh correction
         self._last_cmd_vel_time = time.monotonic()
         self._cmd_vel_received = False  # Don't enforce TTL until first command arrives
         self._video_gate_active = False
@@ -1200,6 +1213,9 @@ class GenesisSimRunner:
         self._joint_targets = None
         self._joint_kp = None
         self._joint_kd = None
+        self._balance_armed = False
+        self._balance_engaged = False
+        self._balance_ref_pitch = None
         self._gains_mode = "dj_exit"  # sentinel: next _switch_gains reapplies
 
     def step_sim(self):
@@ -1230,6 +1246,9 @@ class GenesisSimRunner:
             # so actions are radian offsets from default; PositionActionManager
             # clamps to URDF limits.
             self._switch_gains("stand")
+            # Closed-loop rear-up balance: rewrite rear-thigh targets from
+            # trunk pitch before they're applied this step.
+            self._apply_balance_correction()
             # Per-joint gain overrides (held poses need more than kp=50)
             if self._joint_kp is not None:
                 self.env.robot.set_dofs_kp(
@@ -1489,6 +1508,27 @@ class GenesisSimRunner:
                         logger.warning(f"set_joint_targets rejected: {e}")
                     continue
 
+                if action == "set_balance":
+                    # Arm/disarm the closed-loop rear-up balance controller.
+                    self._balance_armed = bool(cmd_data.get("armed", False))
+                    self._balance_engaged = False
+                    self._balance_ref_pitch = None
+                    self._balance_kp = float(cmd_data.get("kp", self._balance_kp))
+                    self._balance_kd = float(cmd_data.get("kd", self._balance_kd))
+                    self._balance_engage_pitch = float(
+                        cmd_data.get("engage_pitch", self._balance_engage_pitch)
+                    )
+                    self._balance_base = float(
+                        cmd_data.get("base_rear_thigh", self._balance_base)
+                    )
+                    logger.info(
+                        f"set_balance: armed={self._balance_armed} "
+                        f"kp={self._balance_kp} kd={self._balance_kd} "
+                        f"engage_pitch={self._balance_engage_pitch} "
+                        f"base={self._balance_base}"
+                    )
+                    continue
+
                 try:
                     if action == "pause":
                         self.paused = cmd_data.get("paused", True)
@@ -1728,6 +1768,53 @@ class GenesisSimRunner:
             "joint_pos": _row(env.robot.get_dofs_position(dofs_idx)),
             "joint_vel": _row(env.robot.get_dofs_velocity(dofs_idx)),
         }
+
+    def _trunk_pitch_and_rate(self):
+        """Trunk pitch (rad, about body Y) and pitch rate (rad/s) from the
+        sim state. At a vertical rear-up the pitch magnitude is ~pi/2."""
+        env = self.env
+        q = env.robot.get_quat()
+        q = q[0] if q.dim() == 2 else q
+        w, x, y, z = (float(v) for v in q.cpu().tolist())
+        s = max(-1.0, min(1.0, 2.0 * (w * y - z * x)))
+        pitch = math.asin(s)
+        av = env.robot_manager.get_angular_velocity()
+        av = av[0] if av.dim() == 2 else av
+        pitch_rate = float(av.cpu().tolist()[1])  # body Y angular velocity
+        return pitch, pitch_rate
+
+    def _apply_balance_correction(self):
+        """Inverted-pendulum correction on the rear-thigh targets (idx 6,7)
+        from trunk pitch error + rate. Keeps the rear feet walking under the
+        COM so a rear-up stance holds instead of drifting into a fall.
+
+        Armed before the maneuver; engages (captures the reference pitch)
+        the first step |pitch| crosses _balance_engage_pitch — i.e. when the
+        push-off has carried the trunk to near-vertical. Gains/sign come from
+        the set_balance command so they tune live over MCP."""
+        if not (self._balance_armed and self._joint_targets is not None):
+            return
+        try:
+            pitch, rate = self._trunk_pitch_and_rate()
+        except Exception:
+            return
+        if not self._balance_engaged:
+            if abs(pitch) >= self._balance_engage_pitch:
+                self._balance_engaged = True
+                self._balance_ref_pitch = pitch
+                logger.info(f"balance ENGAGED at pitch={pitch:+.3f}")
+            return
+        err = pitch - self._balance_ref_pitch
+        delta = self._balance_kp * err + self._balance_kd * rate
+        delta = max(-self._balance_max_delta, min(self._balance_max_delta, delta))
+        rear = max(0.3, min(1.3, self._balance_base + delta))
+        self._joint_targets[6] = rear
+        self._joint_targets[7] = rear
+        if self._step_log_counter % 20 == 1:
+            logger.info(
+                f"balance: pitch={pitch:+.3f} ref={self._balance_ref_pitch:+.3f} "
+                f"err={err:+.3f} rate={rate:+.3f} rear_thigh={rear:.3f}"
+            )
 
     # ── Safety (Layer 3) ──────────────────────────────────────────
 
