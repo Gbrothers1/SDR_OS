@@ -1,0 +1,18 @@
+{
+  "name": "bow",
+  "description": "Play-bow: front legs fold to drop the chest toward the floor while the rear stays standing, hold 5s, return to stand.",
+  "status": "validated",
+  "validated_by": "ethan",
+  "validated_on": "2026-06-12",
+  "topic": "/sim/joint_cmd",
+  "msg_type": "sensor_msgs/msg/JointState",
+  "rate_hz": 10,
+  "durations": [1, 1.5, 5, 2],
+  "messages": [
+    {"name": ["FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint", "FL_thigh_joint", "FR_thigh_joint", "RL_thigh_joint", "RR_thigh_joint", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"], "position": [0, 0, 0, 0, 0.8, 0.8, 1, 1, -1.6, -1.6, -1.6, -1.6], "velocity": [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], "effort": [120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120]},
+    {"name": ["FL_thigh_joint", "FR_thigh_joint", "FL_calf_joint", "FR_calf_joint", "RL_thigh_joint", "RR_thigh_joint", "RL_calf_joint", "RR_calf_joint"], "position": [1.2, 1.2, -2.4, -2.4, 0.7, 0.7, -1.2, -1.2], "velocity": [3, 3, 3, 3, 3, 3, 3, 3], "effort": [120, 120, 120, 120, 120, 120, 120, 120]},
+    {"name": ["FL_thigh_joint", "FR_thigh_joint", "FL_calf_joint", "FR_calf_joint", "RL_thigh_joint", "RR_thigh_joint", "RL_calf_joint", "RR_calf_joint"], "position": [1.5, 1.5, -2.6, -2.6, 0.6, 0.6, -1.1, -1.1], "velocity": [3, 3, 3, 3, 3, 3, 3, 3], "effort": [120, 120, 120, 120, 120, 120, 120, 120]},
+    {"name": ["FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint", "FL_thigh_joint", "FR_thigh_joint", "RL_thigh_joint", "RR_thigh_joint", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"], "position": [0, 0, 0, 0, 0.8, 0.8, 1, 1, -1.6, -1.6, -1.6, -1.6], "velocity": [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], "effort": [120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120]}
+  ],
+  "notes": "Stiff variant (kp120/kd3). Front thighs forward + calves folded drops the chest; rear thighs/calves only slightly lowered to keep the haunches up. Hold keyframe (index 2) is the bow pose."
+}
