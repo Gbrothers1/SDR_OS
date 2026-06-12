@@ -230,11 +230,12 @@ def infer_policy_obs_dim(checkpoint_dir: str, model_file: str | None = None) -> 
 # Skill obs dims (per-frame x 5-frame history) are mutually distinct, so the
 # env mode is inferable from the checkpoint's input layer alone:
 #   v45 crawl: 45x5=225, v44 launch: 48x5=240, v46 hurdle: 50x5=250,
-#   walk: 62/63x5 = 310/315.
+#   walk: 62/63x5 = 310/315, v48 park: 79x5 = 395.
 CRAWL_OBS_DIM = 225
 LAUNCH_OBS_DIM = 240
 DIRECTED_OBS_DIM = 245
 HURDLE_OBS_DIM = 250
+PARK_OBS_DIM = 395
 
 
 def _env_mode_for_obs_dim(obs_dim: int | None) -> str:
@@ -247,6 +248,8 @@ def _env_mode_for_obs_dim(obs_dim: int | None) -> str:
         return "directed"
     if obs_dim == HURDLE_OBS_DIM:
         return "hurdle"
+    if obs_dim == PARK_OBS_DIM:
+        return "park"
     return "walk"
 
 
@@ -298,7 +301,7 @@ def load_policy(checkpoint_dir: str, model_file: str | None = None, obs_dim: int
 # to read it would make every list_policies call slow, and this project's run
 # names map cleanly onto skills. obs_dim enrichment is added only for the
 # already-loaded policy (free).
-_SKILL_OBS_DIM = {225: "crawl", 240: "launch", 310: "walk", 315: "walk"}
+_SKILL_OBS_DIM = {225: "crawl", 240: "launch", 310: "walk", 315: "walk", 395: "park"}
 
 
 def _derive_skill(name: str, obs_dim: int | None = None) -> str:
@@ -774,12 +777,76 @@ class GenesisSimRunner:
         msg = {"obstacles": [], "available": {}, "skill_active": {}}
         env = self.env
         try:
-            if env is not None and hasattr(env, "gait_command_manager")                     and env.gait_command_manager is not None:
+            # Park env uses 'gait_command'; walk/hurdle/crawl use 'gait_command_manager'.
+            _has_gcm = (env is not None and (
+                (hasattr(env, "gait_command_manager") and env.gait_command_manager is not None)
+                or (hasattr(env, "gait_command") and env.gait_command is not None)))
+            if _has_gcm:
                 msg["gait"] = {"name": self._active_gait["name"],
                                "period": self._active_gait["period"],
                                "mode": self._active_gait["mode"]}
             mode = getattr(self, "_env_mode", "")
-            if env is not None and hasattr(env, "_compute_bar_obs"):
+
+            if mode == "park" and env is not None:
+                # Park mode: read from the analytic slot table (_slot_x, _slot_low,
+                # _slot_high, _slot_active, _slot_kind, _slot_depth).
+                # skill_command.command[0] = [jump, crouch, climb].
+                try:
+                    x = float(env.robot.get_pos()[0, 0])
+                    skill_cmd = env.skill_command.command[0].tolist() \
+                        if env.skill_command.command is not None else [0, 0, 0]
+                    obstacles = []
+                    if env._slot_active is not None:
+                        slot_x = env._slot_x[0].tolist()
+                        slot_low = env._slot_low[0].tolist()
+                        slot_high = env._slot_high[0].tolist()
+                        slot_active = env._slot_active[0].tolist()
+                        slot_kind = env._slot_kind[0].tolist()
+                        slot_depth = env._slot_depth[0].tolist()
+                        _KIND_NAMES = {0: "hurdle", 1: "crawl", 2: "box", 3: "gate"}
+                        ahead_slots = [
+                            (slot_x[j] - x, j) for j in range(len(slot_active))
+                            if slot_active[j] and (slot_x[j] - x) > -0.1
+                               and slot_kind[j] >= 0
+                        ]
+                        ahead_slots.sort(key=lambda t: t[0])
+                        for dx, j in ahead_slots[:2]:
+                            kind_name = _KIND_NAMES.get(int(slot_kind[j]), "unknown")
+                            obstacles.append({
+                                "kind": kind_name,
+                                "dx": round(dx, 3),
+                                "z_low": round(float(slot_low[j]), 3),
+                                "z_high": round(float(slot_high[j]), 3),
+                                "depth": round(float(slot_depth[j]), 3),
+                            })
+                    msg["obstacles"] = obstacles
+                    # Availability: range thresholds from plan section 10 /
+                    # park_skill_commands constants.
+                    nearest_dx = ahead_slots[0][0] if ahead_slots else float("inf")
+                    nearest_kind = int(slot_kind[ahead_slots[0][1]]) \
+                        if ahead_slots else -1
+                    BOX_APPROACH_DIST = 0.5
+                    JUMP_CMD_WINDOW = 0.55
+                    msg["available"]["jump"] = (
+                        nearest_kind == 0 and 0.0 < nearest_dx <= JUMP_CMD_WINDOW)
+                    msg["available"]["crouch"] = (nearest_kind == 1)
+                    msg["available"]["climb"] = (
+                        nearest_kind == 2 and 0.0 < nearest_dx <= BOX_APPROACH_DIST)
+                    jump_on = bool(skill_cmd[0] > 0.5)
+                    crouch_on = bool(skill_cmd[1] > 0.5)
+                    climb_on = bool(skill_cmd[2] > 0.5)
+                    msg["skill_active"] = {
+                        "jump": jump_on,
+                        "crouch": crouch_on,
+                        "climb": climb_on,
+                    }
+                    # Zone/course progress for HUD strip.
+                    msg["zone"] = getattr(env, "_zone_key", "FULL")
+                    msg["course_progress"] = round(float(max(x, 0.0) / 30.0), 3)
+                except Exception as _e:
+                    logger.debug(f"park perception read failed: {_e}")
+
+            elif env is not None and hasattr(env, "_compute_bar_obs"):
                 bo = env._compute_bar_obs()
                 dx = float(bo[0, 0]) * 1.5
                 top = float(bo[0, 2]) if bo.shape[1] > 2 else float(bo[0, 1])
@@ -791,10 +858,12 @@ class GenesisSimRunner:
                     mode in ("hurdle", "directed", "launch") and 0.0 < dx <= 0.8)
                 msg["available"]["crouch"] = (mode == "crawl")
                 msg["available"]["climb"] = False
-            msg["skill_active"] = {"jump": bool(getattr(self, "_gait_enabled", False)
-                                                 and mode in ("hurdle", "directed")),
-                                   "crouch": bool(mode == "crawl"
-                                                  and getattr(self, "_gait_enabled", False))}
+                msg["skill_active"] = {
+                    "jump": bool(getattr(self, "_gait_enabled", False)
+                                 and mode in ("hurdle", "directed")),
+                    "crouch": bool(mode == "crawl"
+                                   and getattr(self, "_gait_enabled", False)),
+                }
         except Exception:
             pass
         return msg
@@ -895,6 +964,17 @@ class GenesisSimRunner:
 
             logger.info(f"Creating Go2HurdleBridgeEnv (camera: {self.camera_res})...")
             self.env = Go2HurdleBridgeEnv(
+                num_envs=1,
+                dt=1 / 50,
+                headless=True,
+                camera_res=self.camera_res,
+            )
+        elif env_mode == "park":
+            # v48 unified park — gait + velocity + skill commands, 395-dim obs
+            from src.sdr_os.envs.go2_park_bridge_env import Go2ParkBridgeEnv
+
+            logger.info(f"Creating Go2ParkBridgeEnv (camera: {self.camera_res})...")
+            self.env = Go2ParkBridgeEnv(
                 num_envs=1,
                 dt=1 / 50,
                 headless=True,
@@ -1148,7 +1228,11 @@ class GenesisSimRunner:
         elif self._gait_enabled and self.policy is not None and self.current_obs is not None:
             # L2 held: gait walking via policy (training kp)
             self._switch_gains("walk")
-            gcm = getattr(self.env, "gait_command_manager", None)
+            # Park env (Go2ParkEnv) uses attr 'gait_command'; walk/hurdle/crawl
+            # envs use 'gait_command_manager'.  Check both so the runner works
+            # with all bridge env types without any env-specific branches here.
+            gcm = getattr(self.env, "gait_command_manager", None) \
+                or getattr(self.env, "gait_command", None)
             if gcm is not None:
                 gcm.set_fixed_gait(self._active_gait["name"],
                                    self._active_gait["period"],
@@ -1424,11 +1508,15 @@ class GenesisSimRunner:
                     elif action == "set_gait":
                         _VALID_GAITS = {"walk", "trot", "pace", "bound", "pronk"}
                         gait_name = str(cmd_data.get("gait", "trot")).lower()
+                        # Resolve gait manager: park env uses 'gait_command',
+                        # walk/hurdle/crawl envs use 'gait_command_manager'.
+                        _gcm = (getattr(self.env, "gait_command_manager", None)
+                                or getattr(self.env, "gait_command", None)) \
+                            if self.env else None
                         if gait_name not in _VALID_GAITS:
                             status = "error"
                             detail = f"unknown gait {gait_name!r}"
-                        elif not (self.env and hasattr(self.env, "gait_command_manager")
-                                  and self.env.gait_command_manager is not None):
+                        elif _gcm is None:
                             status = "unsupported"
                             detail = "active policy has no gait command manager"
                         else:
@@ -1446,8 +1534,11 @@ class GenesisSimRunner:
                             # Persist — step_sim re-applies every step.
                             self._active_gait.update(
                                 name=gait_name, period=period, clearance=clearance)
-                            self.env.gait_command_manager.set_fixed_gait(
-                                gait_name, period, clearance)
+                            _gcm.set_fixed_gait(gait_name, period, clearance)
+                            # Park bridge: also update via set_gait_by_name so
+                            # the env's internal gait index stays in sync.
+                            if hasattr(self.env, "set_gait_by_name"):
+                                self.env.set_gait_by_name(gait_name, period, clearance)
                             logger.info(
                                 f"set_gait: gait={gait_name} period={period:.3f} "
                                 f"clearance={clearance:.3f} mode={mode}")
@@ -1466,6 +1557,15 @@ class GenesisSimRunner:
                         else:
                             status = "error"
                             detail = "env has no set_jump_intent"
+                    elif action == "set_climb":
+                        # Y button: climb pulse (park mode) — follows set_crouch pattern.
+                        # Harmless on non-park policies (no set_climb_intent attr).
+                        intensity = float(cmd_data.get("intensity", 1.0))
+                        if self.env and hasattr(self.env, "set_climb_intent"):
+                            self.env.set_climb_intent(intensity)
+                            logger.info(f"set_climb: intensity={intensity}")
+                            detail = f"climb_intent={intensity}"
+                        # No error when unsupported — Y is harmless on other policies.
                     elif action == "settings":
                         if "dt" in cmd_data:
                             new_dt = float(cmd_data["dt"])

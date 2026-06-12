@@ -4,12 +4,22 @@ import '../styles/ControlOverlay.css';
 import ROSLIB from 'roslib';
 import soundEffects from '../audio/SoundEffects';
 import { useSettings } from '../contexts/SettingsContext';
+import { useGenesis } from '../contexts/GenesisContext';
 import { SKILL_BINDINGS } from '../config/skillBindings';
 
 const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepadAxes, sendCommand, sendVelocityCommand, sendWsCommand, onExpandChange }) => {
   const gamepadRef = useRef(null);
   const animationFrameRef = useRef();
   const { getSetting, updateSettings } = useSettings();
+  const { policyPerception, sendWsCommand: genesisWsCommand } = useGenesis();
+
+  // Sync sim-truth gait from telemetry.policy.perception
+  useEffect(() => {
+    if (policyPerception && policyPerception.gait) {
+      setSimGait(policyPerception.gait);
+    }
+  }, [policyPerception]);
+
   const buttonStatesTopic = getSetting('topics', 'button_states', '/controller/button_states');
   const joystickStateTopic = getSetting('topics', 'joystick_state', '/controller/joystick_state');
   const cmdVelTopic = getSetting('topics', 'cmd_vel', '/cmd_vel');
@@ -76,6 +86,21 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
   const lastLocalInputAtRef = useRef(0);
   const lastRemoteInputAtRef = useRef(0);
   const skillCooldownRef = useRef({});
+
+  // D-pad gait cycling state
+  const GAIT_LIST = ["walk", "trot", "pace", "bound", "pronk"];
+  const PRONK_MIN_PERIOD = 0.45;
+  const PERIOD_MIN = 0.35;
+  const PERIOD_MAX = 0.80;
+  const PERIOD_STEP = 0.05;
+  const [activeGait, setActiveGait] = useState("trot");
+  const [gaitPeriod, setGaitPeriod] = useState(0.45);
+  const [gaitMode, setGaitMode] = useState("walk");
+  const gaitModeRef = useRef("walk");
+  const [simGait, setSimGait] = useState(null); // from telemetry.policy.perception
+  const activeGaitRef = useRef("trot");
+  const gaitPeriodRef = useRef(0.45);
+
   const [showGamepadPrompt, setShowGamepadPrompt] = useState(false);
   const [lastSocketButtonAt, setLastSocketButtonAt] = useState(0);
   const [lastSocketJoystickAt, setLastSocketJoystickAt] = useState(0);
@@ -422,6 +447,71 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
           const buttonsChanged = Object.keys(newButtonStates).some(
             (key) => newButtonStates[key] !== prevButtonStates[key]
           );
+
+          // X press edge -> commanded jump (v44.1 trigger / v47 jump ability).
+          // Harmless for policies without a trigger channel (runner no-ops).
+          if (newButtonStates.X && !prevButtonStates.X && sendWsCommand) {
+            sendWsCommand('trigger_jump', { intensity: 1.0 });
+          }
+          // B hold -> crouch ability (v47 parkour). Edge-send both transitions.
+          if (newButtonStates.B !== prevButtonStates.B && sendWsCommand) {
+            sendWsCommand('set_crouch', { on: newButtonStates.B });
+          }
+          // Y press edge -> climb pulse (v48 park box obstacle).
+          // Harmless for policies without set_climb_intent (runner no-ops).
+          if (newButtonStates.Y && !prevButtonStates.Y && sendWsCommand) {
+            sendWsCommand('set_climb', { intensity: 1.0 });
+          }
+
+          // D-pad left/right: cycle gait (edge-triggered, like X for jump).
+          // D-pad up/down: adjust period in 0.05s steps.
+          const wsCmd = sendWsCommand || genesisWsCommand;
+          if (newButtonStates.DpadLeft && !prevButtonStates.DpadLeft && wsCmd) {
+            const currentIdx = GAIT_LIST.indexOf(activeGaitRef.current);
+            const nextIdx = (currentIdx - 1 + GAIT_LIST.length) % GAIT_LIST.length;
+            const nextGait = GAIT_LIST[nextIdx];
+            let nextPeriod = gaitPeriodRef.current;
+            if (nextGait === "pronk") nextPeriod = Math.max(nextPeriod, PRONK_MIN_PERIOD);
+            activeGaitRef.current = nextGait;
+            gaitPeriodRef.current = nextPeriod;
+            setActiveGait(nextGait);
+            setGaitPeriod(nextPeriod);
+            wsCmd('set_gait', { gait: nextGait, mode: gaitModeRef.current });
+          }
+          if (newButtonStates.DpadRight && !prevButtonStates.DpadRight && wsCmd) {
+            const currentIdx = GAIT_LIST.indexOf(activeGaitRef.current);
+            const nextIdx = (currentIdx + 1) % GAIT_LIST.length;
+            const nextGait = GAIT_LIST[nextIdx];
+            let nextPeriod = gaitPeriodRef.current;
+            if (nextGait === "pronk") nextPeriod = Math.max(nextPeriod, PRONK_MIN_PERIOD);
+            activeGaitRef.current = nextGait;
+            gaitPeriodRef.current = nextPeriod;
+            setActiveGait(nextGait);
+            setGaitPeriod(nextPeriod);
+            wsCmd('set_gait', { gait: nextGait, mode: gaitModeRef.current });
+          }
+          // D-pad up/down: operator-gated speed mode. RUN unlocks the high
+          // envelope (vx to 2.0, tighter clock); WALK returns to <=1.0. The
+          // runner derives period from mode and enforces per-gait envelopes
+          // (pronk stays <=1.0 / T>=0.45 in either mode).
+          if (newButtonStates.DpadUp && !prevButtonStates.DpadUp && wsCmd
+              && gaitModeRef.current !== "run") {
+            gaitModeRef.current = "run";
+            setGaitMode("run");
+            const p = activeGaitRef.current === "pronk" ? PRONK_MIN_PERIOD : 0.40;
+            gaitPeriodRef.current = p;
+            setGaitPeriod(p);
+            wsCmd('set_gait', { gait: activeGaitRef.current, mode: "run" });
+          }
+          if (newButtonStates.DpadDown && !prevButtonStates.DpadDown && wsCmd
+              && gaitModeRef.current !== "walk") {
+            gaitModeRef.current = "walk";
+            setGaitMode("walk");
+            const p = activeGaitRef.current === "pronk" ? Math.max(0.50, PRONK_MIN_PERIOD) : 0.50;
+            gaitPeriodRef.current = p;
+            setGaitPeriod(p);
+            wsCmd('set_gait', { gait: activeGaitRef.current, mode: "walk" });
+          }
 
           // Play sounds for newly pressed buttons
           Object.entries(newButtonStates).forEach(([button, isPressed]) => {
@@ -771,6 +861,7 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
   };
 
   return (
+    <>
     <div className="controls-container">
     {debugSocket && (
       <div className="control-debug-panel">
@@ -1058,6 +1149,55 @@ const ControlOverlay = ({ onControlChange, controlState, ros, socket, sendGamepa
         portalTarget
       )}
     </div>
+
+    {/* Gait chip — shows active gait + period; reflects sim truth when available */}
+    {(() => {
+      const displayGait = simGait ? simGait.name : activeGait;
+      const displayPeriod = simGait ? simGait.period : gaitPeriod;
+      const displayMode = (simGait && simGait.mode) ? simGait.mode : gaitMode;
+      const isPronk = displayGait === "pronk";
+      const isRun = displayMode === "run";
+      return (
+        <div
+          className="gait-chip"
+          style={{
+            position: "fixed",
+            top: "12px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "4px 10px",
+            borderRadius: "6px",
+            background: "var(--color-glass-bg, rgba(0,0,0,0.55))",
+            border: "1px solid var(--color-glass-border, rgba(255,255,255,0.12))",
+            backdropFilter: "blur(8px)",
+            fontFamily: "var(--font-mono, monospace)",
+            fontSize: "11px",
+            color: isPronk ? "var(--color-accent-cyan, #67e8f9)" : "var(--color-text-muted, #94a3b8)",
+            pointerEvents: "none",
+            zIndex: 1000,
+            opacity: 1.0,
+            transition: "opacity 0.2s",
+            whiteSpace: "nowrap",
+          }}
+          title="Active gait | D-pad left/right to cycle, up/down to adjust period"
+        >
+          <span style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            {displayGait}
+          </span>
+          <span style={{ opacity: 0.6 }}>T={displayPeriod.toFixed(2)}s</span>
+          <span style={{ fontWeight: 700, color: isRun ? "var(--color-accent-amber, #fbbf24)" : "inherit", opacity: isRun ? 1 : 0.5 }}>
+            {displayMode.toUpperCase()}
+          </span>
+          {simGait && (
+            <span style={{ opacity: 0.4, fontSize: "9px" }}>•sim</span>
+          )}
+        </div>
+      );
+    })()}
+    </>
   );
 };
 
