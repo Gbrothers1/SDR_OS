@@ -753,6 +753,14 @@ class GenesisSimRunner:
         self._active_gait = {"name": "trot", "period": 0.45,
                              "clearance": 0.08, "mode": "walk"}
         self._last_perception_pub = 0.0
+        self._stand_axes = [0.0, 0.0, 0.0, 0.0]  # pitch, roll, yaw, height
+        self.paused = False
+        self._step_log_counter = 0  # throttle step_sim logging
+        self._cmd_log_counter = 0   # throttle cmd_vel logging
+        self._gains_mode = "walk"   # "walk" or "stand" — tracks current PD gains
+        self._include_jump_power = False
+        self._env_mode = "walk"     # "walk" (Go2BridgeEnv) or "crawl" (Go2CrawlBridgeEnv)
+
 
     def _gait_vx_ceiling(self):
         # Operator-gated speed mode (D-pad up/down). Pronk envelope binds in
@@ -790,13 +798,6 @@ class GenesisSimRunner:
         except Exception:
             pass
         return msg
-        self._stand_axes = [0.0, 0.0, 0.0, 0.0]  # pitch, roll, yaw, height
-        self.paused = False
-        self._step_log_counter = 0  # throttle step_sim logging
-        self._cmd_log_counter = 0   # throttle cmd_vel logging
-        self._gains_mode = "walk"   # "walk" or "stand" — tracks current PD gains
-        self._include_jump_power = False
-        self._env_mode = "walk"     # "walk" (Go2BridgeEnv) or "crawl" (Go2CrawlBridgeEnv)
 
     def init_genesis(self):
         """Initialize Genesis scene and Go2 environment."""
