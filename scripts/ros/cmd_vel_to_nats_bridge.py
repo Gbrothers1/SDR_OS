@@ -128,7 +128,12 @@ class CmdVelToNatsBridge(Node):
 
     def _on_joint_state(self, msg: JointState) -> None:
         try:
-            data = joint_targets_data(list(msg.name), list(msg.position))
+            data = joint_targets_data(
+                list(msg.name),
+                list(msg.position),
+                kd=list(msg.velocity),  # JointState.velocity[] carries kd
+                kp=list(msg.effort),    # JointState.effort[] carries kp
+            )
         except ValueError as e:
             self.get_logger().warning(f"/sim/joint_cmd rejected: {e}")
             return

@@ -744,6 +744,8 @@ class GenesisSimRunner:
         self._cmd_arbiter = CmdVelArbiter(operator_grace_s=1.0, owner_ttl_s=0.2)
         # Direct-joint mode: latched 12-dim target list (None = inactive)
         self._joint_targets: list | None = None
+        self._joint_kp: list | None = None  # per-joint kp override (effort[])
+        self._joint_kd: list | None = None  # per-joint kd override (velocity[])
         self._last_joint_cmd_time = 0.0
         self._joint_cmd_count = 0
         self._last_cmd_vel_time = time.monotonic()
@@ -1193,11 +1195,18 @@ class GenesisSimRunner:
         self._gains_mode = mode
         return True
 
+    def _exit_direct_joint(self):
+        """Clear joint targets and gain overrides; force a gain re-switch."""
+        self._joint_targets = None
+        self._joint_kp = None
+        self._joint_kd = None
+        self._gains_mode = "dj_exit"  # sentinel: next _switch_gains reapplies
+
     def step_sim(self):
         """Step the simulation with policy, direct joint targets, or zero actions."""
         if self._joint_targets is not None and not self._direct_joint_active():
             logger.info("Joint targets stale — exiting DIRECT_JOINT mode")
-            self._joint_targets = None
+            self._exit_direct_joint()
 
         # Intentional ground poses (sit/laydown via DIRECT_JOINT) must not
         # trip the fall-over termination — the auto-reset reads as a fall.
@@ -1221,6 +1230,17 @@ class GenesisSimRunner:
             # so actions are radian offsets from default; PositionActionManager
             # clamps to URDF limits.
             self._switch_gains("stand")
+            # Per-joint gain overrides (held poses need more than kp=50)
+            if self._joint_kp is not None:
+                self.env.robot.set_dofs_kp(
+                    torch.tensor(self._joint_kp, device=gs.device),
+                    self.env.actuator_manager.dofs_idx,
+                )
+            if self._joint_kd is not None:
+                self.env.robot.set_dofs_kv(
+                    torch.tensor(self._joint_kd, device=gs.device),
+                    self.env.actuator_manager.dofs_idx,
+                )
             # _offset_values is (n_envs, num_dofs) at runtime (the manager
             # expands the 1-D actuator buffer) — take env 0's row.
             offsets_t = self.env.action_manager._offset_values
@@ -1371,7 +1391,7 @@ class GenesisSimRunner:
                     # Non-zero operator input aborts direct-joint mode instantly
                     if source == "ui" and not is_zero and self._joint_targets is not None:
                         logger.info("Operator input — aborting direct-joint mode")
-                        self._joint_targets = None
+                        self._exit_direct_joint()
 
                     self._gait_enabled = bool(cmd_data.get("gait_enabled", False))
                     self._stand_axes = [
@@ -1434,12 +1454,26 @@ class GenesisSimRunner:
                                 current = current[0]
                             self._joint_targets = current.cpu().tolist()
                             logger.info("Entering DIRECT_JOINT mode")
+                        layout = list(self.env.actuator_manager.join_names)
                         self._joint_targets = merge_joint_targets(
-                            self._joint_targets,
-                            names,
-                            positions,
-                            layout=list(self.env.actuator_manager.join_names),
+                            self._joint_targets, names, positions, layout=layout
                         )
+                        # Optional per-joint PD gain overrides (JointState
+                        # effort[]→kp, velocity[]→kd via the bridge).
+                        kp = cmd_data.get("kp")
+                        if kp:
+                            if self._joint_kp is None:
+                                self._joint_kp = [50.0] * 12  # STAND_KP baseline
+                            self._joint_kp = merge_joint_targets(
+                                self._joint_kp, names, kp, layout=layout
+                            )
+                        kd = cmd_data.get("kd")
+                        if kd:
+                            if self._joint_kd is None:
+                                self._joint_kd = [2.0] * 12  # STAND_KV baseline
+                            self._joint_kd = merge_joint_targets(
+                                self._joint_kd, names, kd, layout=layout
+                            )
                         self._last_joint_cmd_time = time.monotonic()
                         # Joint stream is the liveness signal — keep the TTL
                         # clock fresh so mode-exit doesn't instantly HOLD.
@@ -1467,7 +1501,7 @@ class GenesisSimRunner:
                         self._safety_reason = cmd_data.get("reason", "operator")
                         if self.env:
                             self.env.zero_velocity()
-                        self._joint_targets = None  # exit direct-joint mode
+                        self._exit_direct_joint()
                         logger.warning(f"ESTOP triggered: {self._safety_reason}")
                     elif action == "estop_clear":
                         if not self._video_gate_active:

@@ -22,12 +22,22 @@ def cmd_vel_data(fwd: float, strafe: float, yaw: float) -> dict:
     }
 
 
-def joint_targets_data(names: list, positions: list) -> dict:
+def joint_targets_data(
+    names: list, positions: list, kd: list = (), kp: list = ()
+) -> dict:
+    """JointState → NATS payload. Optional per-joint PD gains ride in the
+    otherwise-unused JointState fields: velocity[] = kd, effort[] = kp.
+    Empty lists mean "keep current gains"."""
     if len(names) != len(positions):
         raise ValueError(
             f"names/positions length mismatch: {len(names)} vs {len(positions)}"
         )
-    return {"names": list(names), "positions": [float(p) for p in positions]}
+    data = {"names": list(names), "positions": [float(p) for p in positions]}
+    if len(kp) == len(names) and len(kp) > 0:
+        data["kp"] = [float(v) for v in kp]
+    if len(kd) == len(names) and len(kd) > 0:
+        data["kd"] = [float(v) for v in kd]
+    return data
 
 
 def wrap_command(action: str, cmd_seq: int, data: dict) -> dict:
