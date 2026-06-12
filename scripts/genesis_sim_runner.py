@@ -1224,6 +1224,17 @@ class GenesisSimRunner:
             actions = torch.tensor(
                 [action_list], dtype=torch.float32, device=gs.device
             )
+            if self._step_log_counter % 25 == 1:
+                _dbg_cur = self.env.robot.get_dofs_position(
+                    self.env.actuator_manager.dofs_idx
+                ).flatten().tolist()
+                _dbg_scale = self.env.action_manager._scale_values.flatten().tolist()
+                logger.info(
+                    f"DJ dbg: scale={_dbg_scale[:2]} "
+                    f"tgt_rear={[round(v, 2) for v in self._joint_targets[6:8]]} "
+                    f"cur_rear={[round(v, 2) for v in _dbg_cur[6:8]]} "
+                    f"cur_all={[round(v, 2) for v in _dbg_cur]}"
+                )
             branch = "DIRECT_JOINT"
         elif self._gait_enabled and self.policy is not None and self.current_obs is not None:
             # L2 held: gait walking via policy (training kp)
