@@ -1199,6 +1199,13 @@ class GenesisSimRunner:
             logger.info("Joint targets stale — exiting DIRECT_JOINT mode")
             self._joint_targets = None
 
+        # Intentional ground poses (sit/laydown via DIRECT_JOINT) must not
+        # trip the fall-over termination — the auto-reset reads as a fall.
+        if self.env:
+            _tm = self.env.managers.get("termination")
+            if _tm is not None:
+                _tm.enabled = not self._direct_joint_active()
+
         branch = None
         if self._safety_mode == "ESTOP":
             # In ESTOP: hold standing pose with high-stiffness PD
