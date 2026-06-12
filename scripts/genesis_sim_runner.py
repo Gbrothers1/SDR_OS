@@ -1274,13 +1274,22 @@ class GenesisSimRunner:
                 _dbg_cur = self.env.robot.get_dofs_position(
                     self.env.actuator_manager.dofs_idx
                 ).flatten().tolist()
-                _dbg_scale = self.env.action_manager._scale_values.flatten().tolist()
                 logger.info(
-                    f"DJ dbg: scale={_dbg_scale[:2]} "
-                    f"tgt_rear={[round(v, 2) for v in self._joint_targets[6:8]]} "
-                    f"cur_rear={[round(v, 2) for v in _dbg_cur[6:8]]} "
-                    f"cur_all={[round(v, 2) for v in _dbg_cur]}"
+                    f"DJ dbg: tgt_rear={[round(v, 2) for v in self._joint_targets[6:8]]} "
+                    f"cur_rear={[round(v, 2) for v in _dbg_cur[6:8]]}"
                 )
+                try:
+                    _bp = self.env.robot.get_pos()
+                    _bp = (_bp[0] if _bp.dim() == 2 else _bp).cpu().tolist()
+                    _names = [l.name for l in self.env.robot.links][:6]
+                    _lp = self.env.robot.get_links_pos()
+                    _lp0 = (_lp[0] if _lp.dim() == 3 else _lp)[:6].cpu().tolist()
+                    logger.info(
+                        f"BASE dbg: entity_base_z={_bp[2]:.3f} links={_names} "
+                        f"link_z={[round(p[2], 3) for p in _lp0]}"
+                    )
+                except Exception as e:
+                    logger.warning(f"BASE dbg failed: {e}")
             branch = "DIRECT_JOINT"
         elif self._gait_enabled and self.policy is not None and self.current_obs is not None:
             # L2 held: gait walking via policy (training kp)
@@ -1758,9 +1767,17 @@ class GenesisSimRunner:
             return [float(v) for v in t.cpu().tolist()]
 
         dofs_idx = env.actuator_manager.dofs_idx
+        # NOTE: entity.get_pos()/get_quat() return STALE values at this call
+        # site (verified 2026-06-12: frozen at spawn while get_links_pos read
+        # live) — read the base link's state via the links API instead.
+        lp = env.robot.get_links_pos()
+        lp = (lp[0] if lp.dim() == 3 else lp)[0]
+        lq = env.robot.get_links_quat()
+        lq = (lq[0] if lq.dim() == 3 else lq)[0]
         return {
-            "pos": _row(env.robot.get_pos()),
-            "quat": _row(env.robot.get_quat()),  # Genesis: [w, x, y, z]
+            "src": "runner_snapshot_v3_links",
+            "pos": [float(v) for v in lp.cpu().tolist()],
+            "quat": [float(v) for v in lq.cpu().tolist()],  # Genesis: [w, x, y, z]
             "lin_vel": _row(env.robot_manager.get_linear_velocity()),
             "ang_vel": _row(env.robot_manager.get_angular_velocity()),
             "projected_gravity": _row(env.robot_manager.get_projected_gravity()),
@@ -1771,10 +1788,11 @@ class GenesisSimRunner:
 
     def _trunk_pitch_and_rate(self):
         """Trunk pitch (rad, about body Y) and pitch rate (rad/s) from the
-        sim state. At a vertical rear-up the pitch magnitude is ~pi/2."""
+        sim state. At a vertical rear-up the pitch magnitude is ~pi/2.
+        Reads the base LINK state — entity.get_quat() is stale here."""
         env = self.env
-        q = env.robot.get_quat()
-        q = q[0] if q.dim() == 2 else q
+        q = env.robot.get_links_quat()
+        q = (q[0] if q.dim() == 3 else q)[0]
         w, x, y, z = (float(v) for v in q.cpu().tolist())
         s = max(-1.0, min(1.0, 2.0 * (w * y - z * x)))
         pitch = math.asin(s)
