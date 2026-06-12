@@ -19,6 +19,7 @@ Architecture:
 
 import sys
 import os
+import re
 import json
 import time
 import signal
@@ -67,6 +68,13 @@ except ImportError:
 
 # ── SHM ringbuffer writer ─────────────────────────────────────────
 from src.sdr_os.ipc.shm_ringbuffer import ShmRingWriter, FrameFlags, Codec
+
+# ── Raw command control (MCP/UI arbitration + direct joint mode) ──
+from src.sdr_os.control.cmd_arbiter import CmdVelArbiter
+from src.sdr_os.control.joint_command import (
+    merge_joint_targets,
+    targets_to_actions,
+)
 
 SHM_PATH = os.environ.get("SDR_SHM_PATH", "/dev/shm/sdr_os_ipc/frames")
 SHM_SIZE = int(os.environ.get("SDR_SHM_SIZE", 4 * 1024 * 1024))
@@ -152,7 +160,13 @@ def _resolve_model_path(checkpoint_dir: str, model_file: str | None = None) -> s
     if model_file:
         candidate = model_file if os.path.isabs(model_file) else os.path.join(checkpoint_dir, model_file)
         return candidate if os.path.exists(candidate) else None
-    model_files = sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))
+    # Numeric sort — lexicographic picks model_900 over model_1600 (the known
+    # get_latest_model bug class).
+    def _step_num(p):
+        m = re.search(r"model_(\d+)", os.path.basename(p))
+        return int(m.group(1)) if m else 0
+
+    model_files = sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")), key=_step_num)
     if not model_files:
         return None
     return model_files[-1]
@@ -168,9 +182,11 @@ def _extract_actor_state_dict(checkpoint: dict) -> dict:
     if not isinstance(state, dict):
         return {}
     if any(k.startswith("actor.") for k in state.keys()):
-        return {k: v for k, v in state.items() if k.startswith("actor.") or k == "std"}
+        return {k: v for k, v in state.items() if k.startswith("actor.") or k in ("std", "log_std")}
+    # rsl-rl 3.x MLPModel actors store "mlp.*" weights with either "std"
+    # (noise_std_type=scalar, e.g. v44/v45 checkpoints) or "log_std".
     if any(k.startswith("mlp.") for k in state.keys()) or "log_std" in state:
-        return {k: v for k, v in state.items() if k.startswith("mlp.") or k == "log_std"}
+        return {k: v for k, v in state.items() if k.startswith("mlp.") or k in ("log_std", "std")}
     return state
 
 
@@ -182,6 +198,8 @@ def _normalize_actor_state(actor_state: dict) -> dict:
                 mapped[f"actor.{k[len('mlp.'):]}"] = v
             elif k == "log_std":
                 mapped["std"] = v.exp()
+            elif k == "std":
+                mapped["std"] = v
         return mapped
     if "std" not in actor_state and "log_std" in actor_state:
         mapped = dict(actor_state)
@@ -207,6 +225,29 @@ def infer_policy_obs_dim(checkpoint_dir: str, model_file: str | None = None) -> 
     checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
     actor_state = _extract_actor_state_dict(checkpoint)
     return _infer_obs_dim_from_state(actor_state)
+
+
+# Skill obs dims (per-frame x 5-frame history) are mutually distinct, so the
+# env mode is inferable from the checkpoint's input layer alone:
+#   v45 crawl: 45x5=225, v44 launch: 48x5=240, v46 hurdle: 50x5=250,
+#   walk: 62/63x5 = 310/315.
+CRAWL_OBS_DIM = 225
+LAUNCH_OBS_DIM = 240
+DIRECTED_OBS_DIM = 245
+HURDLE_OBS_DIM = 250
+
+
+def _env_mode_for_obs_dim(obs_dim: int | None) -> str:
+    """Infer which bridge env a checkpoint was trained against."""
+    if obs_dim == CRAWL_OBS_DIM:
+        return "crawl"
+    if obs_dim == LAUNCH_OBS_DIM:
+        return "launch"
+    if obs_dim == DIRECTED_OBS_DIM:
+        return "directed"
+    if obs_dim == HURDLE_OBS_DIM:
+        return "hurdle"
+    return "walk"
 
 
 def load_policy(checkpoint_dir: str, model_file: str | None = None, obs_dim: int | None = None):
@@ -248,6 +289,163 @@ def load_policy(checkpoint_dir: str, model_file: str | None = None, obs_dim: int
         f"(obs_dim={obs_dim}, params={sum(p.numel() for p in policy.parameters())})"
     )
     return policy
+
+
+# ── Policy library metadata (multi-root scan, skill/version/validation tags) ──
+
+# Skill is inferred from the run-name family. Authoritative skill is the policy
+# obs dim (crawl=225, launch=240, walk=310/315) but loading 100s of checkpoints
+# to read it would make every list_policies call slow, and this project's run
+# names map cleanly onto skills. obs_dim enrichment is added only for the
+# already-loaded policy (free).
+_SKILL_OBS_DIM = {225: "crawl", 240: "launch", 310: "walk", 315: "walk"}
+
+
+def _derive_skill(name: str, obs_dim: int | None = None) -> str:
+    """Classify a policy's skill from its obs dim (authoritative) or run name."""
+    if obs_dim is not None and obs_dim in _SKILL_OBS_DIM:
+        return _SKILL_OBS_DIM[obs_dim]
+    n = name.lower()
+    if "crawl" in n:
+        return "crawl"
+    if "launch" in n:
+        return "launch"
+    if "jump" in n or "walk" in n or "tracking" in n:
+        # Older jump-power / terrain-jump / tracking lines are walk-obs policies.
+        return "walk"
+    if n.startswith("bc") or "warmstart" in n:
+        return "bc"
+    return "unknown"
+
+
+def _parse_version(name: str) -> dict:
+    """Extract version (vNN.N.N), major family (vNN), and run kind from a name."""
+    version = None
+    family = None
+    m = re.search(r"v(\d+(?:\.\d+)*)", name)
+    if m:
+        version = "v" + m.group(1)
+        family = "v" + m.group(1).split(".")[0]
+    kind = "other"
+    n = name.lower()
+    if "smoke" in n:
+        kind = "smoke"
+    elif "long" in n:
+        kind = "long"
+    elif n.endswith("-g9") or "-g9" in n:
+        kind = "long"
+    return {"version": version, "version_family": family, "run_kind": kind}
+
+
+# Registry statuses/visuals that mean "an evaluation actually ran" (vs a run
+# that was merely launched/planned and never assessed).
+_EVAL_STATUSES = {"eval_passed", "smoke_passed", "smoke_failed", "smoke_partial"}
+_EVAL_VISUALS = {"passed", "failed", "exploit"}
+
+
+def _load_validation_map(project_root: str) -> dict:
+    """Build {run_id: status-object} from artifacts/run_registry.jsonl.
+
+    Each object carries:
+      - status: 'validated' (eval_passed or visual passed) > 'smoke_pass' >
+                'failed' (smoke_failed / visual failed / killed) > 'untested'
+      - evaluated: whether ANY eval/smoke verdict exists for the run (the
+        "evaluated vs not-yet-evaluated" axis the library filters on)
+      - eval_checkpoint / grid_pass: the specific model_*.pt that was eval'd
+      - checkpoint_evals: {model_file: {status, grid_pass, visual}} so the
+        checkpoint picker can mark individual checkpoints
+    """
+    path = os.path.join(project_root, "artifacts", "run_registry.jsonl")
+    runs: dict[str, dict] = {}
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                rid = d.get("run_id")
+                if not rid:
+                    continue
+                r = runs.setdefault(rid, {
+                    "statuses": set(), "visual": set(),
+                    "eval_checkpoint": None, "grid_pass": None, "checkpoint_evals": {},
+                })
+                status = d.get("status")
+                visual = d.get("visual_status")
+                if status:
+                    r["statuses"].add(status)
+                if visual:
+                    r["visual"].add(visual)
+                ckpt = d.get("checkpoint") or d.get("model_file")
+                if ckpt:
+                    ckpt = os.path.basename(ckpt)
+                    rec = r["checkpoint_evals"].setdefault(ckpt, {})
+                    if status:
+                        rec["status"] = status
+                    if d.get("grid_pass"):
+                        rec["grid_pass"] = d["grid_pass"]
+                    if visual and visual != "pending":
+                        rec["visual"] = visual
+                    if status == "eval_passed" or visual == "passed":
+                        r["eval_checkpoint"] = ckpt
+                        if d.get("grid_pass"):
+                            r["grid_pass"] = d["grid_pass"]
+    except OSError:
+        return {}
+
+    result = {}
+    for rid, r in runs.items():
+        st, vis = r["statuses"], r["visual"]
+        if "eval_passed" in st or "passed" in vis:
+            status = "validated"
+        elif "smoke_passed" in st or "smoke_partial" in st:
+            # A smoke test ran (fully or partially) — an evaluated result, kept
+            # distinct from a validated eval and from an outright failure so the
+            # 'Evaluated' filter (validated+smoke+failed) == the evaluated count.
+            status = "smoke_pass"
+        elif "killed" in st or "smoke_failed" in st or "failed" in vis or "exploit" in vis:
+            status = "failed"
+        else:
+            status = "untested"
+        evaluated = bool(st & _EVAL_STATUSES) or bool(vis & _EVAL_VISUALS) or bool(r["checkpoint_evals"])
+        result[rid] = {
+            "status": status,
+            "evaluated": evaluated,
+            "visual_passed": "passed" in vis,
+            "eval_passed": "eval_passed" in st,
+            "eval_checkpoint": r["eval_checkpoint"],
+            "grid_pass": r["grid_pass"],
+            "checkpoint_evals": r["checkpoint_evals"],
+        }
+    return result
+
+
+def parse_policy_roots(project_root: str) -> list[tuple[str, str]]:
+    """Parse SDR_POLICY_ROOTS ('label=path,label=path') into [(label, path)].
+
+    Falls back to a single 'workspace' root at <project_root>/rl/checkpoints.
+    """
+    raw = os.environ.get("SDR_POLICY_ROOTS", "").strip()
+    roots: list[tuple[str, str]] = []
+    if raw:
+        for chunk in raw.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if "=" in chunk:
+                label, path = chunk.split("=", 1)
+                roots.append((label.strip(), path.strip()))
+            else:
+                roots.append((os.path.basename(chunk.rstrip("/")) or chunk, chunk))
+    if not roots:
+        roots.append(("workspace", os.path.join(project_root, "rl", "checkpoints")))
+    return roots
 
 
 class JpegEncoder:
@@ -540,7 +738,11 @@ class GenesisSimRunner:
         self._safety_mode = "ARMED"  # ARMED | HOLD | ESTOP
         self._safety_state_id = 0
         self._safety_reason = "ok"
-        self._last_cmd_seq = 0
+        self._cmd_arbiter = CmdVelArbiter(operator_grace_s=1.0, owner_ttl_s=0.2)
+        # Direct-joint mode: latched 12-dim target list (None = inactive)
+        self._joint_targets: list | None = None
+        self._last_joint_cmd_time = 0.0
+        self._joint_cmd_count = 0
         self._last_cmd_vel_time = time.monotonic()
         self._cmd_vel_received = False  # Don't enforce TTL until first command arrives
         self._video_gate_active = False
@@ -551,6 +753,7 @@ class GenesisSimRunner:
         self._cmd_log_counter = 0   # throttle cmd_vel logging
         self._gains_mode = "walk"   # "walk" or "stand" — tracks current PD gains
         self._include_jump_power = False
+        self._env_mode = "walk"     # "walk" (Go2BridgeEnv) or "crawl" (Go2CrawlBridgeEnv)
 
     def init_genesis(self):
         """Initialize Genesis scene and Go2 environment."""
@@ -561,7 +764,10 @@ class GenesisSimRunner:
         if self.checkpoint_dir and os.path.exists(self.checkpoint_dir):
             expected_obs_dim = infer_policy_obs_dim(self.checkpoint_dir)
         self._include_jump_power = expected_obs_dim == 315
-        obs = self._create_env(include_jump_power=self._include_jump_power)
+        obs = self._create_env(
+            include_jump_power=self._include_jump_power,
+            env_mode=_env_mode_for_obs_dim(expected_obs_dim),
+        )
 
         # Load policy if checkpoint provided
         if self.checkpoint_dir and os.path.exists(self.checkpoint_dir):
@@ -570,6 +776,8 @@ class GenesisSimRunner:
             logger.info(f"Policy obs_dim={obs_dim} (obs tensor shape: {obs.shape if obs is not None else 'None'})")
             self.policy = load_policy(self.checkpoint_dir, obs_dim=obs_dim)
             if self.policy:
+                model_path = _resolve_model_path(self.checkpoint_dir)
+                self._loaded_model_file = os.path.basename(model_path) if model_path else None
                 logger.info(f"Policy loaded OK — type={type(self.policy).__name__}, device={next(self.policy.parameters()).device}")
                 # Smoke test: run one inference to verify shapes match
                 try:
@@ -596,35 +804,81 @@ class GenesisSimRunner:
             logger.warning(f"NVENC unavailable ({e}), falling back to JPEG")
             self.encoder = JpegEncoder(quality=self.jpeg_quality)
 
-    def _create_env(self, include_jump_power: bool):
-        """Create or recreate Go2BridgeEnv with the desired observation layout."""
+    def _create_env(self, include_jump_power: bool, env_mode: str = "walk"):
+        """Create or recreate the bridge env with the desired observation layout."""
         if self.env is not None:
             try:
                 self.env.close()
             except Exception:
                 pass
 
-        # Import after gs.init() — GaitCommandManager touches genesis.engine at import time
-        from src.sdr_os.envs.go2_env import Go2BridgeEnv
+        if env_mode == "crawl":
+            # v45 LL-Crawl primitive — height-commanded locomotion
+            from src.sdr_os.envs.go2_crawl_bridge_env import Go2CrawlBridgeEnv
 
-        logger.info(
-            f"Creating Go2BridgeEnv (camera: {self.camera_res}, "
-            f"jump_power={'on' if include_jump_power else 'off'})..."
-        )
-        self.env = Go2BridgeEnv(
-            num_envs=1,
-            dt=1 / 50,
-            max_episode_length_s=None,
-            headless=True,
-            camera_res=self.camera_res,
-            include_jump_power=include_jump_power,
-        )
+            logger.info(f"Creating Go2CrawlBridgeEnv (camera: {self.camera_res})...")
+            self.env = Go2CrawlBridgeEnv(
+                num_envs=1,
+                dt=1 / 50,
+                headless=True,
+                camera_res=self.camera_res,
+            )
+        elif env_mode == "launch":
+            # v44 LL-Launch primitive — apex-commanded ballistic jump
+            from src.sdr_os.envs.go2_launch_bridge_env import Go2LaunchBridgeEnv
+
+            logger.info(f"Creating Go2LaunchBridgeEnv (camera: {self.camera_res})...")
+            self.env = Go2LaunchBridgeEnv(
+                num_envs=1,
+                dt=1 / 50,
+                headless=True,
+                camera_res=self.camera_res,
+            )
+        elif env_mode == "directed":
+            # v44.1 directed launch — stand until commanded, jump on X (obs 245)
+            from src.sdr_os.envs.go2_directed_launch_bridge_env import Go2DirectedLaunchBridgeEnv
+
+            logger.info(f"Creating Go2DirectedLaunchBridgeEnv (camera: {self.camera_res})...")
+            self.env = Go2DirectedLaunchBridgeEnv(
+                num_envs=1,
+                dt=1 / 50,
+                headless=True,
+                camera_res=self.camera_res,
+            )
+        elif env_mode == "hurdle":
+            # v46 LL-Hurdle primitive — run up and clear the physical bar
+            from src.sdr_os.envs.go2_hurdle_bridge_env import Go2HurdleBridgeEnv
+
+            logger.info(f"Creating Go2HurdleBridgeEnv (camera: {self.camera_res})...")
+            self.env = Go2HurdleBridgeEnv(
+                num_envs=1,
+                dt=1 / 50,
+                headless=True,
+                camera_res=self.camera_res,
+            )
+        else:
+            # Import after gs.init() — GaitCommandManager touches genesis.engine at import time
+            from src.sdr_os.envs.go2_env import Go2BridgeEnv
+
+            logger.info(
+                f"Creating Go2BridgeEnv (camera: {self.camera_res}, "
+                f"jump_power={'on' if include_jump_power else 'off'})..."
+            )
+            self.env = Go2BridgeEnv(
+                num_envs=1,
+                dt=1 / 50,
+                max_episode_length_s=None,
+                headless=True,
+                camera_res=self.camera_res,
+                include_jump_power=include_jump_power,
+            )
+        self._env_mode = env_mode
         self.env.build()
 
         obs, _ = self.env.reset()
         self.current_obs = obs
         logger.info(
-            f"Go2BridgeEnv initialized and reset — obs shape: {obs.shape if obs is not None else None}, "
+            f"{type(self.env).__name__} initialized and reset — obs shape: {obs.shape if obs is not None else None}, "
             f"device: {obs.device if obs is not None else None}"
         )
         return obs
@@ -645,59 +899,59 @@ class GenesisSimRunner:
             self._encoder_thread.stop()
             self._encoder_thread = None
 
-    def _scan_checkpoints(self):
-        """Scan rl/checkpoints/ for policy directories and standalone .pt files."""
-        ckpt_root = os.path.join(_project_root, "rl", "checkpoints")
-        if not os.path.isdir(ckpt_root):
-            return []
+    def _checkpoint_step(self, name: str) -> int:
+        m = re.search(r"model_(\d+)", name)
+        return int(m.group(1)) if m else 0
 
+    def _scan_one_root(self, root_label, root_path, loaded_dir, validation, seen):
+        """Scan a single policy root, returning enriched policy dicts."""
         policies = []
-        loaded_dir = os.path.abspath(self.checkpoint_dir) if self.checkpoint_dir else None
+        for entry in sorted(os.scandir(root_path), key=lambda e: e.name):
+            real = os.path.realpath(entry.path)
+            if real in seen:
+                continue  # same dir reachable from two roots (e.g. bind mounts)
 
-        for entry in sorted(os.scandir(ckpt_root), key=lambda e: e.name):
             if entry.is_dir():
-                model_files = sorted(glob.glob(os.path.join(entry.path, "model_*.pt")))
+                model_files = glob.glob(os.path.join(entry.path, "model_*.pt"))
                 if not model_files:
                     continue
+                seen.add(real)
 
-                # Determine algorithm from cfgs.pkl
+                # Algorithm from cfgs.pkl (best-effort).
                 algorithm = "PPO"
                 cfg_path = os.path.join(entry.path, "cfgs.pkl")
                 if os.path.exists(cfg_path):
                     try:
                         with open(cfg_path, "rb") as f:
                             cfgs = pickle.load(f)
-                        if isinstance(cfgs, (list, tuple)) and len(cfgs) >= 5:
-                            train_cfg = cfgs[4]
-                            if isinstance(train_cfg, dict):
-                                algorithm = train_cfg.get("algorithm", {}).get("class_name", "PPO")
+                        if isinstance(cfgs, (list, tuple)) and len(cfgs) >= 5 and isinstance(cfgs[4], dict):
+                            algorithm = cfgs[4].get("algorithm", {}).get("class_name", "PPO")
                     except Exception:
                         pass
 
-                # Extract step numbers and sort numerically
-                checkpoints = [os.path.basename(f) for f in model_files]
-                steps = []
-                for name in checkpoints:
-                    try:
-                        steps.append(int(name.replace("model_", "").replace(".pt", "")))
-                    except ValueError:
-                        pass
-                # Sort checkpoints by step number (numeric) instead of alphabetic
-                checkpoints.sort(key=lambda n: int(n.replace("model_", "").replace(".pt", "")) if n.startswith("model_") else 0)
-
+                checkpoints = sorted((os.path.basename(f) for f in model_files), key=self._checkpoint_step)
+                steps = [self._checkpoint_step(c) for c in checkpoints if c.startswith("model_")]
                 total_size = sum(os.path.getsize(f) for f in model_files)
                 latest_mtime = max(os.path.getmtime(f) for f in model_files)
-
-                is_loaded = loaded_dir is not None and os.path.abspath(entry.path) == loaded_dir
+                is_loaded = loaded_dir is not None and real == os.path.realpath(loaded_dir)
                 loaded_ckpt = None
-                if is_loaded and self.policy is not None and hasattr(self, '_loaded_model_file'):
-                    loaded_ckpt = self._loaded_model_file
+                obs_dim = None
+                if is_loaded and self.policy is not None:
+                    loaded_ckpt = getattr(self, "_loaded_model_file", None)
+                    obs_dim = self.current_obs.shape[-1] if self.current_obs is not None else None
 
+                meta = _parse_version(entry.name)
                 policies.append({
                     "name": entry.name,
                     "path": entry.path,
                     "type": "directory",
+                    "root_label": root_label,
                     "algorithm": algorithm,
+                    "skill": _derive_skill(entry.name, obs_dim),
+                    "version": meta["version"],
+                    "version_family": meta["version_family"],
+                    "run_kind": meta["run_kind"],
+                    "validation": validation.get(entry.name, {"status": "untested", "evaluated": False}),
                     "checkpoints": checkpoints,
                     "num_checkpoints": len(checkpoints),
                     "latest_step": max(steps) if steps else None,
@@ -708,11 +962,19 @@ class GenesisSimRunner:
                 })
 
             elif entry.is_file() and entry.name.endswith(".pt"):
+                seen.add(real)
+                meta = _parse_version(entry.name)
                 policies.append({
                     "name": entry.name,
                     "path": entry.path,
                     "type": "file",
+                    "root_label": root_label,
                     "algorithm": "unknown",
+                    "skill": _derive_skill(entry.name),
+                    "version": meta["version"],
+                    "version_family": meta["version_family"],
+                    "run_kind": meta["run_kind"],
+                    "validation": validation.get(entry.name, {"status": "untested", "evaluated": False}),
                     "checkpoints": [entry.name],
                     "num_checkpoints": 1,
                     "latest_step": None,
@@ -721,7 +983,26 @@ class GenesisSimRunner:
                     "is_loaded": False,
                     "loaded_checkpoint": None,
                 })
+        return policies
 
+    def _scan_checkpoints(self):
+        """Scan every configured policy root (SDR_POLICY_ROOTS) for policies.
+
+        Each policy is tagged with its source root, skill (crawl/launch/walk),
+        version family, run kind, and validation status from the run registry.
+        Dirs reachable from more than one root are de-duplicated by realpath.
+        """
+        loaded_dir = self.checkpoint_dir if self.checkpoint_dir else None
+        validation = _load_validation_map(_project_root)
+        seen: set[str] = set()
+        policies = []
+        for root_label, root_path in parse_policy_roots(_project_root):
+            if not os.path.isdir(root_path):
+                continue
+            try:
+                policies.extend(self._scan_one_root(root_label, root_path, loaded_dir, validation, seen))
+            except OSError as e:
+                logger.warning(f"Policy root scan failed for {root_path}: {e}")
         return policies
 
     def _recreate_encoder(self):
@@ -789,7 +1070,11 @@ class GenesisSimRunner:
         return True
 
     def step_sim(self):
-        """Step the simulation with policy or zero actions."""
+        """Step the simulation with policy, direct joint targets, or zero actions."""
+        if self._joint_targets is not None and not self._direct_joint_active():
+            logger.info("Joint targets stale — exiting DIRECT_JOINT mode")
+            self._joint_targets = None
+
         branch = None
         if self._safety_mode == "ESTOP":
             # In ESTOP: hold standing pose with high-stiffness PD
@@ -800,6 +1085,22 @@ class GenesisSimRunner:
             else:
                 actions = torch.zeros(1, 12, device=gs.device)
             branch = "ESTOP"
+        elif self._direct_joint_active():
+            # Raw joint targets from MCP (Claude) — stand gains give scale=1.0
+            # so actions are radian offsets from default; PositionActionManager
+            # clamps to URDF limits.
+            self._switch_gains("stand")
+            # _offset_values is (n_envs, num_dofs) at runtime (the manager
+            # expands the 1-D actuator buffer) — take env 0's row.
+            offsets_t = self.env.action_manager._offset_values
+            if offsets_t.dim() == 2:
+                offsets_t = offsets_t[0]
+            offsets = offsets_t.cpu().tolist()
+            action_list = targets_to_actions(self._joint_targets, offsets)
+            actions = torch.tensor(
+                [action_list], dtype=torch.float32, device=gs.device
+            )
+            branch = "DIRECT_JOINT"
         elif self._gait_enabled and self.policy is not None and self.current_obs is not None:
             # L2 held: gait walking via policy (training kp)
             self._switch_gains("walk")
@@ -834,9 +1135,11 @@ class GenesisSimRunner:
         self.current_obs = obs
 
         if dones.any():
-            logger.warning("Episode terminated — resetting environment")
-            obs, _ = self.env.reset()
-            self.current_obs = obs
+            # ManagedEnvironment.step() already reset the terminated envs
+            # internally (and bridge envs re-apply the gamepad command in their
+            # reset override) — an explicit reset here would double-push the
+            # obs history and contaminate the policy's first post-reset frames.
+            logger.warning("Episode terminated — env auto-reset")
 
     # ── NATS ──────────────────────────────────────────────────────
 
@@ -881,18 +1184,27 @@ class GenesisSimRunner:
                 cmd_seq = data.get("cmd_seq", 0)
                 status = "ok"
                 detail = None
-                # Out-of-order protection for velocity commands
+                # Velocity commands: per-source seq + ownership arbitration
                 if action == "set_cmd_vel":
-                    # Out-of-order protection: drop stale commands, but
-                    # accept a backwards jump (new browser session reset)
-                    if cmd_seq <= self._last_cmd_seq:
-                        if cmd_seq > self._last_cmd_seq - 100:
-                            continue  # genuinely out-of-order within same session
-                        # Large backwards jump → new browser session, accept it
-                        logger.info(f"cmd_vel seq reset detected: {self._last_cmd_seq} → {cmd_seq}")
-                    self._last_cmd_seq = cmd_seq
-                    self._last_cmd_vel_time = time.monotonic()
-                    self._cmd_vel_received = True
+                    source = data.get("source", "ui")  # back-compat: untagged = ui
+                    is_zero = all(
+                        abs(float(cmd_data.get(k, 0.0))) < 1e-3
+                        for k in ("linear_x", "linear_y", "angular_z", "angular_y")
+                    )
+                    decision = self._cmd_arbiter.evaluate(source, cmd_seq, is_zero)
+                    if not decision.accepted:
+                        continue  # out-of-order within the same session
+                    if decision.refresh_ttl:
+                        self._last_cmd_vel_time = time.monotonic()
+                        self._cmd_vel_received = True
+                    if not decision.apply_velocity:
+                        continue  # non-owner (e.g. UI idle zeros while MCP drives)
+
+                    # Non-zero operator input aborts direct-joint mode instantly
+                    if source == "ui" and not is_zero and self._joint_targets is not None:
+                        logger.info("Operator input — aborting direct-joint mode")
+                        self._joint_targets = None
+
                     self._gait_enabled = bool(cmd_data.get("gait_enabled", False))
                     self._stand_axes = [
                         cmd_data.get("linear_y", 0.0),    # pitch
@@ -904,8 +1216,9 @@ class GenesisSimRunner:
                     self._cmd_log_counter += 1
                     if self._cmd_log_counter % 30 == 1:
                         logger.info(
-                            f"cmd_vel: seq={cmd_seq} gait={self._gait_enabled} "
-                            f"safety={self._safety_mode} "
+                            f"cmd_vel: seq={cmd_seq} src={source} "
+                            f"owner={self._cmd_arbiter.owner} "
+                            f"gait={self._gait_enabled} safety={self._safety_mode} "
                             f"lx={cmd_data.get('linear_x', 0):.3f} "
                             f"ly={cmd_data.get('linear_y', 0):.3f} "
                             f"az={cmd_data.get('angular_z', 0):.3f} "
@@ -920,6 +1233,55 @@ class GenesisSimRunner:
                         self.env.set_velocity_from_gamepad(cmd_data)
                     continue
 
+                if action == "set_joint_targets":
+                    # Fresh joint stream auto-recovers from cmd_timeout, same
+                    # as cmd_vel; operator ESTOP still requires re-arm.
+                    if (
+                        self._safety_mode in ("HOLD", "ESTOP")
+                        and self._safety_reason == "cmd_timeout"
+                    ):
+                        logger.info(
+                            f"Auto-recovering from {self._safety_mode} on fresh joint targets"
+                        )
+                        self._safety_mode = "ARMED"
+                        self._safety_reason = "ok"
+                    if self._safety_mode == "ESTOP":
+                        continue  # operator ESTOP requires re-arm first
+                    if not self.env:
+                        continue
+                    try:
+                        names = cmd_data.get("names", [])
+                        positions = cmd_data.get("positions", [])
+                        if self._joint_targets is None:
+                            # Enter mode: latch current joint positions so
+                            # unspecified joints hold where they are.
+                            dofs_idx = self.env.actuator_manager.dofs_idx
+                            current = self.env.robot.get_dofs_position(dofs_idx)
+                            if current.dim() == 2:  # batched scene: (n_envs, 12)
+                                current = current[0]
+                            self._joint_targets = current.cpu().tolist()
+                            logger.info("Entering DIRECT_JOINT mode")
+                        self._joint_targets = merge_joint_targets(
+                            self._joint_targets,
+                            names,
+                            positions,
+                            layout=list(self.env.actuator_manager.join_names),
+                        )
+                        self._last_joint_cmd_time = time.monotonic()
+                        # Joint stream is the liveness signal — keep the TTL
+                        # clock fresh so mode-exit doesn't instantly HOLD.
+                        self._last_cmd_vel_time = self._last_joint_cmd_time
+                        self._cmd_vel_received = True
+                        self._joint_cmd_count += 1
+                        if self._joint_cmd_count % 20 == 1:
+                            logger.info(
+                                f"joint_targets #{self._joint_cmd_count}: "
+                                f"{dict(zip(names, positions))}"
+                            )
+                    except ValueError as e:
+                        logger.warning(f"set_joint_targets rejected: {e}")
+                    continue
+
                 try:
                     if action == "pause":
                         self.paused = cmd_data.get("paused", True)
@@ -932,6 +1294,7 @@ class GenesisSimRunner:
                         self._safety_reason = cmd_data.get("reason", "operator")
                         if self.env:
                             self.env.zero_velocity()
+                        self._joint_targets = None  # exit direct-joint mode
                         logger.warning(f"ESTOP triggered: {self._safety_reason}")
                     elif action == "estop_clear":
                         if not self._video_gate_active:
@@ -942,7 +1305,12 @@ class GenesisSimRunner:
                         else:
                             logger.warning("ESTOP clear rejected — video gate still active")
                     elif action == "list_policies":
-                        policies = self._scan_checkpoints()
+                        # Scanning many checkpoint roots reads 100s of cfgs.pkl;
+                        # run it off the event loop so the video stream / command
+                        # handling never stalls during a rescan.
+                        policies = await asyncio.get_event_loop().run_in_executor(
+                            None, self._scan_checkpoints
+                        )
                         await self.nc.publish(
                             "telemetry.policy.list",
                             json.dumps({"policies": policies}).encode(),
@@ -963,14 +1331,18 @@ class GenesisSimRunner:
                             and expected_obs_dim != self.current_obs.shape[-1]
                         ):
                             include_jump_power = expected_obs_dim == 315
+                            env_mode = _env_mode_for_obs_dim(expected_obs_dim)
                             logger.info(
-                                "Policy obs_dim mismatch (current=%s, expected=%s) — recreating env with jump_power=%s",
+                                "Policy obs_dim mismatch (current=%s, expected=%s) — recreating env mode=%s jump_power=%s",
                                 self.current_obs.shape[-1],
                                 expected_obs_dim,
+                                env_mode,
                                 "on" if include_jump_power else "off",
                             )
                             self._include_jump_power = include_jump_power
-                            obs = self._create_env(include_jump_power=include_jump_power)
+                            obs = self._create_env(
+                                include_jump_power=include_jump_power, env_mode=env_mode
+                            )
                             obs_dim = obs.shape[-1] if obs is not None else expected_obs_dim
                         else:
                             obs_dim = self.current_obs.shape[-1] if self.current_obs is not None else 310
@@ -990,6 +1362,35 @@ class GenesisSimRunner:
                     elif action == "force_idr":
                         self._force_idr = True
                         logger.info("IDR frame requested")
+                    elif action == "set_gait":
+                        gait_name = cmd_data.get("gait", "trot")
+                        period = float(cmd_data.get("period", 0.5))
+                        clearance = float(cmd_data.get("clearance", 0.08))
+                        if self.env and hasattr(self.env, "gait_command_manager"):
+                            self.env.gait_command_manager.set_fixed_gait(
+                                gait_name, period=period, clearance=clearance
+                            )
+                            logger.info(
+                                f"set_gait: {gait_name} (T={period}, c={clearance})"
+                            )
+                            detail = f"gait={gait_name}"
+                        else:
+                            status = "error"
+                            detail = "env has no gait_command_manager"
+                    elif action == "set_crouch":
+                        on = bool(cmd_data.get("on", False))
+                        if self.env and hasattr(self.env, "set_crouch_intent"):
+                            self.env.set_crouch_intent(on)
+                        # No error when unsupported — B is harmless on other policies.
+                    elif action == "trigger_jump":
+                        intensity = float(cmd_data.get("intensity", 1.0))
+                        if self.env and hasattr(self.env, "set_jump_intent"):
+                            self.env.set_jump_intent(intensity)
+                            logger.info(f"trigger_jump: intensity={intensity}")
+                            detail = f"jump_intent={intensity}"
+                        else:
+                            status = "error"
+                            detail = "env has no set_jump_intent"
                     elif action == "settings":
                         if "dt" in cmd_data:
                             new_dt = float(cmd_data["dt"])
@@ -1058,12 +1459,53 @@ class GenesisSimRunner:
             except Exception:
                 pass
 
+    # ── Robot state telemetry (ROS republisher feed) ─────────────
+
+    def _robot_state_snapshot(self) -> dict | None:
+        """Payload for telemetry.robot.state, consumed by
+        scripts/ros/sim_state_republisher.py → /odom, /imu/data, /joint_states.
+
+        Schema (republisher is the contract): pos [x,y,z], quat [w,x,y,z],
+        lin_vel/ang_vel in body frame, projected_gravity, joint_names/pos/vel.
+        Reconstructed 2026-06-12 from the consumer after the original
+        publisher (uncommitted in the live worktree) was lost in a deploy.
+        """
+        env = self.env
+        if env is None or getattr(env, "robot", None) is None:
+            return None
+
+        def _row(t):
+            t = t[0] if t.dim() == 2 else t
+            return [float(v) for v in t.cpu().tolist()]
+
+        dofs_idx = env.actuator_manager.dofs_idx
+        return {
+            "pos": _row(env.robot.get_pos()),
+            "quat": _row(env.robot.get_quat()),  # Genesis: [w, x, y, z]
+            "lin_vel": _row(env.robot_manager.get_linear_velocity()),
+            "ang_vel": _row(env.robot_manager.get_angular_velocity()),
+            "projected_gravity": _row(env.robot_manager.get_projected_gravity()),
+            "joint_names": list(env.actuator_manager.join_names),
+            "joint_pos": _row(env.robot.get_dofs_position(dofs_idx)),
+            "joint_vel": _row(env.robot.get_dofs_velocity(dofs_idx)),
+        }
+
     # ── Safety (Layer 3) ──────────────────────────────────────────
+
+    JOINT_CMD_TTL_S = 0.5
+
+    def _direct_joint_active(self) -> bool:
+        return (
+            self._joint_targets is not None
+            and time.monotonic() - self._last_joint_cmd_time < self.JOINT_CMD_TTL_S
+        )
 
     def _enforce_cmd_ttl(self):
         """Layer 3: TTL decay and ESTOP on command timeout."""
         if self._safety_mode == "ESTOP":
             return
+        if self._direct_joint_active():
+            return  # the joint stream is the liveness signal
         if not self._cmd_vel_received:
             return  # Don't enforce TTL until first command arrives
 
@@ -1071,7 +1513,7 @@ class GenesisSimRunner:
         if elapsed > 2.0:
             self._safety_mode = "ESTOP"
             self._safety_reason = "cmd_timeout"
-            self._last_cmd_seq = 0  # Reset so fresh browser sessions are accepted
+            self._cmd_arbiter.release()  # fresh sessions accepted after ESTOP
             if self.env:
                 self.env.zero_velocity()
             logger.warning("Command timeout >2s — ESTOP")
@@ -1092,6 +1534,7 @@ class GenesisSimRunner:
         step_count = 0
         last_metrics_time = 0
         last_safety_time = 0
+        last_robot_state_time = 0
 
         await self.connect_nats()
         self._start_encoder_thread()
@@ -1109,6 +1552,15 @@ class GenesisSimRunner:
         try:
             while self.running:
                 t0 = time.monotonic()
+
+                # Release a silent velocity owner (e.g. MCP stream died while
+                # the UI tab's idle zeros keep the TTL fresh) — zero immediately.
+                if self._cmd_arbiter.expire_owner():
+                    logger.info("cmd_vel owner expired — zeroing velocity")
+                    if self.env:
+                        self.env.zero_velocity()
+                    self._gait_enabled = False
+                    self._stand_axes = [0.0, 0.0, 0.0, 0.0]
 
                 # Enforce command TTL (Layer 3)
                 self._enforce_cmd_ttl()
@@ -1175,6 +1627,19 @@ class GenesisSimRunner:
                             await self.nc.publish("telemetry.encoder.stats", json.dumps(enc_stats).encode())
                     self._last_encode_stats_time = now
 
+                # Publish robot state for the ROS republisher at ~20 Hz
+                if now - last_robot_state_time > 0.05 and self.nc and self.nc.is_connected:
+                    try:
+                        state = self._robot_state_snapshot()
+                        if state:
+                            await self.nc.publish(
+                                "telemetry.robot.state", json.dumps(state).encode()
+                            )
+                    except Exception as e:
+                        if self._step_log_counter % 100 == 1:
+                            logger.warning(f"robot state publish failed: {e}")
+                    last_robot_state_time = now
+
                 # Publish canonical safety state at 2 Hz
                 if now - last_safety_time > 0.5 and self.nc and self.nc.is_connected:
                     self._safety_state_id += 1
@@ -1183,6 +1648,8 @@ class GenesisSimRunner:
                         "mode": self._safety_mode,
                         "reason": self._safety_reason,
                         "since_ms": int((now - self._last_cmd_vel_time) * 1000),
+                        "cmd_owner": self._cmd_arbiter.owner,
+                        "direct_joint": self._direct_joint_active(),
                     }
                     await self.nc.publish("telemetry.safety.state", json.dumps(state).encode())
                     last_safety_time = now
