@@ -747,6 +747,49 @@ class GenesisSimRunner:
         self._cmd_vel_received = False  # Don't enforce TTL until first command arrives
         self._video_gate_active = False
         self._gait_enabled = False  # L2 held = gait walking, released = position hold
+        # Active gait state for D-pad switching (walk env only). Re-applied
+        # EVERY step so the manager's resample timer cannot overwrite it
+        # (Gate A-0 quirk #3: one-shot set_fixed_gait drifts within 3-5s).
+        self._active_gait = {"name": "trot", "period": 0.45,
+                             "clearance": 0.08, "mode": "walk"}
+        self._last_perception_pub = 0.0
+
+    def _gait_vx_ceiling(self):
+        # Operator-gated speed mode (D-pad up/down). Pronk envelope binds in
+        # either mode (Gate A-0: fails at vx 1.2 / T 0.35).
+        if self._active_gait["name"] == "pronk":
+            return 1.0
+        return 2.0 if self._active_gait["mode"] == "run" else 1.0
+
+    def _collect_perception(self):
+        """Operator HUD truth: telemetry.policy.perception @10Hz."""
+        msg = {"obstacles": [], "available": {}, "skill_active": {}}
+        env = self.env
+        try:
+            if env is not None and hasattr(env, "gait_command_manager")                     and env.gait_command_manager is not None:
+                msg["gait"] = {"name": self._active_gait["name"],
+                               "period": self._active_gait["period"],
+                               "mode": self._active_gait["mode"]}
+            mode = getattr(self, "_env_mode", "")
+            if env is not None and hasattr(env, "_compute_bar_obs"):
+                bo = env._compute_bar_obs()
+                dx = float(bo[0, 0]) * 1.5
+                top = float(bo[0, 2]) if bo.shape[1] > 2 else float(bo[0, 1])
+                kind = "crawl" if mode == "crawl" else "hurdle"
+                msg["obstacles"].append(
+                    {"kind": kind, "dx": round(dx, 3), "z_low": 0.0,
+                     "z_high": round(top, 3)})
+                msg["available"]["jump"] = (
+                    mode in ("hurdle", "directed", "launch") and 0.0 < dx <= 0.8)
+                msg["available"]["crouch"] = (mode == "crawl")
+                msg["available"]["climb"] = False
+            msg["skill_active"] = {"jump": bool(getattr(self, "_gait_enabled", False)
+                                                 and mode in ("hurdle", "directed")),
+                                   "crouch": bool(mode == "crawl"
+                                                  and getattr(self, "_gait_enabled", False))}
+        except Exception:
+            pass
+        return msg
         self._stand_axes = [0.0, 0.0, 0.0, 0.0]  # pitch, roll, yaw, height
         self.paused = False
         self._step_log_counter = 0  # throttle step_sim logging
@@ -1104,6 +1147,16 @@ class GenesisSimRunner:
         elif self._gait_enabled and self.policy is not None and self.current_obs is not None:
             # L2 held: gait walking via policy (training kp)
             self._switch_gains("walk")
+            gcm = getattr(self.env, "gait_command_manager", None)
+            if gcm is not None:
+                gcm.set_fixed_gait(self._active_gait["name"],
+                                   self._active_gait["period"],
+                                   self._active_gait["clearance"])
+                if hasattr(self.env, "_cmd_buf"):
+                    self.env._cmd_buf[0, 0] = torch.clamp(
+                        self.env._cmd_buf[0, 0],
+                        min=float(self.env.velocity_command.range["lin_vel_x"][0]),
+                        max=self._gait_vx_ceiling())
             with torch.no_grad():
                 actions = self.policy.act_inference(self.current_obs)
             branch = "WALK"
@@ -1231,6 +1284,11 @@ class GenesisSimRunner:
                         self._safety_reason = "ok"
                     if self.env:
                         self.env.set_velocity_from_gamepad(cmd_data)
+                        if hasattr(self.env, "_cmd_buf"):
+                            self.env._cmd_buf[0, 0] = torch.clamp(
+                                self.env._cmd_buf[0, 0],
+                                min=float(self.env.velocity_command.range["lin_vel_x"][0]),
+                                max=self._gait_vx_ceiling())
                     continue
 
                 if action == "set_joint_targets":
@@ -1363,20 +1421,36 @@ class GenesisSimRunner:
                         self._force_idr = True
                         logger.info("IDR frame requested")
                     elif action == "set_gait":
-                        gait_name = cmd_data.get("gait", "trot")
-                        period = float(cmd_data.get("period", 0.5))
-                        clearance = float(cmd_data.get("clearance", 0.08))
-                        if self.env and hasattr(self.env, "gait_command_manager"):
-                            self.env.gait_command_manager.set_fixed_gait(
-                                gait_name, period=period, clearance=clearance
-                            )
-                            logger.info(
-                                f"set_gait: {gait_name} (T={period}, c={clearance})"
-                            )
-                            detail = f"gait={gait_name}"
-                        else:
+                        _VALID_GAITS = {"walk", "trot", "pace", "bound", "pronk"}
+                        gait_name = str(cmd_data.get("gait", "trot")).lower()
+                        if gait_name not in _VALID_GAITS:
                             status = "error"
-                            detail = "env has no gait_command_manager"
+                            detail = f"unknown gait {gait_name!r}"
+                        elif not (self.env and hasattr(self.env, "gait_command_manager")
+                                  and self.env.gait_command_manager is not None):
+                            status = "unsupported"
+                            detail = "active policy has no gait command manager"
+                        else:
+                            mode = str(cmd_data.get("mode", self._active_gait["mode"])).lower()
+                            if mode not in ("walk", "run"):
+                                mode = self._active_gait["mode"]
+                            self._active_gait["mode"] = mode
+                            _mode_default = 0.40 if mode == "run" else 0.50
+                            raw_period = float(cmd_data.get("period", _mode_default))
+                            if gait_name == "pronk":
+                                raw_period = max(0.45, raw_period)
+                            period = max(0.35, min(0.8, raw_period))
+                            clearance = float(cmd_data.get("clearance",
+                                              self._active_gait["clearance"]))
+                            # Persist — step_sim re-applies every step.
+                            self._active_gait.update(
+                                name=gait_name, period=period, clearance=clearance)
+                            self.env.gait_command_manager.set_fixed_gait(
+                                gait_name, period, clearance)
+                            logger.info(
+                                f"set_gait: gait={gait_name} period={period:.3f} "
+                                f"clearance={clearance:.3f} mode={mode}")
+                            detail = f"gait={gait_name} mode={mode}"
                     elif action == "set_crouch":
                         on = bool(cmd_data.get("on", False))
                         if self.env and hasattr(self.env, "set_crouch_intent"):
@@ -1653,6 +1727,14 @@ class GenesisSimRunner:
                     }
                     await self.nc.publish("telemetry.safety.state", json.dumps(state).encode())
                     last_safety_time = now
+
+                if now - self._last_perception_pub >= 0.1:
+                    try:
+                        await self.nc.publish("telemetry.policy.perception",
+                                              json.dumps(self._collect_perception()).encode())
+                    except Exception:
+                        pass
+                    self._last_perception_pub = now
 
                 # Recompute frame interval each iteration (respect runtime FPS changes)
                 frame_interval = 1.0 / self.target_fps
