@@ -1272,6 +1272,18 @@ class GenesisSimRunner:
         obs, _, dones, _, _ = self.env.step(actions)
         self.current_obs = obs
 
+        if branch == "DIRECT_JOINT":
+            # The hierarchical park env reinterprets step() actions (HL/skill
+            # command space), so raw joint actions die inside env.step. Force
+            # the PD target directly — control_dofs_position applies at the
+            # next physics step regardless of env action plumbing.
+            q = torch.tensor(
+                [self._joint_targets], dtype=torch.float32, device=gs.device
+            )
+            self.env.robot.control_dofs_position(
+                q, self.env.actuator_manager.dofs_idx
+            )
+
         if dones.any():
             # ManagedEnvironment.step() already reset the terminated envs
             # internally (and bridge envs re-apply the gamepad command in their
