@@ -74,6 +74,35 @@ docker compose --profile rocm run --rm app-rocm pytest -q tests/smoke
 | `sdr_ipc` | tmpfs (512 MB) | SHM ringbuffer for zero-copy video frames (`/dev/shm/sdr_os_ipc`) |
 | `nats_data` | named | NATS JetStream persistence |
 
+### Additional Policy Libraries
+
+`genesis-sim` and `node` scan the workspace checkpoints plus one optional
+read-only checkpoint directory. Configure the extra directory in the
+machine-local `.env` file:
+
+```dotenv
+SDR_EXTRA_POLICY_CHECKPOINTS=/absolute/path/to/another/worktree/rl/checkpoints
+SDR_EXTRA_POLICY_LABEL=power-jump-v2
+```
+
+Recreate `genesis-sim` and `node`, then use **Refresh** in the Policy Library
+or open the Policy Lab:
+
+```bash
+docker compose --profile sim up -d --force-recreate genesis-sim node
+```
+
+The library source label is shown on each policy card. Policy loads reset the
+simulation and controls. If the checkpoint requires the alternate supported
+observation layout, Genesis rebuilds and resets the environment before
+activating the policy.
+
+The Node service exposes checkpoint and video metadata under
+`/api/lab/policies/<source>/<policy>` and streams policy videos with HTTP range
+support under `/api/lab/media/...`. The web Policy Lab uses these routes for
+checkpoint details and seekable episode previews; checkpoint files themselves
+are never served to the browser.
+
 ## Dockerfiles
 
 ### Node (`containers/node/Dockerfile`)

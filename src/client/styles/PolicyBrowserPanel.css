@@ -39,6 +39,30 @@
   flex-shrink: 0;
 }
 
+.policy-browser__filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.policy-browser__obs-filter {
+  min-height: var(--touch-min);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-family: var(--font-primary);
+  font-size: var(--font-size-xs);
+  outline: none;
+}
+
+.policy-browser__obs-filter:focus {
+  border-color: var(--color-accent-blue);
+}
+
 .policy-browser__tab {
   all: unset;
   cursor: pointer;
@@ -434,6 +458,10 @@
   font-style: italic;
 }
 
+.policy-card__stat--error {
+  color: var(--color-accent-red);
+}
+
 /* ── Checkpoint overflow panel content ─────────── */
 
 .ckpt-overflow {
@@ -535,4 +563,46 @@
   background: rgba(62, 207, 142, 0.12);
   padding: 0 var(--space-1);
   border-radius: 2px;
+}
+
+/* ── Eval-status pill (from run registry) ───────── */
+
+.policy-card__pill {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.policy-card__pill--good { color: var(--color-accent-green); background: rgba(62, 207, 142, 0.14); }
+.policy-card__pill--ok { color: var(--color-accent-cyan); background: rgba(94, 197, 223, 0.14); }
+.policy-card__pill--bad { color: var(--color-accent-red); background: rgba(239, 83, 80, 0.14); }
+.policy-card__pill--muted { color: var(--color-text-muted); background: rgba(255, 255, 255, 0.05); }
+
+.ckpt-overflow__eval {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--color-accent-cyan);
+  background: rgba(94, 197, 223, 0.14);
+  padding: 0 var(--space-1);
+  border-radius: 2px;
+  margin-left: auto;
+}
+
+/* ── User tags (edited in LAB, displayed here) ──── */
+
+.policy-card__tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--color-accent-violet, #b18aff);
+  background: rgba(155, 120, 245, 0.14);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
 }
