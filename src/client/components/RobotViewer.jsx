@@ -2,8 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import ROSLIB from 'roslib';
+import { useSettings } from '../contexts/SettingsContext';
 
 const RobotViewer = ({ ros, tfThrottleRate, settings }) => {
+  const { getSetting } = useSettings();
+  const imuTopicName = getSetting('topics', 'imu', '/imu/data');
   const containerRef = useRef();
   const sceneRef = useRef();
   const cameraRef = useRef();
@@ -414,7 +417,7 @@ const RobotViewer = ({ ros, tfThrottleRate, settings }) => {
       // Subscribe to IMU topic
       const imuTopic = new ROSLIB.Topic({
         ros: ros,
-        name: '/robot/imu',
+        name: imuTopicName,
         messageType: 'sensor_msgs/Imu'
       });
 
@@ -496,11 +499,6 @@ const RobotViewer = ({ ros, tfThrottleRate, settings }) => {
       
           // Extract Euler angles from quaternion to understand current orientation
           const euler = new THREE.Euler().setFromQuaternion(imuQuaternion, 'XYZ');
-          console.log('IMU Euler angles (rad):', {
-            x: euler.x, // roll
-            y: euler.y, // pitch
-            z: euler.z  // yaw
-          });
           
           // Create a corrected quaternion with adjusted axis mapping for proper robot orientation
           // This ensures the model faces the right direction according to ROS convention

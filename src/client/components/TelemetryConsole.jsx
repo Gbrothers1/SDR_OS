@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useGenesis } from '../contexts/GenesisContext';
 import SimTelemetryPane from './SimTelemetryPane';
-import TelemetryPanel from './TelemetryPanel';
+import SensorPanel from './SensorPanel';
 import '../styles/TelemetryConsole.css';
 
 const PRESETS = {
@@ -55,7 +55,7 @@ const TelemetryConsole = ({ ros, rosConnected, appSettings }) => {
   }, []);
 
   const simFps = trainingMetrics?.fps?.toFixed(0) ?? '0';
-  const rosFps = '10'; // ROS default rate
+  const rosFps = '10'; // ROS default rate placeholder
 
   return (
     <div className="tel-console">
@@ -79,7 +79,7 @@ const TelemetryConsole = ({ ros, rosConnected, appSettings }) => {
         ))}
         {pinned && (
           <button className="tel-console__unpin-btn" onClick={handleUnpin} title="Auto-switch">
-            {'\u2297'}
+            {'⊗'}
           </button>
         )}
       </div>
@@ -89,10 +89,9 @@ const TelemetryConsole = ({ ros, rosConnected, appSettings }) => {
         {activePreset === 'operate' && (
           <>
             <div className="tel-console__primary">
-              <TelemetryPanel
+              <SensorPanel
                 ros={ros}
-                updateInterval={appSettings?.telemetry?.updateInterval ?? 100}
-                initialShowPanel={true}
+                rosConnected={rosConnected}
               />
             </div>
             {genesisConnected && (
@@ -126,10 +125,9 @@ const TelemetryConsole = ({ ros, rosConnected, appSettings }) => {
             <div className="tel-console__split-divider" />
             <div className="tel-console__split-pane">
               <div className="tel-console__split-title">ROS</div>
-              <TelemetryPanel
+              <SensorPanel
                 ros={ros}
-                updateInterval={appSettings?.telemetry?.updateInterval ?? 100}
-                initialShowPanel={true}
+                rosConnected={rosConnected}
               />
             </div>
           </div>

@@ -3,6 +3,7 @@ import { useGenesis } from '../contexts/GenesisContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { H264Decoder } from '../utils/H264Decoder';
 import StreamStats from './StreamStats';
+import ActionAvailabilityHUD from './ActionAvailabilityHUD';
 import '../styles/SimViewer.css';
 
 const SimViewer = () => {
@@ -487,6 +488,9 @@ const SimViewer = () => {
           <span className="sim-viewer__video-lost-text">VIDEO LOST — {safetyState?.mode || 'UNKNOWN'}</span>
         </div>
       )}
+
+      {/* Action availability HUD — operator action prompts */}
+      <ActionAvailabilityHUD />
 
       {/* Overlay info */}
       <div className="sim-viewer-overlay">

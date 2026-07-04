@@ -56,6 +56,9 @@ export const GenesisProvider = ({ children, socket }) => {
 
   // Encoder stats from sim (telemetry.encoder.stats)
   const [encoderStats, setEncoderStats] = useState(null);
+
+  // Obstacle perception for operator action prompts (telemetry.policy.perception)
+  const [policyPerception, setPolicyPerception] = useState(null);
   
   // H.264 codec state
   const [streamCodec, setStreamCodec] = useState('jpeg');
@@ -244,6 +247,8 @@ export const GenesisProvider = ({ children, socket }) => {
           }
         } else if (subject === 'telemetry.encoder.stats') {
           setEncoderStats(data);
+        } else if (subject === 'telemetry.policy.perception') {
+          setPolicyPerception(data);
         } else if (subject === 'telemetry.frame.stats') {
           setFrameStats(data);
         } else if (subject === 'telemetry.safety.video_gate') {
@@ -365,7 +370,7 @@ export const GenesisProvider = ({ children, socket }) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     cmdSeqRef.current += 1;
-    const cmd = { action, cmd_seq: cmdSeqRef.current, data };
+    const cmd = { action, cmd_seq: cmdSeqRef.current, source: 'ui', data };
     if (ttlMs !== null) cmd.ttl_ms = ttlMs;
 
     const jsonStr = JSON.stringify(cmd);
@@ -704,6 +709,9 @@ export const GenesisProvider = ({ children, socket }) => {
     obsBreakdown,
     rewardBreakdown,
     velocityCommand,
+
+    // Obstacle perception for operator action prompts
+    policyPerception,
 
     // Command source and policy
     commandSource,

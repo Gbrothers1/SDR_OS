@@ -35,8 +35,10 @@ Relayed as 0x02 WS messages: `[0x02][u16 subject_len][subject][JSON payload]`
 | `telemetry.velocity.command` | 5 Hz | `{linear_x, linear_y, angular_z}` |
 | `telemetry.safety.state` | 2 Hz | `{state_id, mode, reason, since_ms}` |
 | `telemetry.safety.cmd_timeout` | on event | `{mode, decaying, velocity}` |
-| `telemetry.policy.list` | on request | `{policies: [{name, path, type, algorithm, checkpoints, num_checkpoints, latest_step, size_mb, modified_iso, is_loaded, loaded_checkpoint}]}` |
+| `telemetry.policy.list` | on request | `{policies: [{id, source, name, path, type, algorithm, checkpoints, num_checkpoints, latest_step, obs_dim, compatible, requires_reset, compatibility_error, size_mb, modified_iso, is_loaded, loaded_checkpoint}]}` |
+| `telemetry.policy.perception` | 10 Hz | `{obstacles: [{kind, dx, z_low, z_high}], available: {jump, crouch, climb}, skill_active: {jump, crouch}}` |
 | `telemetry.command.ack` | on event | `{action, cmd_seq, status, detail}` |
+| `telemetry.robot.state` | 20 Hz | `{pos:[x,y,z], quat:[w,x,y,z], lin_vel:[3], ang_vel:[3], projected_gravity:[3], joint_names:[12], joint_pos:[12], joint_vel:[12]}` |
 
 ## Safety (transport → NATS)
 

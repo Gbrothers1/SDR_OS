@@ -1,0 +1,263 @@
+/* SensorPanel — live ROS sensor display */
+
+.sensor-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-size: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  color: #c8cdd8;
+  overflow: hidden;
+}
+
+/* ── ROS health bar ── */
+
+.sensor-panel__ros-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sensor-panel__ros-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sensor-panel__ros-bar--ok   .sensor-panel__ros-dot { background: #4caf7d; box-shadow: 0 0 4px #4caf7d; }
+.sensor-panel__ros-bar--dead .sensor-panel__ros-dot { background: #ef5350; }
+
+.sensor-panel__ros-bar--ok   { color: #a8e6c0; }
+.sensor-panel__ros-bar--dead { color: #ef9090; }
+
+/* ── Tab bar ── */
+
+.sensor-panel__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sensor-panel__tab {
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #7a8394;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: 'IBM Plex Mono', monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.sensor-panel__tab:hover { color: #c8cdd8; }
+
+.sensor-panel__tab--active {
+  color: #5b8def;
+  border-bottom-color: #5b8def;
+}
+
+/* ── Scrollable content ── */
+
+.sensor-panel__content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 10px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+
+.sensor-panel__content::-webkit-scrollbar      { width: 4px; }
+.sensor-panel__content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+/* ── Section ── */
+
+.sensor-panel__section {
+  margin-bottom: 2px;
+}
+
+.sensor-panel__section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8a9bb5;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ── Topic badge ── */
+
+.sensor-panel__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.sensor-panel__badge--ok   { background: rgba(76, 175, 125, 0.12); color: #4caf7d; }
+.sensor-panel__badge--dead { background: rgba(239, 83,  80,  0.12); color: #ef5350; }
+
+.sensor-panel__badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.sensor-panel__badge--ok   .sensor-panel__badge-dot { background: #4caf7d; }
+.sensor-panel__badge--dead .sensor-panel__badge-dot { background: #ef5350; }
+
+.sensor-panel__badge-name {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.sensor-panel__badge-hz { font-weight: 600; }
+
+/* ── Grid layouts ── */
+
+.sensor-panel__grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.sensor-panel__group {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.sensor-panel__group--span2 {
+  grid-column: span 2;
+}
+
+.sensor-panel__group--spark {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sensor-panel__group-title {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #5a6880;
+  margin-bottom: 5px;
+}
+
+/* ── Value rows ── */
+
+.sensor-panel__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 1px 0;
+}
+
+.sensor-panel__label {
+  color: #6a7890;
+  font-size: 11px;
+}
+
+.sensor-panel__label.x { color: #ef5350; }
+.sensor-panel__label.y { color: #4caf7d; }
+.sensor-panel__label.z { color: #5b8def; }
+
+.sensor-panel__val {
+  color: #d8dde6;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Sparkline ── */
+
+.sensor-panel__sparkline {
+  display: block;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ── Empty states ── */
+
+.sensor-panel__empty {
+  color: #5a6880;
+  font-size: 11px;
+  padding: 8px 4px;
+}
+
+.sensor-panel__empty-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #4a5870;
+  line-height: 1.5;
+}
+
+.sensor-panel__empty-hint code {
+  color: #7a9dce;
+  background: rgba(91, 141, 239, 0.1);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+/* ── Joint table ── */
+
+.sensor-panel__joint-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.sensor-panel__joint-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 4px;
+  padding: 3px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-variant-numeric: tabular-nums;
+}
+
+.sensor-panel__joint-row--header {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5a6880;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 4px;
+}
+
+.sensor-panel__joint-name {
+  color: #8a9bb5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Robot State tab */
+.sensor-panel__kv-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono, monospace); font-size: 12px; }
+.sensor-panel__kv-key { color: var(--color-text-muted, #94a3b8); padding: 5px 8px; width: 38%; }
+.sensor-panel__kv-val { color: var(--color-text, #e2e8f0); padding: 5px 8px; font-weight: 600; }
+.sensor-panel__source { font-size: 10px; opacity: 0.5; font-weight: 400; }

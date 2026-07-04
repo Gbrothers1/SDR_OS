@@ -1,0 +1,152 @@
+/* ===== Action Availability HUD ===== */
+
+/* Per-skill accent colors — add one line here per new skill. */
+:root {
+  --hud-color-jump:   var(--color-accent-cyan);
+  --hud-color-crouch: var(--color-accent-amber);
+  --hud-color-climb:  var(--color-accent-violet);
+}
+
+.action-hud {
+  position: absolute;
+  bottom: 56px;           /* sits above the camera-hint bar */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+  z-index: calc(var(--z-overlay) + 2);
+}
+
+/* ── Lane projection strip ── */
+.action-hud__lane-row {
+  background: var(--color-glass-bg);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  backdrop-filter: blur(var(--backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--backdrop-blur));
+}
+
+.hud-lane-line {
+  stroke: var(--color-text-muted);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.hud-lane-robot {
+  fill: var(--color-accent-green);
+  opacity: 0.9;
+}
+
+.hud-lane-obs rect {
+  fill: var(--color-accent-amber);
+  opacity: 0.85;
+}
+
+.hud-lane-obs--hurdle rect {
+  fill: var(--color-accent-cyan);
+}
+
+.hud-lane-obs--crawl_bar rect {
+  fill: var(--color-accent-amber);
+}
+
+.hud-lane-kind {
+  fill: var(--color-text-muted);
+  font-size: 7px;
+  font-family: var(--font-mono);
+}
+
+.hud-lane-range-marker {
+  stroke: var(--color-accent-green);
+  stroke-width: 1;
+  opacity: 0.4;
+}
+
+/* ── Skill chips ── */
+.action-hud__chips {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.action-hud__chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-glass-bg);
+  border: 1px solid var(--color-glass-border);
+  backdrop-filter: blur(var(--backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--backdrop-blur));
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  transition: opacity var(--transition-fast),
+              border-color var(--transition-fast),
+              box-shadow var(--transition-fast);
+  /* Greyed-out by default */
+  opacity: 0.35;
+  color: var(--color-text-muted);
+}
+
+/* Available: full brightness, accent color, gentle pulse */
+.action-hud__chip--available {
+  opacity: 1;
+  color: var(--chip-color);
+  border-color: var(--chip-color);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--chip-color) 40%, transparent);
+  animation: chip-pulse 1.6s ease-in-out infinite;
+}
+
+/* Active (skill is firing / policy is in that mode) */
+.action-hud__chip--active {
+  opacity: 1;
+  color: var(--chip-color);
+  border-color: var(--chip-color);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--chip-color) 60%, transparent);
+  animation: none;  /* no pulse when actively executing */
+}
+
+.action-hud__chip-glyph {
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  width: 14px;
+  text-align: center;
+  /* Circle indicator around the button glyph */
+  background: color-mix(in srgb, var(--chip-color, var(--color-text-muted)) 15%, transparent);
+  border-radius: 50%;
+  line-height: 14px;
+  height: 14px;
+}
+
+.action-hud__chip--unavailable .action-hud__chip-glyph {
+  background: transparent;
+}
+
+.action-hud__chip-label {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+@keyframes chip-pulse {
+  0%, 100% { box-shadow: 0 0 6px  color-mix(in srgb, var(--chip-color) 30%, transparent); }
+  50%       { box-shadow: 0 0 14px color-mix(in srgb, var(--chip-color) 60%, transparent); }
+}
+
+/* Responsive: compact on small viewports */
+@media (max-width: 768px) {
+  .action-hud {
+    bottom: 48px;
+  }
+  .action-hud__chip {
+    padding: var(--space-1) var(--space-2);
+    font-size: 9px;
+  }
+  .action-hud__chip-label {
+    font-size: 9px;
+  }
+}
