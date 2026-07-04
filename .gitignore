@@ -36,3 +36,12 @@ configs/tls/
 # Heavy training data — stored on private Gitea only, not GitHub
 rl/checkpoints/go2-jump/
 rl/checkpoints/go2-jump-power/
+
+# Machine-local compose overrides
+.env
+
+# Runtime lab data and local working notes (mounted into node as /lab-data)
+artifacts/
+
+# Stale build backups
+dist.bak-*/
