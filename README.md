@@ -13,9 +13,9 @@
 
 Low-latency teleoperation, GPU-accelerated physics simulation, and reinforcement learning training &mdash; all from a single source tree targeting **CUDA**, **ROCm**, and **MLX**.
 
-<!-- Add a hero screenshot or demo GIF here:
-![SDR_OS Demo](assets/images/hero.png)
--->
+![SDR_OS Demo — Go2 locomotion policy driven live from the browser cockpit](assets/images/hero-demo.gif)
+
+*A trained Go2 locomotion policy in the Genesis sim, teleoperated live through the browser cockpit ([full clip](assets/videos/sim-teleop-demo.mp4))*
 
 [Documentation](https://gbrothers1.github.io/SDR_OS/) &middot; [Architecture](#architecture) &middot; [Quick Start](#quick-start) &middot; [Contributing](#contributing)
 
