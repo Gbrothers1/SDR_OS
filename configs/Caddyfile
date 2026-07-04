@@ -1,5 +1,11 @@
 # SDR_OS reverse proxy
 # HTTP fallback for local dev; HTTPS via Tailscale certs when available
+#
+# /ros/* proxies to rosbridge (network_mode: host on the Docker host).
+# The webserver container is on a bridge network; rosbridge is on the host network.
+# docker-compose sets extra_hosts: ["host-gateway:host-gateway"] so that the hostname
+# "host-gateway" resolves to the Docker host's bridge gateway IP. If that entry is
+# absent (legacy containers), 172.27.0.1 is the edge-network bridge gateway.
 
 (sdr_routes) {
     @healthcheck path /health
@@ -22,8 +28,11 @@
         reverse_proxy node:3000
     }
 
-    handle /ros/* {
-        reverse_proxy host.docker.internal:9090
+    handle_path /ros {
+        reverse_proxy 172.27.0.1:9090
+    }
+    handle_path /ros/* {
+        reverse_proxy 172.27.0.1:9090
     }
 
     handle /api/* {

@@ -50,6 +50,7 @@ const defaultSettings = {
     odom: '/odom', 
     imu: '/imu/data',
     joint_states: '/joint_states',
+    scan: '/scan',
     tf: '/tf',
     tf_static: '/tf_static',
     button_states: '/controller/button_states',
@@ -58,7 +59,9 @@ const defaultSettings = {
     telemetry_all: '/robot/telemetry/all'
   },
   connection: {
-    rosBridgeUrl: `ws://${window.location.hostname}:9090`,
+    // Use the /ros Caddy proxy path so WS goes through port 80/443 (not direct :9090).
+    // Format: ws(s)://hostname/ros  — Caddy strips the /ros prefix before forwarding to rosbridge.
+    rosBridgeUrl: `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ros`,
     socketUrl: window.location.origin,
     webVideoHost: window.location.hostname
   },
@@ -110,6 +113,19 @@ const mergeSettings = (base, updates) => {
   return merged;
 };
 
+// Stored settings predating the Caddy /ros proxy carry a direct ws://host:9090
+// URL. That bypasses Caddy (502 era) and is mixed-content-blocked on HTTPS, so
+// the saved value must be migrated — defaults only apply to fresh installs.
+const migrateRosBridgeUrl = (settings) => {
+  const url = settings?.connection?.rosBridgeUrl;
+  if (!url || !/:9090\/?$/.test(url)) return settings;
+  const proxied = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ros`;
+  return {
+    ...settings,
+    connection: { ...settings.connection, rosBridgeUrl: proxied }
+  };
+};
+
 const applyLegacyConnection = (settings) => {
   const legacy = {};
   const rosBridgeUrl = localStorage.getItem('rosBridgeUrl');
@@ -143,13 +159,13 @@ export const SettingsProvider = ({ children }) => {
       try {
         const parsed = JSON.parse(savedSettings);
         const merged = mergeSettings(defaultSettings, parsed);
-        return applyLegacyConnection(merged);
+        return migrateRosBridgeUrl(applyLegacyConnection(merged));
       } catch (error) {
         console.error('Failed to parse saved settings:', error);
         return defaultSettings;
       }
     }
-    return applyLegacyConnection(defaultSettings);
+    return migrateRosBridgeUrl(applyLegacyConnection(defaultSettings));
   });
 
   // Save settings to localStorage whenever they change

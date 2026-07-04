@@ -12,7 +12,8 @@ RUN apt-get update \
     python3-opengl \
     python3-pip \
     wget \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && pip3 install --no-cache-dir nats-py
 
 WORKDIR /workspace
 
